@@ -15,12 +15,12 @@ export const EXPERIENCE_PROFILES: Record<ExperienceMode, ExperienceProfile> = {
   ps1: {
     mode: 'ps1',
     treeCount: 300,
-    fogDensity: 0.05,
+    fogDensity: 0.04,
     drawDistance: 80,
-    ambientIntensity: 0.18,
+    ambientIntensity: 0.28,
     visualNoise: 0.0,
     audioLoFiAmount: 0.1,
-    fogColor: { r: 0.15, g: 0.18, b: 0.14 },
-    skyColor: { r: 0.08, g: 0.10, b: 0.08 },
+    fogColor: { r: 0.42, g: 0.52, b: 0.35 },  // hazy green-grey afternoon
+    skyColor: { r: 0.18, g: 0.28, b: 0.44 },  // blue sky
   },
 };

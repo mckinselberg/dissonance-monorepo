@@ -130,6 +130,9 @@ export class DevHUD {
       this.controls.setBreathAudioMuted(!on);
     }));
 
+    panel.appendChild(toggleRow('pursuer body', false, (on) => {
+      this.controls.setPursuerBodyVisible(on);
+    }));
     panel.appendChild(toggleRow('pursuer eyes', true, (on) => {
       this.controls.setWatcherEnabled(on);
     }));

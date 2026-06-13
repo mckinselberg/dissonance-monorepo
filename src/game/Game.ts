@@ -20,6 +20,7 @@ export interface GameControls {
   setBreathAudioMuted: (muted: boolean) => void;
   setWatcherEnabled: (enabled: boolean) => void;
   forceSpawnEyes: () => void;
+  setPursuerBodyVisible: (visible: boolean) => void;
 }
 import { EXPERIENCE_PROFILES } from '../config/experienceProfiles';
 import { RUN_PROFILES } from '../config/runProfiles';
@@ -36,6 +37,7 @@ import { AmbientAudio } from '../audio/AmbientAudio';
 import { PlayerAudio } from '../audio/PlayerAudio';
 import { AudioEngine } from '../audio/AudioEngine';
 import { WatcherEffect } from '../world/WatcherEffect';
+import { PursuerBody } from '../pursuer/PursuerBody';
 
 const START_POS = new Vector3(0, 1.7, 0);
 // ~235 units away — at jog speed ~35-40s in open air, ~3-4 min through the forest
@@ -55,6 +57,7 @@ export class Game {
   private ambientAudio: AmbientAudio;
   private playerAudio: PlayerAudio;
   private watcher: WatcherEffect;
+  private pursuerBody: PursuerBody;
 
   private expProfile: ExperienceProfile;
   private runProfile: RunProfile;
@@ -91,6 +94,7 @@ export class Game {
     this.ambientAudio = new AmbientAudio();
     this.playerAudio = new PlayerAudio();
     this.watcher = new WatcherEffect(scene, config.experienceMode);
+    this.pursuerBody = new PursuerBody(scene, config.experienceMode);
 
     this.catchFadeEl = this.createFadeOverlay();
 
@@ -143,6 +147,7 @@ export class Game {
       pursuerModel.state,
       () => this.player.adrenaline.spike(0.22),
     );
+    this.pursuerBody.update(this.pursuerPos);
 
     // Daylight
     this.daylight.update(dt, this.runProfile, this.expProfile);
@@ -280,6 +285,7 @@ export class Game {
       setBreathAudioMuted: (muted) => this.playerAudio.setBreathMuted(muted),
       setWatcherEnabled: (enabled) => this.watcher.setEnabled(enabled),
       forceSpawnEyes: () => this.watcher.forceSpawn(this.pursuerPos),
+      setPursuerBodyVisible: (visible) => this.pursuerBody.setVisible(visible),
     };
   }
 
@@ -289,6 +295,7 @@ export class Game {
     this.ambientAudio.stop();
     this.playerAudio.dispose();
     this.watcher.dispose();
+    this.pursuerBody.dispose();
     this.forest.dispose();
     this.engine.dispose();
     this.catchFadeEl?.remove();

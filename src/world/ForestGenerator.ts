@@ -54,8 +54,8 @@ export class ForestGenerator {
       mat.diffuseColor = new Color3(0.04, 0.04, 0.04);
       mat.ambientColor = new Color3(0.02, 0.02, 0.03);
     } else {
-      mat.diffuseColor = new Color3(0.12, 0.16, 0.08);
-      mat.ambientColor = new Color3(0.06, 0.09, 0.04);
+      mat.diffuseColor = new Color3(0.14, 0.22, 0.07);  // richer earthy green
+      mat.ambientColor = new Color3(0.10, 0.16, 0.05);
     }
 
     mat.specularColor = Color3.Black();
@@ -64,20 +64,53 @@ export class ForestGenerator {
   }
 
   private buildTrees(scene: Scene, profile: ExperienceProfile, destinationPos: Vector3): void {
-    const trunkMat = new StandardMaterial('trunkMat', scene);
-    const foliageMat = new StandardMaterial('foliageMat', scene);
+    // PS1: multiple materials for color variety + flat shading on every mesh.
+    // RADIO: single dark material throughout.
+    const trunkMats: StandardMaterial[] = [];
+    const foliageMats: StandardMaterial[] = [];
 
     if (profile.mode === 'radio') {
-      trunkMat.diffuseColor = new Color3(0.12, 0.12, 0.14);
-      foliageMat.diffuseColor = new Color3(0.08, 0.10, 0.10);
+      const t = new StandardMaterial('trunkMat', scene);
+      t.diffuseColor = new Color3(0.12, 0.12, 0.14);
+      t.specularColor = Color3.Black();
+      trunkMats.push(t);
+
+      const f = new StandardMaterial('foliageMat', scene);
+      f.diffuseColor = new Color3(0.08, 0.10, 0.10);
+      f.specularColor = Color3.Black();
+      f.backFaceCulling = false;
+      foliageMats.push(f);
     } else {
-      trunkMat.diffuseColor = new Color3(0.25, 0.18, 0.10);
-      foliageMat.diffuseColor = new Color3(0.08, 0.20, 0.06);
+      // PS1 trunk palette — warm browns, some darker, some lighter
+      for (const [r, g, b] of [
+        [0.30, 0.19, 0.09],
+        [0.20, 0.13, 0.06],
+        [0.36, 0.24, 0.14],
+        [0.15, 0.10, 0.05],
+      ]) {
+        const m = new StandardMaterial(`trunkMat_${trunkMats.length}`, scene);
+        m.diffuseColor = new Color3(r, g, b);
+        m.specularColor = Color3.Black();
+        trunkMats.push(m);
+      }
+
+      // PS1 foliage palette — several greens, one autumn outlier
+      for (const [r, g, b] of [
+        [0.07, 0.32, 0.05],   // bright forest green
+        [0.18, 0.35, 0.04],   // yellow-green
+        [0.04, 0.22, 0.14],   // blue-green
+        [0.09, 0.24, 0.07],   // muted mid-green
+        [0.28, 0.24, 0.04],   // autumn yellow (rare variety)
+      ]) {
+        const m = new StandardMaterial(`foliageMat_${foliageMats.length}`, scene);
+        m.diffuseColor = new Color3(r, g, b);
+        m.specularColor = Color3.Black();
+        m.backFaceCulling = false;
+        foliageMats.push(m);
+      }
     }
 
-    trunkMat.specularColor = Color3.Black();
-    foliageMat.specularColor = Color3.Black();
-    foliageMat.backFaceCulling = false;
+    const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
     let placed = 0;
     let attempts = 0;
@@ -90,7 +123,6 @@ export class ForestGenerator {
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
 
-      // Skip trees inside the trail corridor and close to the destination tower
       if (this.inTrailCorridor(x, z)) continue;
       const tdx = x - destinationPos.x;
       const tdz = z - destinationPos.z;
@@ -105,16 +137,19 @@ export class ForestGenerator {
         scene,
       );
       trunk.position.set(x, height / 2, z);
-      trunk.material = trunkMat;
+      trunk.material = pick(trunkMats);
 
       if (profile.mode === 'ps1') {
+        trunk.convertToFlatShadedMesh();
+
         const canopy = MeshBuilder.CreateCylinder(
           `canopy_${placed}`,
           { height: height * 0.7, diameterTop: 0, diameterBottom: 2 + Math.random() * 2, tessellation: 5 },
           scene,
         );
         canopy.position.set(x, height * 0.6 + height * 0.35, z);
-        canopy.material = foliageMat;
+        canopy.material = pick(foliageMats);
+        canopy.convertToFlatShadedMesh();
         this.treeMeshes.push(canopy);
       } else {
         const canopy = MeshBuilder.CreateSphere(
@@ -123,7 +158,7 @@ export class ForestGenerator {
           scene,
         );
         canopy.position.set(x, height + 1.0, z);
-        canopy.material = foliageMat;
+        canopy.material = pick(foliageMats);
         this.treeMeshes.push(canopy);
       }
 
@@ -131,8 +166,7 @@ export class ForestGenerator {
       placed++;
     }
 
-    // Line the trail corridor edges with dense trees to form visible walls
-    this.buildTrailWalls(scene, trunkMat, foliageMat, profile);
+    this.buildTrailWalls(scene, pick(trunkMats), pick(foliageMats), profile);
   }
 
   private buildTrailWalls(
@@ -328,13 +362,22 @@ export class ForestGenerator {
   }
 
   private buildRocks(scene: Scene, profile: ExperienceProfile): void {
-    const rockMat = new StandardMaterial('rockMat', scene);
-    if (profile.mode === 'radio') {
-      rockMat.diffuseColor = new Color3(0.10, 0.10, 0.12);
-    } else {
-      rockMat.diffuseColor = new Color3(0.30, 0.28, 0.25);
-    }
-    rockMat.specularColor = Color3.Black();
+    // PS1: a few rock color variants for visual variety
+    const rockColors = profile.mode === 'radio'
+      ? [new Color3(0.10, 0.10, 0.12)]
+      : [
+          new Color3(0.32, 0.28, 0.22),  // warm grey
+          new Color3(0.22, 0.24, 0.20),  // cool grey-green
+          new Color3(0.38, 0.30, 0.20),  // sandstone
+          new Color3(0.18, 0.16, 0.22),  // dark slate
+        ];
+
+    const rockMats = rockColors.map((c, i) => {
+      const m = new StandardMaterial(`rockMat_${i}`, scene);
+      m.diffuseColor = c;
+      m.specularColor = Color3.Black();
+      return m;
+    });
 
     for (let i = 0; i < 40; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -352,7 +395,8 @@ export class ForestGenerator {
         Math.random() * 0.5,
       );
       rock.scaling.set(1 + Math.random() * 0.5, 0.6 + Math.random() * 0.4, 1 + Math.random() * 0.5);
-      rock.material = rockMat;
+      rock.material = rockMats[Math.floor(Math.random() * rockMats.length)];
+      if (profile.mode === 'ps1') rock.convertToFlatShadedMesh();
     }
   }
 
