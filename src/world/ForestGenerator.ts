@@ -138,10 +138,10 @@ export class ForestGenerator {
     scene: Scene,
     trunkMat: StandardMaterial,
     foliageMat: StandardMaterial,
-    _profile: ExperienceProfile,
+    profile: ExperienceProfile,
   ): void {
     const wallTreeCount = 28;
-    const perp = new Vector3(-TRAIL_DIR.z, 0, TRAIL_DIR.x); // perpendicular to trail
+    const perp = new Vector3(-TRAIL_DIR.z, 0, TRAIL_DIR.x);
 
     for (let i = 0; i < wallTreeCount; i++) {
       const t = (i / wallTreeCount) * TRAIL_LENGTH;
@@ -156,18 +156,28 @@ export class ForestGenerator {
 
         const trunk = MeshBuilder.CreateCylinder(
           `trailTrunk_${i}_${side}`,
-          { height, diameter: 0.5, tessellation: 5 },
+          { height, diameter: 0.5, tessellation: profile.mode === 'ps1' ? 6 : 8 },
           scene,
         );
         trunk.position.set(x, height / 2, z);
         trunk.material = trunkMat;
 
-        const canopy = MeshBuilder.CreateCylinder(
-          `trailCanopy_${i}_${side}`,
-          { height: height * 0.6, diameterTop: 0, diameterBottom: 3 + Math.random(), tessellation: 5 },
-          scene,
-        );
-        canopy.position.set(x, height * 0.75, z);
+        let canopy: Mesh;
+        if (profile.mode === 'ps1') {
+          canopy = MeshBuilder.CreateCylinder(
+            `trailCanopy_${i}_${side}`,
+            { height: height * 0.6, diameterTop: 0, diameterBottom: 3 + Math.random(), tessellation: 5 },
+            scene,
+          );
+          canopy.position.set(x, height * 0.75, z);
+        } else {
+          canopy = MeshBuilder.CreateSphere(
+            `trailCanopy_${i}_${side}`,
+            { diameter: 3 + Math.random() * 1.5, segments: 4 },
+            scene,
+          );
+          canopy.position.set(x, height + 1.2, z);
+        }
         canopy.material = foliageMat;
 
         this.treeMeshes.push(trunk, canopy);

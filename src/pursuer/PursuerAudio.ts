@@ -6,9 +6,13 @@ export class PursuerAudio {
   private footstepTimer = 0;
   private rustleTimer = 0;
   private snapTimer = 0;
+  private muted = false;
+
+  setMuted(muted: boolean): void { this.muted = muted; }
 
   // dt in seconds, pursuerAngle: angle from player forward (-1..1 pan), state, weatherMask 0..1
   update(dt: number, pursuerAngle: number, state: PursuerState, weatherMask: number): void {
+    if (this.muted || state === 'caught') return;
     if (state === 'far') {
       this.updateFar(dt, pursuerAngle, weatherMask);
     } else if (state === 'near') {

@@ -47,6 +47,10 @@ export class DestinationSystem {
     this.audio.dispose();
   }
 
+  setGainMultiplier(v: number): void {
+    this.audio.setGainMultiplier(v);
+  }
+
   reset(): void {
     this.reached = false;
   }

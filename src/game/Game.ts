@@ -1,5 +1,24 @@
 import { Engine, Scene, Vector3 } from '@babylonjs/core';
-import type { GameConfig, ExperienceProfile, RunProfile } from '../types';
+import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '../types';
+
+export interface GameDebugState {
+  pursuerState: PursuerState;
+  pursuerDistance: number;
+  pursuerAggression: number;
+  playerSpeed: number;
+  breathLoad: number;
+  adrenaline: number;
+  destDistance: number;
+  lightLevel: number;
+  windIntensity: number;
+}
+
+export interface GameControls {
+  setBellMultiplier: (v: number) => void;
+  setWindOverride: (v: number | null) => void;
+  setPursuerAudioMuted: (muted: boolean) => void;
+  setBreathAudioMuted: (muted: boolean) => void;
+}
 import { EXPERIENCE_PROFILES } from '../config/experienceProfiles';
 import { RUN_PROFILES } from '../config/runProfiles';
 import { SceneFactory } from './SceneFactory';
@@ -220,6 +239,31 @@ export class Game {
       <span style="font-size:0.7rem;color:#444">press F5 to go again</span>
     </p>`;
     document.body.appendChild(el);
+  }
+
+  getDebugState(): GameDebugState {
+    const m = this.pursuer.getModel();
+    const pp = this.player.getPosition();
+    return {
+      pursuerState: m.state,
+      pursuerDistance: m.distance,
+      pursuerAggression: m.aggression,
+      playerSpeed: this.player.getSpeed(),
+      breathLoad: this.player.breath.getLoad(),
+      adrenaline: this.player.adrenaline.getLevel(),
+      destDistance: this.destination.getDistance(pp),
+      lightLevel: this.daylight.getLightLevel(),
+      windIntensity: this.weather.getMaskLevel(),
+    };
+  }
+
+  getControls(): GameControls {
+    return {
+      setBellMultiplier: (v) => this.destination.setGainMultiplier(v),
+      setWindOverride: (v) => this.weather.setWindOverride(v),
+      setPursuerAudioMuted: (muted) => this.pursuerAudio.setMuted(muted),
+      setBreathAudioMuted: (muted) => this.playerAudio.setBreathMuted(muted),
+    };
   }
 
   dispose(): void {

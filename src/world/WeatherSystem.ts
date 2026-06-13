@@ -7,12 +7,21 @@ export class WeatherSystem {
   private windIntensity = 0.0;
   private targetWindIntensity = 0.0;
   private gustTimer = 0;
+  private windOverride: number | null = null;
 
   constructor(_scene: Scene) {
     // Scene reference kept for potential future particle systems
   }
 
+  // Dev control: null = auto, 0..1 = locked value
+  setWindOverride(v: number | null): void { this.windOverride = v; }
+
   update(dt: number, ambient: AmbientAudio): void {
+    if (this.windOverride !== null) {
+      this.windIntensity = this.windOverride;
+      ambient.setWeatherIntensity(this.windIntensity);
+      return;
+    }
     // Drift wind intensity toward target
     this.windIntensity += (this.targetWindIntensity - this.windIntensity) * dt * 0.4;
     ambient.setWeatherIntensity(this.windIntensity);

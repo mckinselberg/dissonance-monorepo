@@ -101,12 +101,11 @@ export class MainMenu {
     });
 
     root.querySelector('#begin-btn')?.addEventListener('click', () => {
-      this.dismiss(() => {
-        this.onStart({
-          experienceMode: this.selectedMode,
-          departureTime: this.selectedDeparture,
-        });
-      });
+      const config = {
+        experienceMode: this.selectedMode,
+        departureTime: this.selectedDeparture,
+      };
+      this.dismiss(() => this.onStart(config));
     });
 
     return root;

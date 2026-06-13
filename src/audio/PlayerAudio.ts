@@ -4,6 +4,7 @@ export class PlayerAudio {
   private breathLayer: ReturnType<typeof AudioEngine.createBreathLayer>;
   private footstepInterval: number | null = null;
   private activeIntervalMs = 0;
+  private breathMuted = false;
 
   constructor() {
     this.breathLayer = AudioEngine.createBreathLayer();
@@ -18,8 +19,10 @@ export class PlayerAudio {
     this.clearFootstepInterval();
   }
 
+  setBreathMuted(muted: boolean): void { this.breathMuted = muted; }
+
   updateBreath(breathLoad: number): void {
-    this.breathLayer.setLoad(breathLoad);
+    this.breathLayer.setLoad(this.breathMuted ? 0 : breathLoad);
   }
 
   updateFootsteps(speed: number, breathLoad: number): void {

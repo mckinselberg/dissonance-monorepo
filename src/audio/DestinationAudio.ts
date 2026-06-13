@@ -8,6 +8,7 @@ export class DestinationAudio {
   private loop: Tone.Loop | null = null;
   private running = false;
   private currentVolume = 0.0;
+  private gainMultiplier = 1.0;
 
   constructor() {
     // FM bell: quick attack, slow metallic decay
@@ -51,14 +52,18 @@ export class DestinationAudio {
 
   // normalizedDistance: 0.0 (at tower) → 1.0 (max audible range)
   setDistance(normalizedDistance: number): void {
-    // At distance 0 → -2 dB; at distance 1 → -22 dB.
-    // Audible across the whole map so the player can always orient by ear.
     const db = -2 - normalizedDistance * 20;
-    const target = Tone.dbToGain(db);
+    const target = Tone.dbToGain(db) * this.gainMultiplier;
     if (Math.abs(target - this.currentVolume) > 0.001) {
       this.masterGain.gain.rampTo(target, 1.0);
       this.currentVolume = target;
     }
+  }
+
+  // Dev control: 0 = silent, 1 = normal, 2 = loud
+  setGainMultiplier(v: number): void {
+    this.gainMultiplier = v;
+    this.currentVolume = -1; // force next setDistance to re-apply
   }
 
   dispose(): void {
