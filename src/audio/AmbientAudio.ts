@@ -11,10 +11,10 @@ export class AmbientAudio {
   private running = false;
 
   constructor() {
-    // Insect/nature bed
+    // Insect/nature bed — present in the chain but muted until tuned
     this.insectNoise = new Tone.Noise('white');
     this.insectFilter = new Tone.Filter({ frequency: 6000, type: 'bandpass', Q: 0.5 });
-    this.insectGain = new Tone.Gain(0.04);
+    this.insectGain = new Tone.Gain(0.0);
     this.insectNoise.connect(this.insectFilter);
     this.insectFilter.connect(this.insectGain);
     this.insectGain.toDestination();
@@ -75,8 +75,8 @@ export class AmbientAudio {
   setWeatherIntensity(intensity: number): void {
     // intensity: 0 (calm) .. 1 (heavy wind)
     this.windLayer.setIntensity(intensity);
-    // Reduce insects when windy — masking
-    this.insectGain.gain.rampTo(0.04 * (1 - intensity * 0.7), 3.0);
+    // Insects muted for now; placeholder kept for future tuning
+    // this.insectGain.gain.rampTo(0.04 * (1 - intensity * 0.7), 3.0);
   }
 
   setNightLevel(level: number): void {
