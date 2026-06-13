@@ -28,14 +28,13 @@ export class PursuerAudio {
   }
 
   private updateNear(dt: number, pan: number, mask: number): void {
-    // Audible footsteps — crunch with occasional crack, panned to pursuer direction
     this.footstepTimer -= dt;
     if (this.footstepTimer <= 0) {
       this.footstepTimer = 0.85 + Math.random() * 0.55;
       if (Math.random() > mask * 0.5) {
-        const vol = -24 + Math.random() * 3;
+        const vol = -22 + Math.random() * 3;
         const crack = Math.random() < 0.28;
-        AudioEngine.playForestStep(pan, vol, crack);
+        AudioEngine.playPursuerStep(pan, vol, crack);
       }
     }
 
@@ -50,15 +49,13 @@ export class PursuerAudio {
   }
 
   private updateClose(dt: number, pan: number, mask: number): void {
-    // Rapid, loud footsteps — unmistakably something closing in
     this.footstepTimer -= dt;
     if (this.footstepTimer <= 0) {
-      this.footstepTimer = 0.4 + Math.random() * 0.22;
+      this.footstepTimer = 0.38 + Math.random() * 0.20;
       if (Math.random() > mask * 0.25) {
-        // Close steps are heavier — slightly lower crunch freq, louder
-        const vol = -8 + Math.random() * 3;
-        const crack = Math.random() < 0.35;  // more cracks — aggressive movement
-        AudioEngine.playForestStep(pan, vol, crack);
+        const vol = -6 + Math.random() * 3;
+        const crack = Math.random() < 0.38;
+        AudioEngine.playPursuerStep(pan, vol, crack);
       }
     }
 

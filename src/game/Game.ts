@@ -33,6 +33,7 @@ import { PursuerAudio } from '../pursuer/PursuerAudio';
 import { AmbientAudio } from '../audio/AmbientAudio';
 import { PlayerAudio } from '../audio/PlayerAudio';
 import { AudioEngine } from '../audio/AudioEngine';
+import { WatcherEffect } from '../world/WatcherEffect';
 
 const START_POS = new Vector3(0, 1.7, 0);
 // ~235 units away — at jog speed ~35-40s in open air, ~3-4 min through the forest
@@ -51,6 +52,7 @@ export class Game {
   private pursuerAudio: PursuerAudio;
   private ambientAudio: AmbientAudio;
   private playerAudio: PlayerAudio;
+  private watcher: WatcherEffect;
 
   private expProfile: ExperienceProfile;
   private runProfile: RunProfile;
@@ -86,6 +88,7 @@ export class Game {
     this.pursuerAudio = new PursuerAudio();
     this.ambientAudio = new AmbientAudio();
     this.playerAudio = new PlayerAudio();
+    this.watcher = new WatcherEffect(scene, config.experienceMode);
 
     this.catchFadeEl = this.createFadeOverlay();
 
@@ -129,6 +132,15 @@ export class Game {
 
     const weatherMask = this.weather.getMaskLevel();
     this.pursuerAudio.update(dt, pan, pursuerModel.state, weatherMask);
+
+    this.watcher.update(
+      dt,
+      playerPos,
+      camYaw,
+      this.pursuerPos,
+      pursuerModel.state,
+      () => this.player.adrenaline.spike(0.22),
+    );
 
     // Daylight
     this.daylight.update(dt, this.runProfile, this.expProfile);
@@ -272,6 +284,7 @@ export class Game {
     this.destination.dispose();
     this.ambientAudio.stop();
     this.playerAudio.dispose();
+    this.watcher.dispose();
     this.forest.dispose();
     this.engine.dispose();
     this.catchFadeEl?.remove();

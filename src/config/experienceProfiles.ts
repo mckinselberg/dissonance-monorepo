@@ -3,7 +3,7 @@ import type { ExperienceProfile, ExperienceMode } from '../types';
 export const EXPERIENCE_PROFILES: Record<ExperienceMode, ExperienceProfile> = {
   radio: {
     mode: 'radio',
-    treeCount: 120,
+    treeCount: 200,
     fogDensity: 0.08,
     drawDistance: 40,
     ambientIntensity: 0.08,
@@ -14,7 +14,7 @@ export const EXPERIENCE_PROFILES: Record<ExperienceMode, ExperienceProfile> = {
   },
   ps1: {
     mode: 'ps1',
-    treeCount: 200,
+    treeCount: 300,
     fogDensity: 0.05,
     drawDistance: 80,
     ambientIntensity: 0.18,

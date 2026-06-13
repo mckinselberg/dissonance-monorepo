@@ -30,6 +30,7 @@ export class ForestGenerator {
     this.buildTrees(scene, profile, destinationPos);
     this.buildDestinationTower(scene, profile, destinationPos);
     this.buildRocks(scene, profile);
+    this.buildUnderbrush(scene, profile);
     this.buildDeadEndTrail(scene, profile);
   }
 
@@ -182,6 +183,53 @@ export class ForestGenerator {
 
         this.treeMeshes.push(trunk, canopy);
       }
+    }
+  }
+
+  private buildUnderbrush(scene: Scene, profile: ExperienceProfile): void {
+    const mat = new StandardMaterial('underbrushMat', scene);
+    if (profile.mode === 'radio') {
+      mat.diffuseColor = new Color3(0.05, 0.06, 0.06);
+    } else {
+      mat.diffuseColor = new Color3(0.06, 0.14, 0.05);
+    }
+    mat.specularColor = Color3.Black();
+    mat.backFaceCulling = false;
+
+    const count = profile.mode === 'ps1' ? 180 : 140;
+    let placed = 0;
+    let attempts = 0;
+
+    while (placed < count && attempts < count * 5) {
+      attempts++;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 5 + Math.random() * 160;
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      if (this.inTrailCorridor(x, z)) continue;
+
+      const w = 0.6 + Math.random() * 1.1;
+      const h = 0.25 + Math.random() * 0.45;
+
+      let shrub: Mesh;
+      if (profile.mode === 'ps1') {
+        shrub = MeshBuilder.CreateCylinder(
+          `shrub_${placed}`,
+          { height: h, diameterTop: 0, diameterBottom: w * 2, tessellation: 4 },
+          scene,
+        );
+      } else {
+        shrub = MeshBuilder.CreateSphere(
+          `shrub_${placed}`,
+          { diameter: w, segments: 3 },
+          scene,
+        );
+      }
+      shrub.position.set(x, h * 0.5, z);
+      shrub.rotation.y = Math.random() * Math.PI * 2;
+      shrub.material = mat;
+      this.treeMeshes.push(shrub);
+      placed++;
     }
   }
 

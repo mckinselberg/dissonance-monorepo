@@ -170,6 +170,73 @@ export class AudioEngine {
     }, 400);
   }
 
+  // Pursuer footstep — heavier, lower, branch-breaking character.
+  // Lower crunch frequency than player (400-800Hz vs 900-1500Hz),
+  // more weight in the sub-bass, and crack fires at 1800-2600Hz (branch, not twig).
+  static playPursuerStep(panValue: number = 0, volumeDb: number = -20, withCrack: boolean = false): void {
+    const panner = new Tone.Panner(panValue);
+    panner.toDestination();
+
+    // Heavy crunch — lower bandpass, sounds dull and massive
+    const crunchFreq = 380 + Math.random() * 420;
+    const crunchNoise = new Tone.Noise('pink');
+    const crunchFilter = new Tone.Filter(crunchFreq, 'bandpass');
+    (crunchFilter as unknown as { Q: { value: number } }).Q.value = 3;
+    const crunchEnv = new Tone.AmplitudeEnvelope({
+      attack: 0.002, decay: 0.07 + Math.random() * 0.03, sustain: 0, release: 0.025,
+    });
+    const crunchGain = new Tone.Gain(Tone.dbToGain(volumeDb));
+    crunchNoise.connect(crunchFilter);
+    crunchFilter.connect(crunchEnv);
+    crunchEnv.connect(crunchGain);
+    crunchGain.connect(panner);
+    crunchNoise.start();
+    crunchEnv.triggerAttackRelease(0.09);
+
+    // Sub-bass thud — much more prominent than player's
+    const weightNoise = new Tone.Noise('brown');
+    const weightFilter = new Tone.Filter(160, 'lowpass');
+    const weightEnv = new Tone.AmplitudeEnvelope({
+      attack: 0.001, decay: 0.06, sustain: 0, release: 0.02,
+    });
+    const weightGain = new Tone.Gain(Tone.dbToGain(volumeDb + 1));
+    weightNoise.connect(weightFilter);
+    weightFilter.connect(weightEnv);
+    weightEnv.connect(weightGain);
+    weightGain.connect(panner);
+    weightNoise.start();
+    weightEnv.triggerAttackRelease(0.065);
+
+    // Branch crack — lower than player's twig snap, sounds like something large
+    if (withCrack) {
+      const crackNoise = new Tone.Noise('brown');
+      const crackFilter = new Tone.Filter(1800 + Math.random() * 800, 'highpass');
+      const crackEnv = new Tone.AmplitudeEnvelope({
+        attack: 0.001, decay: 0.028 + Math.random() * 0.015, sustain: 0, release: 0.012,
+      });
+      const crackGain = new Tone.Gain(Tone.dbToGain(volumeDb + 4));
+      crackNoise.connect(crackFilter);
+      crackFilter.connect(crackEnv);
+      crackEnv.connect(crackGain);
+      crackGain.connect(panner);
+      crackNoise.start();
+      crackEnv.triggerAttackRelease(0.035);
+
+      setTimeout(() => {
+        crackNoise.stop(); crackNoise.dispose();
+        crackFilter.dispose(); crackEnv.dispose(); crackGain.dispose();
+      }, 350);
+    }
+
+    setTimeout(() => {
+      crunchNoise.stop(); crunchNoise.dispose();
+      crunchFilter.dispose(); crunchEnv.dispose(); crunchGain.dispose();
+      weightNoise.stop(); weightNoise.dispose();
+      weightFilter.dispose(); weightEnv.dispose(); weightGain.dispose();
+      panner.dispose();
+    }, 500);
+  }
+
   // Destination chime — bell-like tone
   static createDestinationBeacon(): { start: () => void; stop: () => void; setDistance: (d: number) => void } {
     const synth = new Tone.MetalSynth({
