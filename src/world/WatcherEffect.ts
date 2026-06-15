@@ -8,13 +8,12 @@ import {
 } from '@babylonjs/core';
 import type { PursuerState, ExperienceMode } from '../types';
 
-// Max angle from the pursuer direction that still counts as "looking at it"
-const LOOK_ANGLE_RAD = 0.6; // ~34 degrees
+const LOOK_ANGLE_RAD = 0.6;
 
 export class WatcherEffect {
   private scene: Scene;
   private mode: ExperienceMode;
-  private cooldown = 6.0;
+  private cooldown = 4.0;
   private activePairs: Mesh[][] = [];
   private enabled = true;
 
@@ -25,13 +24,16 @@ export class WatcherEffect {
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
-    // Reset cooldown so eyes can appear quickly when re-enabled for study
     if (enabled) this.cooldown = 0.5;
   }
 
-  // Force-spawn eyes at the pursuer position immediately — for dev study
-  forceSpawn(pursuerPos: { x: number; z: number }, state: PursuerState = 'close'): void {
-    this.spawnEyes(pursuerPos, state);
+  forceSpawn(
+    pursuerPos: { x: number; z: number },
+    playerPos:  { x: number; z: number },
+    state: PursuerState = 'close',
+    groundY = 0,
+  ): void {
+    this.spawnEyes(pursuerPos, playerPos, state, groundY);
   }
 
   update(
@@ -40,6 +42,7 @@ export class WatcherEffect {
     playerYaw: number,
     pursuerPos: { x: number; z: number },
     pursuerState: PursuerState,
+    pursuerGroundY: number,
     onAdrenalineSpike: () => void,
   ): void {
     if (!this.enabled) return;
@@ -47,94 +50,144 @@ export class WatcherEffect {
     if (this.cooldown > 0) return;
     if (pursuerState === 'far' || pursuerState === 'caught') return;
 
-    // Is the player looking toward the pursuer?
     const dpx = pursuerPos.x - playerPos.x;
     const dpz = pursuerPos.z - playerPos.z;
     const angleToPursuer = Math.atan2(dpx, dpz);
     let rel = angleToPursuer - playerYaw;
-    while (rel > Math.PI)  rel -= Math.PI * 2;
+    while (rel >  Math.PI) rel -= Math.PI * 2;
     while (rel < -Math.PI) rel += Math.PI * 2;
 
     if (Math.abs(rel) > LOOK_ANGLE_RAD) return;
 
-    this.spawnEyes(pursuerPos, pursuerState);
+    this.spawnEyes(pursuerPos, { x: playerPos.x, z: playerPos.z }, pursuerState, pursuerGroundY);
     onAdrenalineSpike();
 
-    // Longer cooldown when pursuer is near (rarer glimpses = more unnerving)
     this.cooldown = pursuerState === 'close'
-      ? 7  + Math.random() * 9
-      : 14 + Math.random() * 16;
+      ? 4  + Math.random() * 5
+      : 9  + Math.random() * 10;
   }
 
-  private spawnEyes(pursuerPos: { x: number; z: number }, state: PursuerState): void {
-    // Offset eyes slightly so they peek from "behind" a tree
-    const offsetX = (Math.random() - 0.5) * 2.0;
-    const offsetZ = (Math.random() - 0.5) * 2.0;
-    const eyeY    = 1.52 + Math.random() * 0.35;
+  private spawnEyes(
+    pursuerPos: { x: number; z: number },
+    playerPos:  { x: number; z: number },
+    state: PursuerState,
+    groundY: number,
+  ): void {
+    // Pursuer faces the player — derive forward / right vectors
+    const fdx = playerPos.x - pursuerPos.x;
+    const fdz = playerPos.z - pursuerPos.z;
+    const fLen = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
+    const fx = fdx / fLen, fz = fdz / fLen;  // forward
+    const rx = -fz, rz = fx;                  // right perp
 
-    // Color: amber-orange in PS1 (warm, animal), pale ice-blue in RADIO (cold, wrong)
-    const glowColor = this.mode === 'ps1'
-      ? new Color3(1.0, 0.55 + Math.random() * 0.15, 0.05)
-      : new Color3(0.72, 0.88, 1.0);
+    const PUSH    = 0.30;   // metres in front of body centre
+    const halfSep = 0.13;
+    const eyeY    = groundY + 1.45 + Math.random() * 0.12;
 
-    const eyeSeparation = 0.16;
-    const pair: Mesh[] = [];
+    // PS1: amber/orange fire   Radio: cold ice-blue
+    const coreColor = this.mode === 'ps1'
+      ? new Color3(1.0, 0.72 + Math.random() * 0.14, 0.04)
+      : new Color3(0.55, 0.90, 1.0);
+    const haloColor = new Color3(
+      coreColor.r * 0.45,
+      coreColor.g * 0.45,
+      coreColor.b * 0.45,
+    );
+
+    const meshes: Mesh[] = [];
 
     for (let i = 0; i < 2; i++) {
-      const eye = MeshBuilder.CreateSphere(
-        `eye_${Date.now()}_${i}`,
-        { diameter: 0.09, segments: 4 },
+      const side = i === 0 ? -1 : 1;
+      const jitter = (Math.random() - 0.5) * 0.06;
+      const xPos = pursuerPos.x + fx * PUSH + rx * (halfSep * side + jitter);
+      const zPos = pursuerPos.z + fz * PUSH + rz * (halfSep * side + jitter);
+
+      // ── Core — bright tight sphere ─────────────────────────────────────
+      const core = MeshBuilder.CreateSphere(
+        `eye_c_${Date.now()}_${i}`,
+        { diameter: 0.26, segments: 4 },
         this.scene,
       );
-      const mat = new StandardMaterial(`eyeMat_${Date.now()}_${i}`, this.scene);
-      mat.emissiveColor = glowColor;
-      mat.disableLighting = true;
-      mat.backFaceCulling = false;
-      eye.material = mat;
-      eye.position.set(
-        pursuerPos.x + offsetX + (i - 0.5) * eyeSeparation * 2,
-        eyeY,
-        pursuerPos.z + offsetZ,
+      const coreMat = new StandardMaterial(`eyeMatC_${Date.now()}_${i}`, this.scene);
+      coreMat.emissiveColor = coreColor;
+      coreMat.disableLighting = true;
+      core.material = coreMat;
+      core.position.set(xPos, eyeY, zPos);
+
+      // ── Mid halo — softer, slightly larger ────────────────────────────
+      const halo = MeshBuilder.CreateSphere(
+        `eye_h_${Date.now()}_${i}`,
+        { diameter: 0.60, segments: 4 },
+        this.scene,
       );
-      pair.push(eye);
+      const haloMat = new StandardMaterial(`eyeMatH_${Date.now()}_${i}`, this.scene);
+      haloMat.emissiveColor = haloColor;
+      haloMat.disableLighting = true;
+      haloMat.alpha = 0.72;
+      haloMat.backFaceCulling = false;
+      halo.material = haloMat;
+      halo.position.copyFrom(core.position);
+
+      // ── Ambient cloud — very large, barely visible, just a smear ──────
+      const fog = MeshBuilder.CreateSphere(
+        `eye_f_${Date.now()}_${i}`,
+        { diameter: 1.30, segments: 3 },
+        this.scene,
+      );
+      const fogMat = new StandardMaterial(`eyeMatF_${Date.now()}_${i}`, this.scene);
+      fogMat.emissiveColor = new Color3(
+        coreColor.r * 0.18,
+        coreColor.g * 0.18,
+        coreColor.b * 0.18,
+      );
+      fogMat.disableLighting = true;
+      fogMat.alpha = 0.22;
+      fogMat.backFaceCulling = false;
+      fog.material = fogMat;
+      fog.position.copyFrom(core.position);
+
+      meshes.push(core, halo, fog);
     }
 
-    this.activePairs.push(pair);
+    this.activePairs.push(meshes);
 
-    // How long eyes linger before reacting — close = shorter, more startling
+    // Stay visible longer than before
     const showMs = state === 'close'
-      ? 180 + Math.random() * 180
-      : 280 + Math.random() * 320;
+      ? 300 + Math.random() * 300
+      : 450 + Math.random() * 500;
 
-    const dartOrBlink = Math.random() < 0.6 ? 'dart' : 'blink';
+    const dart = Math.random() < 0.55;
 
     setTimeout(() => {
-      if (dartOrBlink === 'dart') {
-        // Snap to a nearby position, then vanish — implies fast movement
-        const dartX = (Math.random() - 0.5) * 3.5;
-        const dartZ = (Math.random() - 0.5) * 3.5;
-        pair.forEach((eye) => {
-          eye.position.x += dartX;
-          eye.position.z += dartZ;
-        });
-        setTimeout(() => this.disposePair(pair), 80);
+      if (!this.activePairs.includes(meshes)) return;
+
+      if (dart) {
+        // Scale punch — snap awareness
+        meshes.forEach(m => m.scaling.set(1.6, 1.6, 1.6));
+        setTimeout(() => {
+          const dx = (Math.random() - 0.5) * 5.0;
+          const dz = (Math.random() - 0.5) * 5.0;
+          meshes.forEach(m => {
+            m.position.x += dx;
+            m.position.z += dz;
+            m.scaling.set(1, 1, 1);
+          });
+          setTimeout(() => this.disposePair(meshes), 90);
+        }, 45);
       } else {
-        // Blink — instant cut to nothing
-        this.disposePair(pair);
+        this.disposePair(meshes);
       }
     }, showMs);
   }
 
   private disposePair(pair: Mesh[]): void {
-    pair.forEach((eye) => {
-      eye.dispose();
-    });
+    pair.forEach(m => m.dispose());
     const idx = this.activePairs.indexOf(pair);
     if (idx >= 0) this.activePairs.splice(idx, 1);
   }
 
   dispose(): void {
-    this.activePairs.forEach((pair) => pair.forEach((m) => m.dispose()));
+    this.activePairs.forEach(pair => pair.forEach(m => m.dispose()));
     this.activePairs = [];
   }
 }

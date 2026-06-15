@@ -19,16 +19,14 @@ export const RUN_PROFILES: Record<DepartureTime, RunProfile> = {
 
 export const PURSUER_CONFIG = {
   startDistance: 180,
-  baseSpeed: 2.2,          // units/s at aggression 0
-  maxSpeed: 5.8,           // units/s at aggression 1
+  baseSpeed: 3.2,           // units/s at aggression 0 — always closing
+  maxSpeed: 8.2,            // units/s at aggression 1 — sprint-pace threat
   catchRadius: 2.5,
   nearThreshold: 35,
   closeThreshold: 12,
-  // Sprint pulls the pursuer in slowly
-  sprintAggressionGain: 0.012,
-  // Standing still loses aggression
+  sprintAggressionGain: 0.022,  // sprinting is now a real risk
   stillAggressionLoss: 0.006,
-  aggressionDecayRate: 0.003,
+  aggressionDecayRate: 0.002,   // aggression lingers longer
 };
 
 export const PLAYER_CONFIG = {

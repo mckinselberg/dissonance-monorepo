@@ -46,8 +46,8 @@ export class DevHUD {
   private refreshDebug(): void {
     const s = this.game.getDebugState();
     this.debugEl.innerHTML =
-      row('pursuer', `${s.pursuerState}  ${s.pursuerDistance.toFixed(1)}m  aggr ${s.pursuerAggression.toFixed(2)}`) +
-      row('speed', `${s.playerSpeed.toFixed(1)} m/s`) +
+      row('pursuer', `${s.pursuerState}  ${s.pursuerDistance.toFixed(1)}m  aggr ${s.pursuerAggression.toFixed(2)}  ${s.isHidden ? 'HIDDEN' : 'los'}`) +
+      row('speed', `${s.playerSpeed.toFixed(1)} m/s  ${s.isCrouching ? 'crouch' : ''}`) +
       row('breath', bar(s.breathLoad)) +
       row('adrenaline', bar(s.adrenaline)) +
       row('dest', `${s.destDistance.toFixed(1)}m`) +
@@ -130,7 +130,7 @@ export class DevHUD {
       this.controls.setBreathAudioMuted(!on);
     }));
 
-    panel.appendChild(toggleRow('pursuer body', false, (on) => {
+    panel.appendChild(toggleRow('pursuer body', true, (on) => {
       this.controls.setPursuerBodyVisible(on);
     }));
     panel.appendChild(toggleRow('pursuer eyes', true, (on) => {

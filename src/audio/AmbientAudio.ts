@@ -29,7 +29,7 @@ export class AmbientAudio {
     const noise = new Tone.Noise('pink');
     const filter = new Tone.Filter(300, 'bandpass');
     const gain = new Tone.Gain(0.0);
-    const lfo = new Tone.LFO({ frequency: 0.04, min: 0.0, max: 0.12 });
+    const lfo = new Tone.LFO({ frequency: 0.04, min: 0.0, max: 0.062 });
     noise.connect(filter);
     filter.connect(gain);
     lfo.connect(gain.gain);
@@ -49,7 +49,7 @@ export class AmbientAudio {
         windRunning = false;
       },
       setIntensity(v: number) {
-        gain.gain.rampTo(v * 0.18, 2.0);
+        gain.gain.rampTo(v * 0.10, 2.0);
         filter.frequency.rampTo(200 + v * 800, 2.5);
         lfo.frequency.rampTo(0.03 + v * 0.12, 3.0);
       },

@@ -1,3 +1,11 @@
+// Intercept Ctrl+W / Cmd+W before the browser acts on them.
+// Capture phase runs before native browser handling.
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyW' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+  }
+}, { capture: true });
+
 import { MainMenu } from './ui/MainMenu';
 import { Game } from './game/Game';
 import { DevHUD } from './ui/DevHUD';

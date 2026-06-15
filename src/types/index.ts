@@ -32,6 +32,7 @@ export interface PursuerModel {
   distance: number;
   state: PursuerState;
   aggression: number;  // 0..1
+  isHidden: boolean;   // pursuer has lost line of sight
 }
 
 export interface GameConfig {

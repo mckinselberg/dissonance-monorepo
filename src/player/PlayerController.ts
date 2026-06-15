@@ -2,20 +2,30 @@ import { Vector3, FreeCamera, Scene } from '@babylonjs/core';
 import { PLAYER_CONFIG } from '../config/runProfiles';
 import { BreathSystem } from './BreathSystem';
 import { AdrenalineSystem } from './AdrenalineSystem';
+import type { Terrain } from '../world/Terrain';
+import type { Collider } from '../world/ForestGenerator';
+
+const STAND_HEIGHT = 1.7;
+const CROUCH_HEIGHT = 0.9;
+const PLAYER_RADIUS = 0.38;
 
 export class PlayerController {
   readonly camera: FreeCamera;
   readonly breath: BreathSystem;
   readonly adrenaline: AdrenalineSystem;
 
+  isCrouching = false;
+
   private keys: Record<string, boolean> = {};
   private mouseDeltaX = 0;
   private mouseDeltaY = 0;
   private isPointerLocked = false;
   private currentSpeed = 0;
-
-  // Noise for camera shake
   private shakeTime = 0;
+  private eyeHeight = STAND_HEIGHT;
+
+  private terrain: Terrain | null = null;
+  private colliders: Collider[] = [];
 
   constructor(scene: Scene, startPosition: Vector3) {
     this.breath = new BreathSystem();
@@ -29,16 +39,22 @@ export class PlayerController {
     this.setupInput(scene);
   }
 
+  setTerrain(terrain: Terrain): void {
+    this.terrain = terrain;
+  }
+
+  setColliders(colliders: Collider[]): void {
+    this.colliders = colliders;
+  }
+
   private setupInput(scene: Scene): void {
     const canvas = scene.getEngine().getRenderingCanvas();
     if (!canvas) return;
 
     window.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
-    window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
+    window.addEventListener('keyup',   (e) => { this.keys[e.code] = false; });
 
-    canvas.addEventListener('click', () => {
-      canvas.requestPointerLock();
-    });
+    canvas.addEventListener('click', () => canvas.requestPointerLock());
 
     document.addEventListener('pointerlockchange', () => {
       this.isPointerLocked = document.pointerLockElement === canvas;
@@ -56,22 +72,25 @@ export class PlayerController {
 
     // Mouse look
     if (this.isPointerLocked) {
-      const sensitivity = 0.0018;
-      this.camera.rotation.y += this.mouseDeltaX * sensitivity;
-      this.camera.rotation.x += this.mouseDeltaY * sensitivity;
+      const sens = 0.0018;
+      this.camera.rotation.y += this.mouseDeltaX * sens;
+      this.camera.rotation.x += this.mouseDeltaY * sens;
       this.camera.rotation.x = Math.max(-1.3, Math.min(1.3, this.camera.rotation.x));
       this.mouseDeltaX = 0;
       this.mouseDeltaY = 0;
     }
 
-    // Determine target speed
-    const isSprinting = this.keys['ShiftLeft'] || this.keys['ShiftRight'];
-    const isMoving = this.keys['KeyW'] || this.keys['KeyS'] || this.keys['KeyA'] || this.keys['KeyD'];
+    // Crouch — prevents sprinting
+    this.isCrouching = !!(this.keys['ControlLeft'] || this.keys['ControlRight']);
+    const isSprinting = !this.isCrouching && !!(this.keys['ShiftLeft'] || this.keys['ShiftRight']);
+    const isMoving = !!(this.keys['KeyW'] || this.keys['KeyS'] || this.keys['KeyA'] || this.keys['KeyD']);
 
     let targetSpeed = 0;
     if (isMoving) {
       if (isSprinting) {
         targetSpeed = cfg.sprintSpeed;
+      } else if (this.isCrouching) {
+        targetSpeed = cfg.walkSpeed * 0.48;
       } else if (this.keys['KeyW'] || this.keys['KeyS']) {
         targetSpeed = cfg.jogSpeed;
       } else {
@@ -79,17 +98,15 @@ export class PlayerController {
       }
     }
 
-    // Breath penalty
     this.breath.update(dt, this.currentSpeed);
     targetSpeed *= this.breath.getSpeedMultiplier();
 
-    // Smooth speed
     this.currentSpeed += (targetSpeed - this.currentSpeed) * Math.min(1, dt * 8);
 
-    // Move relative to camera yaw
+    // Movement with collision sliding
     if (this.currentSpeed > 0.1 && isMoving) {
       const yaw = this.camera.rotation.y;
-      const fwd = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+      const fwd   = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
       const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
 
       const dir = Vector3.Zero();
@@ -100,18 +117,19 @@ export class PlayerController {
 
       if (dir.length() > 0) {
         dir.normalize().scaleInPlace(this.currentSpeed * dt);
-        this.camera.position.addInPlace(dir);
+        this.tryMove(dir.x, dir.z);
       }
     }
 
-    // Keep player on ground (simple)
-    this.camera.position.y = 1.7;
+    // Smooth eye height for crouch/stand transition
+    const targetEye = this.isCrouching ? CROUCH_HEIGHT : STAND_HEIGHT;
+    this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 10);
 
-    // Adrenaline update
-    // Pursuer state injected via updateAdrenaline
-    this.shakeTime += dt * 3.0;
+    const groundY = this.terrain?.getHeightAt(this.camera.position.x, this.camera.position.z) ?? 0;
+    this.camera.position.y = groundY + this.eyeHeight;
 
     // Camera shake from adrenaline + breath
+    this.shakeTime += dt * 3.0;
     const shakeMag = this.adrenaline.getShakeMagnitude() + this.breath.getLoad() * 0.004;
     if (shakeMag > 0.001) {
       const nx = Math.sin(this.shakeTime * 1.7) * Math.sin(this.shakeTime * 2.3);
@@ -121,17 +139,42 @@ export class PlayerController {
     }
   }
 
-  getSpeed(): number {
-    return this.currentSpeed;
+  private tryMove(dx: number, dz: number): void {
+    const nx = this.camera.position.x + dx;
+    const nz = this.camera.position.z + dz;
+    if (!this.isColliding(nx, nz)) {
+      this.camera.position.x = nx;
+      this.camera.position.z = nz;
+      return;
+    }
+    // Slide along X
+    if (!this.isColliding(nx, this.camera.position.z)) {
+      this.camera.position.x = nx;
+      return;
+    }
+    // Slide along Z
+    if (!this.isColliding(this.camera.position.x, nz)) {
+      this.camera.position.z = nz;
+      return;
+    }
+    // Fully blocked
   }
 
-  getPosition(): Vector3 {
-    return this.camera.position.clone();
+  private isColliding(x: number, z: number): boolean {
+    for (const c of this.colliders) {
+      const dx = x - c.x;
+      const dz = z - c.z;
+      const r = c.radius + PLAYER_RADIUS;
+      if (dx * dx + dz * dz < r * r) return true;
+    }
+    return false;
   }
 
-  setPosition(pos: Vector3): void {
-    this.camera.position.copyFrom(pos);
-  }
+  getSpeed(): number { return this.currentSpeed; }
+
+  getPosition(): Vector3 { return this.camera.position.clone(); }
+
+  setPosition(pos: Vector3): void { this.camera.position.copyFrom(pos); }
 
   reset(startPosition: Vector3): void {
     this.camera.position.copyFrom(startPosition);
@@ -139,6 +182,8 @@ export class PlayerController {
     this.breath.reset();
     this.adrenaline.reset();
     this.currentSpeed = 0;
+    this.isCrouching = false;
+    this.eyeHeight = STAND_HEIGHT;
     this.keys = {};
   }
 }
