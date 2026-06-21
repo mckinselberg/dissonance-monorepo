@@ -1,19 +1,15 @@
 {
-  "name": "dont-turn-around",
+  "name": "dissonance-monorepo",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.34.3",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@babylonjs/core": "^7.0.0",
-    "@babylonjs/loaders": "^7.0.0",
-    "tone": "^15.0.4"
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "preview": "turbo preview"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "vite": "^5.2.0"
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
   }
 }

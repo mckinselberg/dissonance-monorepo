@@ -1,0 +1,27 @@
+{
+  "name": "dont-turn-around",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^7.0.0",
+    "@babylonjs/loaders": "^7.0.0",
+    "tone": "^15.0.4",
+    "@dta/shared-types": "workspace:*",
+    "@dta/engine": "workspace:*",
+    "@dta/world": "workspace:*",
+    "@dta/player": "workspace:*",
+    "@dta/audio": "workspace:*",
+    "@dta/input": "workspace:*",
+    "@dta/navigation": "workspace:*",
+    "@dta/persistence": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0"
+  }
+}
