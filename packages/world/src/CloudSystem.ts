@@ -6,7 +6,7 @@ import {
   Color3,
   Mesh,
 } from '@babylonjs/core';
-import type { ExperienceProfile } from '@dta/shared-types';
+import type { ExperienceProfile } from '@dissonance/shared-types';
 
 const CLOUD_COUNT = 16;
 const WORLD_SPREAD = 380;

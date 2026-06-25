@@ -1,6 +1,12 @@
-import { AudioEngine } from '@dta/audio';
-import type { PursuerState } from '@dta/shared-types';
+import { AudioEngine } from '@dissonance/audio';
+import type { PursuerState } from '@dissonance/shared-types';
 
+// EXTRACTION CANDIDATE: the tiered timer-based event scheduling pattern here
+// (probability-gated timers per proximity tier, scaled by weatherMask) is
+// reusable, but the sound content (branch snaps, leaf rustle, footstep
+// cracks) is forest/DTA-specific. Revisit extraction when a second app
+// (e.g. Dissonance's SignalNet patrol audio) needs the same scheduling shape
+// with injected sound callbacks instead of hardcoded AudioEngine.play* calls.
 export class PursuerAudio {
   private footstepTimer = 0;
   private rustleTimer = 0;

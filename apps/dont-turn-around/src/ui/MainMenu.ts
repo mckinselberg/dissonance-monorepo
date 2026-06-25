@@ -1,4 +1,4 @@
-import type { GameConfig, ExperienceMode, DepartureTime } from '@dta/shared-types';
+import type { GameConfig, ExperienceMode, DepartureTime } from '@dissonance/shared-types';
 
 export class MainMenu {
   private container: HTMLElement;

@@ -5,7 +5,7 @@ import {
   Color3,
   Mesh,
 } from '@babylonjs/core';
-import type { ExperienceProfile } from '@dta/shared-types';
+import type { ExperienceProfile } from '@dissonance/shared-types';
 
 const CLUSTER_COUNT = 13;
 const RING_RADIUS = 210;

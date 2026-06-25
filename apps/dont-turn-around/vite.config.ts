@@ -4,14 +4,16 @@ import path from 'path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@dta/shared-types': path.resolve(__dirname, '../../packages/shared-types/src'),
-      '@dta/engine':       path.resolve(__dirname, '../../packages/engine/src'),
-      '@dta/world':        path.resolve(__dirname, '../../packages/world/src'),
-      '@dta/player':       path.resolve(__dirname, '../../packages/player/src'),
-      '@dta/audio':        path.resolve(__dirname, '../../packages/audio/src'),
-      '@dta/input':        path.resolve(__dirname, '../../packages/input/src'),
-      '@dta/navigation':   path.resolve(__dirname, '../../packages/navigation/src'),
-      '@dta/persistence':  path.resolve(__dirname, '../../packages/persistence/src'),
+      '@dissonance/shared-types': path.resolve(__dirname, '../../packages/shared-types/src'),
+      '@dissonance/engine':       path.resolve(__dirname, '../../packages/engine/src'),
+      '@dissonance/world':        path.resolve(__dirname, '../../packages/world/src'),
+      '@dissonance/player':       path.resolve(__dirname, '../../packages/player/src'),
+      '@dissonance/audio':        path.resolve(__dirname, '../../packages/audio/src'),
+      '@dissonance/input':        path.resolve(__dirname, '../../packages/input/src'),
+      '@dissonance/navigation':   path.resolve(__dirname, '../../packages/navigation/src'),
+      '@dissonance/persistence':  path.resolve(__dirname, '../../packages/persistence/src'),
+      '@dissonance/pursuit':      path.resolve(__dirname, '../../packages/pursuit/src'),
+      '@dissonance/glow':         path.resolve(__dirname, '../../packages/glow/src'),
     },
     // pnpm creates separate symlinks per workspace package; force single instance
     dedupe: ['@babylonjs/core', '@babylonjs/loaders', 'tone'],

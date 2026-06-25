@@ -7,7 +7,7 @@ import {
   VertexData,
   Mesh,
 } from '@babylonjs/core';
-import type { ExperienceProfile } from '@dta/shared-types';
+import type { ExperienceProfile } from '@dissonance/shared-types';
 
 const WORLD_SIZE = 400;
 const GRID_RES = 64;

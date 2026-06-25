@@ -23,28 +23,34 @@ importers:
       '@babylonjs/loaders':
         specifier: ^7.0.0
         version: 7.54.3(@babylonjs/core@7.54.3)(babylonjs-gltf2interface@7.54.3)
-      '@dta/audio':
+      '@dissonance/audio':
         specifier: workspace:*
         version: link:../../packages/audio
-      '@dta/engine':
+      '@dissonance/engine':
         specifier: workspace:*
         version: link:../../packages/engine
-      '@dta/input':
+      '@dissonance/glow':
+        specifier: workspace:*
+        version: link:../../packages/glow
+      '@dissonance/input':
         specifier: workspace:*
         version: link:../../packages/input
-      '@dta/navigation':
+      '@dissonance/navigation':
         specifier: workspace:*
         version: link:../../packages/navigation
-      '@dta/persistence':
+      '@dissonance/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
-      '@dta/player':
+      '@dissonance/player':
         specifier: workspace:*
         version: link:../../packages/player
-      '@dta/shared-types':
+      '@dissonance/pursuit':
+        specifier: workspace:*
+        version: link:../../packages/pursuit
+      '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
-      '@dta/world':
+      '@dissonance/world':
         specifier: workspace:*
         version: link:../../packages/world
       tone:
@@ -60,7 +66,7 @@ importers:
 
   packages/audio:
     dependencies:
-      '@dta/shared-types':
+      '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../shared-types
       tone:
@@ -72,28 +78,34 @@ importers:
       '@babylonjs/core':
         specifier: ^7.0.0
         version: 7.54.3
-      '@dta/shared-types':
+      '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../shared-types
 
+  packages/glow:
+    dependencies:
+      '@babylonjs/core':
+        specifier: ^7.0.0
+        version: 7.54.3
+
   packages/input:
     dependencies:
-      '@dta/shared-types':
+      '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../shared-types
 
   packages/navigation:
     dependencies:
-      '@dta/shared-types':
+      '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../shared-types
 
   packages/persistence:
     dependencies:
-      '@dta/navigation':
+      '@dissonance/navigation':
         specifier: workspace:*
         version: link:../navigation
-      '@dta/shared-types':
+      '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../shared-types
 
@@ -102,12 +114,18 @@ importers:
       '@babylonjs/core':
         specifier: ^7.0.0
         version: 7.54.3
-      '@dta/shared-types':
+      '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../shared-types
-      '@dta/world':
+      '@dissonance/world':
         specifier: workspace:*
         version: link:../world
+
+  packages/pursuit:
+    dependencies:
+      '@dissonance/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
 
   packages/shared-types: {}
 
@@ -116,7 +134,7 @@ importers:
       '@babylonjs/core':
         specifier: ^7.0.0
         version: 7.54.3
-      '@dta/shared-types':
+      '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../shared-types
 

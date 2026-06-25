@@ -4,7 +4,7 @@ import {
   Color3,
   Color4,
 } from '@babylonjs/core';
-import type { ExperienceProfile, RunProfile } from '@dta/shared-types';
+import type { ExperienceProfile, RunProfile } from '@dissonance/shared-types';
 
 export class SceneFactory {
   static create(

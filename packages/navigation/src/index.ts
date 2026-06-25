@@ -4,11 +4,11 @@ export type {
   CompassReading,
   NearbyLandmark,
   TrailRoute,
-} from '@dta/shared-types';
+} from '@dissonance/shared-types';
 
 export function bearingBetween(
-  from: import('@dta/shared-types').WorldPosition,
-  to: import('@dta/shared-types').WorldPosition,
+  from: import('@dissonance/shared-types').WorldPosition,
+  to: import('@dissonance/shared-types').WorldPosition,
 ): number {
   const dx = to.x - from.x;
   const dz = to.z - from.z;
@@ -17,8 +17,8 @@ export function bearingBetween(
 }
 
 export function distanceBetween(
-  a: import('@dta/shared-types').WorldPosition,
-  b: import('@dta/shared-types').WorldPosition,
+  a: import('@dissonance/shared-types').WorldPosition,
+  b: import('@dissonance/shared-types').WorldPosition,
 ): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -28,10 +28,10 @@ export function distanceBetween(
 
 export function createMapPlacard(
   id: string,
-  position: import('@dta/shared-types').WorldPosition,
+  position: import('@dissonance/shared-types').WorldPosition,
   routeIdsShown: string[],
   landmarkHints: string[],
-): import('@dta/shared-types').MapPlacard {
+): import('@dissonance/shared-types').MapPlacard {
   return {
     id,
     position,

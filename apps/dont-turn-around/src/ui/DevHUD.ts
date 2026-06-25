@@ -1,5 +1,5 @@
 import type { Game, GameControls } from '../game/Game';
-import type { ExperienceMode } from '@dta/shared-types';
+import type { ExperienceMode } from '@dissonance/shared-types';
 
 const STORAGE_KEY = 'dta_config';
 

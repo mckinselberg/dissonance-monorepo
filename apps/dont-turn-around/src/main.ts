@@ -7,7 +7,7 @@ window.addEventListener('keydown', (e) => {
 import { MainMenu } from './ui/MainMenu';
 import { Game } from './game/Game';
 import { DevHUD } from './ui/DevHUD';
-import type { GameConfig } from '@dta/shared-types';
+import type { GameConfig } from '@dissonance/shared-types';
 
 const STORAGE_KEY = 'dta_config';
 

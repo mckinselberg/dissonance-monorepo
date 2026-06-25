@@ -1,4 +1,4 @@
-import type { ExperienceProfile, ExperienceMode } from '@dta/shared-types';
+import type { ExperienceProfile, ExperienceMode } from '@dissonance/shared-types';
 
 export const EXPERIENCE_PROFILES: Record<ExperienceMode, ExperienceProfile> = {
   radio: {

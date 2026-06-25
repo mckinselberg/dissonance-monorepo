@@ -1,5 +1,5 @@
 import { PLAYER_CONFIG } from './defaults';
-import type { PursuerState } from '@dta/shared-types';
+import type { PursuerState } from '@dissonance/shared-types';
 
 export class AdrenalineSystem {
   private adrenaline = 0.0;

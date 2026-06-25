@@ -6,14 +6,14 @@ import {
   Mesh,
   GlowLayer,
 } from '@babylonjs/core';
-import type { ExperienceMode } from '@dta/shared-types';
+import type { ExperienceMode } from '@dissonance/shared-types';
+import { HeartbeatGlow } from '@dissonance/glow';
 
 export class PursuerBody {
   private capsule: Mesh;
-  private glow: GlowLayer;
+  private glowLayer: GlowLayer;
+  private heartbeat: HeartbeatGlow;
   private readonly height = 1.8;
-  private stress = 0;
-  private glowPhase = 0;
 
   private readonly glowR: number;
   private readonly glowG: number;
@@ -43,13 +43,13 @@ export class PursuerBody {
     this.capsule.isVisible = true;
     if (ps1) this.capsule.convertToFlatShadedMesh();
 
-    this.glow = new GlowLayer('pursuerGlow', scene);
-    this.glow.addIncludedOnlyMesh(this.capsule);
-    this.glow.intensity = 0.4;
+    this.glowLayer = new GlowLayer('pursuerGlow', scene);
+    this.glowLayer.intensity = 0.4;
+    this.heartbeat = new HeartbeatGlow(this.capsule, this.glowLayer);
   }
 
   setStress(stress: number): void {
-    this.stress = stress;
+    this.heartbeat.setStress(stress);
   }
 
   setVisible(visible: boolean): void {
@@ -58,22 +58,11 @@ export class PursuerBody {
 
   update(dt: number, pos: { x: number; z: number }, groundY: number): void {
     this.capsule.position.set(pos.x, groundY + this.height / 2, pos.z);
-
-    const bpm = 65 + this.stress * 90;
-    const cycleLen = 60 / bpm;
-    this.glowPhase = (this.glowPhase + dt / cycleLen) % 1.0;
-
-    const lub = Math.pow(Math.max(0, 1 - this.glowPhase * 5.5), 2.5);
-    const dub = Math.pow(Math.max(0, 1 - Math.abs(this.glowPhase - 0.14) * 13), 2.5) * 0.55;
-    const pulse = Math.max(lub, dub);
-
-    const base    = 0.30 + this.stress * 0.50;
-    const peakAdd = pulse * (0.85 + this.stress * 1.8);
-    this.glow.intensity = base + peakAdd;
+    this.heartbeat.update(dt);
   }
 
   dispose(): void {
-    this.glow.dispose();
+    this.glowLayer.dispose();
     this.capsule.dispose();
   }
 }

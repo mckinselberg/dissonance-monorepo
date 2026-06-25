@@ -1,15 +1,15 @@
 import { Engine, Scene, Vector3 } from '@babylonjs/core';
-import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dta/shared-types';
-import { SceneFactory, GameLoop } from '@dta/engine';
-import { ForestGenerator, DaylightSystem, WeatherSystem, WatcherEffect, Terrain, CloudSystem, MountainRing } from '@dta/world';
-import type { Collider } from '@dta/world';
-import { PlayerController } from '@dta/player';
-import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio } from '@dta/audio';
+import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dissonance/shared-types';
+import { SceneFactory, GameLoop } from '@dissonance/engine';
+import { ForestGenerator, DaylightSystem, WeatherSystem, WatcherEffect, Terrain, CloudSystem, MountainRing } from '@dissonance/world';
+import type { Collider } from '@dissonance/world';
+import { PlayerController } from '@dissonance/player';
+import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio } from '@dissonance/audio';
+import { PursuerSystem } from '@dissonance/pursuit';
 
 import { EXPERIENCE_PROFILES } from '../config/experienceProfiles';
-import { RUN_PROFILES } from '../config/runProfiles';
+import { RUN_PROFILES, PURSUER_CONFIG } from '../config/runProfiles';
 import { DestinationSystem } from '../world/DestinationSystem';
-import { PursuerSystem } from '../pursuer/PursuerSystem';
 import { PursuerAudio } from '../pursuer/PursuerAudio';
 import { PursuerBody } from '../pursuer/PursuerBody';
 import { ProximityOverlay } from '../ui/ProximityOverlay';
@@ -101,7 +101,7 @@ export class Game {
     this.weather.setMode('clear');
 
     this.destination = new DestinationSystem(DEST_POS);
-    this.pursuer = new PursuerSystem();
+    this.pursuer = new PursuerSystem(PURSUER_CONFIG);
     this.pursuerAudio = new PursuerAudio();
     this.ambientAudio = new AmbientAudio();
     this.playerAudio = new PlayerAudio();

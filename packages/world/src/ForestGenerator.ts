@@ -6,7 +6,7 @@ import {
   Vector3,
   Mesh,
 } from '@babylonjs/core';
-import type { ExperienceProfile } from '@dta/shared-types';
+import type { ExperienceProfile } from '@dissonance/shared-types';
 import type { Terrain } from './Terrain';
 
 const TRAIL_DIR = new Vector3(-0.65, 0, -0.76).normalize();

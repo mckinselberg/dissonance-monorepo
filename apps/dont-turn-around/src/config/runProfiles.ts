@@ -1,4 +1,4 @@
-import type { RunProfile, DepartureTime } from '@dta/shared-types';
+import type { RunProfile, DepartureTime } from '@dissonance/shared-types';
 
 export const RUN_PROFILES: Record<DepartureTime, RunProfile> = {
   afternoon: {

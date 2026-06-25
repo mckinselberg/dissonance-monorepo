@@ -1,17 +1,17 @@
-export type { PlayerSaveState } from '@dta/shared-types';
+export type { PlayerSaveState } from '@dissonance/shared-types';
 
 const STORAGE_KEY = 'dta_player_state';
 
 export class PlayerPersistence {
-  save(state: import('@dta/shared-types').PlayerSaveState): void {
+  save(state: import('@dissonance/shared-types').PlayerSaveState): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
-  load(): import('@dta/shared-types').PlayerSaveState | null {
+  load(): import('@dissonance/shared-types').PlayerSaveState | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     try {
-      return JSON.parse(raw) as import('@dta/shared-types').PlayerSaveState;
+      return JSON.parse(raw) as import('@dissonance/shared-types').PlayerSaveState;
     } catch {
       return null;
     }
@@ -29,7 +29,7 @@ export class PlayerPersistence {
     this.save(state);
   }
 
-  updatePosition(position: import('@dta/shared-types').WorldPosition): void {
+  updatePosition(position: import('@dissonance/shared-types').WorldPosition): void {
     const state = this.load();
     if (!state) return;
     state.position = position;
@@ -50,7 +50,7 @@ export class PlayerPersistence {
     this.markPlacardDiscovered(placardId);
   }
 
-  createInitialState(position: import('@dta/shared-types').WorldPosition): import('@dta/shared-types').PlayerSaveState {
+  createInitialState(position: import('@dissonance/shared-types').WorldPosition): import('@dissonance/shared-types').PlayerSaveState {
     return {
       position,
       distanceTraveledMeters: 0,

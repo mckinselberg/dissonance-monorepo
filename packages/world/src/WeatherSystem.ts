@@ -1,5 +1,5 @@
 import { Scene } from '@babylonjs/core';
-import type { WeatherMode } from '@dta/shared-types';
+import type { WeatherMode } from '@dissonance/shared-types';
 
 export class WeatherSystem {
   private mode: WeatherMode = 'clear';

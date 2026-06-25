@@ -2,14 +2,16 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "@dta/shared-types": ["../../packages/shared-types/src/index.ts"],
-      "@dta/engine": ["../../packages/engine/src/index.ts"],
-      "@dta/world": ["../../packages/world/src/index.ts"],
-      "@dta/player": ["../../packages/player/src/index.ts"],
-      "@dta/audio": ["../../packages/audio/src/index.ts"],
-      "@dta/input": ["../../packages/input/src/index.ts"],
-      "@dta/navigation": ["../../packages/navigation/src/index.ts"],
-      "@dta/persistence": ["../../packages/persistence/src/index.ts"]
+      "@dissonance/shared-types": ["../../packages/shared-types/src/index.ts"],
+      "@dissonance/engine": ["../../packages/engine/src/index.ts"],
+      "@dissonance/world": ["../../packages/world/src/index.ts"],
+      "@dissonance/player": ["../../packages/player/src/index.ts"],
+      "@dissonance/audio": ["../../packages/audio/src/index.ts"],
+      "@dissonance/input": ["../../packages/input/src/index.ts"],
+      "@dissonance/navigation": ["../../packages/navigation/src/index.ts"],
+      "@dissonance/persistence": ["../../packages/persistence/src/index.ts"],
+      "@dissonance/pursuit": ["../../packages/pursuit/src/index.ts"],
+      "@dissonance/glow": ["../../packages/glow/src/index.ts"]
     }
   },
   "include": ["src"]

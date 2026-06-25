@@ -38,25 +38,29 @@ Deploys via `render.yaml` (Render.com static site blueprint) build with `pnpm tu
 ```
 apps/dont-turn-around/   # the game app — composes packages, owns game-specific logic
 packages/
-  shared-types/          # @dta/shared-types — cross-cutting types (no deps), import-only, no logic
-  engine/                # @dta/engine — BabylonJS bootstrap: SceneFactory, GameLoop. No game logic.
-  world/                 # @dta/world — Terrain, ForestGenerator, CloudSystem, MountainRing,
+  shared-types/          # @dissonance/shared-types — cross-cutting types (no deps), import-only, no logic
+  engine/                # @dissonance/engine — BabylonJS bootstrap: SceneFactory, GameLoop. No game logic.
+  world/                 # @dissonance/world — Terrain, ForestGenerator, CloudSystem, MountainRing,
                           #   DaylightSystem, WeatherSystem, WatcherEffect
-  player/                # @dta/player — PlayerController, AdrenalineSystem, BreathSystem
-  audio/                 # @dta/audio — AudioEngine (Tone.js), AmbientAudio, PlayerAudio, HeartbeatAudio
-  input/                 # @dta/input — input abstraction (currently a stub; see MovementInputState
+  player/                # @dissonance/player — PlayerController, AdrenalineSystem, BreathSystem
+  audio/                 # @dissonance/audio — AudioEngine (Tone.js), AmbientAudio, PlayerAudio, HeartbeatAudio
+  pursuit/               # @dissonance/pursuit — generic proximity/aggression state machine (PursuerSystem),
+                          #   config-injected via PursuerConfig — no implicit import of app config
+  glow/                  # @dissonance/glow — generic BPM-synced glow-pulse driver (HeartbeatGlow),
+                          #   takes a Mesh + an existing GlowLayer, no knowledge of "pursuer"
+  input/                 # @dissonance/input — input abstraction (currently a stub; see MovementInputState
                           #   in shared-types for the target shape)
-  navigation/            # @dta/navigation — diegetic nav types (compass/map placards), currently a stub
-  persistence/           # @dta/persistence — save/load layer, currently a stub
+  navigation/            # @dissonance/navigation — diegetic nav types (compass/map placards), currently a stub
+  persistence/           # @dissonance/persistence — save/load layer, currently a stub
 ```
 
-Dependency rule established during extraction: **packages never import from `apps/*`** (one-directional: apps depend on packages, never the reverse). Within `packages/`, dependencies flow `shared-types` ← `engine`/`world`/`audio`/`input`/`navigation` ← `player` (depends on `world`) ← `persistence` (depends on `navigation`).
+Dependency rule established during extraction: **packages never import from `apps/*`** (one-directional: apps depend on packages, never the reverse). Within `packages/`, dependencies flow `shared-types` ← `engine`/`world`/`audio`/`input`/`navigation`/`pursuit`/`glow` ← `player` (depends on `world`) ← `persistence` (depends on `navigation`).
 
 Each package's `package.json` points `main`/`types` straight at `src/index.ts` (no build step inside packages — consumers compile the TS directly via Vite/tsc), so adding an export means adding it to that package's `index.ts` barrel.
 
 ### What's still app-local (not yet extracted)
 
-`apps/dont-turn-around/src/pursuer/` (`PursuerSystem`, `PursuerBody`, `PursuerAudio`) is the core horror-specific AI and is **intentionally not fully extracted** — see `pursuer-extraction-prompt.md` for the planned split: a generic proximity/aggression state machine, a generic `HeartbeatGlow`/pulse-emitter for the glow effect, while mesh/material/mode logic and the actual sound content stay app-side. `PursuerAudio.ts` has a `// EXTRACTION CANDIDATE` marker for this. Don't extract further than what that doc specifies without checking — the rule of thumb in this codebase is "a working system is more valuable than a perfect abstraction; do not over-extract."
+`apps/dont-turn-around/src/pursuer/` (`PursuerBody`, `PursuerAudio`) holds what's left of the horror-specific pursuer AI after extraction — see `pursuer-extraction-prompt.md` and `# PURSUER SYSTEM EXTRACTION — CONTINUATI.md` for the methodology. `PursuerSystem` (the proximity/aggression state machine) moved to `@dissonance/pursuit`, and the BPM-synced glow-pulse math moved to `@dissonance/glow`'s `HeartbeatGlow`; `PursuerBody` is now a thin wrapper owning only mesh/material/`ExperienceMode` color-table logic. `PursuerAudio.ts` carries a `// EXTRACTION CANDIDATE` marker — its sound content is forest/DTA-specific, but the tiered timer-scheduling pattern underneath is reusable once a second app needs the same shape. Don't extract further than those docs specify without checking — the rule of thumb in this codebase is "a working system is more valuable than a perfect abstraction; do not over-extract."
 
 Also app-local: `config/experienceProfiles.ts` and `config/runProfiles.ts` (PS1 vs radio visual/audio profiles, afternoon vs dusk run profiles), `world/DestinationSystem.ts`, and all of `ui/` (DevHUD, MainMenu, ProximityOverlay).
 

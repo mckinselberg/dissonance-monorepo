@@ -6,7 +6,7 @@ import {
   Vector3,
   Mesh,
 } from '@babylonjs/core';
-import type { PursuerState, ExperienceMode } from '@dta/shared-types';
+import type { PursuerState, ExperienceMode } from '@dissonance/shared-types';
 
 const LOOK_ANGLE_RAD = 0.6;
 

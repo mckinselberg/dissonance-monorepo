@@ -5,7 +5,7 @@ import {
   Color3,
   Vector3,
 } from '@babylonjs/core';
-import type { RunProfile, ExperienceProfile } from '@dta/shared-types';
+import type { RunProfile, ExperienceProfile } from '@dissonance/shared-types';
 
 export class DaylightSystem {
   private sun: DirectionalLight;

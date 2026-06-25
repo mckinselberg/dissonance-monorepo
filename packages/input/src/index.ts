@@ -1,4 +1,4 @@
-export type { MovementInputSource, MovementInputState } from '@dta/shared-types';
+export type { MovementInputSource, MovementInputState } from '@dissonance/shared-types';
 
 export class KeyboardInputSource {
   private keys: Record<string, boolean> = {};
@@ -8,7 +8,7 @@ export class KeyboardInputSource {
     window.addEventListener('keyup',   (e) => { this.keys[e.code] = false; });
   }
 
-  getState(): import('@dta/shared-types').MovementInputState {
+  getState(): import('@dissonance/shared-types').MovementInputState {
     const w = !!this.keys['KeyW'];
     const s = !!this.keys['KeyS'];
     const a = !!this.keys['KeyA'];

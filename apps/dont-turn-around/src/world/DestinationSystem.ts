@@ -1,5 +1,5 @@
 import { Vector3 } from '@babylonjs/core';
-import { DestinationAudio } from '@dta/audio';
+import { DestinationAudio } from '@dissonance/audio';
 
 export class DestinationSystem {
   readonly position: Vector3;

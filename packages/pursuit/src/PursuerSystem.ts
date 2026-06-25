@@ -1,10 +1,24 @@
-import type { PursuerModel, PursuerState } from '@dta/shared-types';
-import { PURSUER_CONFIG } from '../config/runProfiles';
+import type { PursuerModel, PursuerState } from '@dissonance/shared-types';
+
+export interface PursuerConfig {
+  startDistance: number;
+  baseSpeed: number;
+  maxSpeed: number;
+  catchRadius: number;
+  nearThreshold: number;
+  closeThreshold: number;
+  sprintAggressionGain: number;
+  stillAggressionLoss: number;
+  aggressionDecayRate: number;
+}
 
 export class PursuerSystem {
   private model: PursuerModel;
 
-  constructor(startDistance: number = PURSUER_CONFIG.startDistance) {
+  constructor(
+    private readonly config: PursuerConfig,
+    startDistance: number = config.startDistance,
+  ) {
     this.model = { distance: startDistance, state: 'far', aggression: 0, isHidden: false };
   }
 
@@ -16,7 +30,7 @@ export class PursuerSystem {
     hasLoS: boolean,
     isCrouching: boolean,
   ): void {
-    const cfg = PURSUER_CONFIG;
+    const cfg = this.config;
 
     if (playerSpeed > 8.5) {
       this.model.aggression = Math.min(1, this.model.aggression + cfg.sprintAggressionGain * dt);
@@ -51,15 +65,15 @@ export class PursuerSystem {
   }
 
   private classifyState(dist: number, detectionScale: number): PursuerState {
-    if (dist <= PURSUER_CONFIG.catchRadius) return 'caught';
-    if (dist <= PURSUER_CONFIG.closeThreshold * detectionScale) return 'close';
-    if (dist <= PURSUER_CONFIG.nearThreshold  * detectionScale) return 'near';
+    if (dist <= this.config.catchRadius) return 'caught';
+    if (dist <= this.config.closeThreshold * detectionScale) return 'close';
+    if (dist <= this.config.nearThreshold  * detectionScale) return 'near';
     return 'far';
   }
 
   getModel(): Readonly<PursuerModel> { return this.model; }
 
-  reset(startDistance: number = PURSUER_CONFIG.startDistance): void {
+  reset(startDistance: number = this.config.startDistance): void {
     this.model = { distance: startDistance, state: 'far', aggression: 0, isHidden: false };
   }
 }

@@ -1,11 +1,10 @@
 {
-  "name": "@dissonance/world",
+  "name": "@dissonance/pursuit",
   "version": "0.1.0",
   "private": true,
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
-    "@babylonjs/core": "^7.0.0",
     "@dissonance/shared-types": "workspace:*"
   }
 }

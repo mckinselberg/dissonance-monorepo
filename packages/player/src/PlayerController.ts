@@ -2,8 +2,8 @@ import { Vector3, FreeCamera, Scene } from '@babylonjs/core';
 import { PLAYER_CONFIG } from './defaults';
 import { BreathSystem } from './BreathSystem';
 import { AdrenalineSystem } from './AdrenalineSystem';
-import type { Terrain } from '@dta/world';
-import type { Collider } from '@dta/world';
+import type { Terrain } from '@dissonance/world';
+import type { Collider } from '@dissonance/world';
 
 const STAND_HEIGHT = 1.7;
 const CROUCH_HEIGHT = 0.9;
