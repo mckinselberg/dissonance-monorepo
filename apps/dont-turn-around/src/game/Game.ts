@@ -2,7 +2,7 @@ import { Engine, Scene, Vector3 } from '@babylonjs/core';
 import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dissonance/shared-types';
 import { SceneFactory, GameLoop } from '@dissonance/engine';
 import { ForestGenerator, DaylightSystem, WeatherSystem, WatcherEffect, Terrain, CloudSystem, MountainRing } from '@dissonance/world';
-import type { Collider } from '@dissonance/world';
+import type { Collider, FoliageTechnique } from '@dissonance/world';
 import { PlayerController } from '@dissonance/player';
 import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio } from '@dissonance/audio';
 import { PursuerSystem } from '@dissonance/pursuit';
@@ -40,6 +40,13 @@ export interface GameControls {
 
 // ~235 units away — at jog speed ~35-40s in open air, ~3-4 min through the forest
 const DEST_POS = new Vector3(190, 0, 140);
+
+const FOLIAGE_TECH_STORAGE_KEY = 'dta_foliage_tech';
+
+function readFoliageTechnique(): FoliageTechnique {
+  const raw = localStorage.getItem(FOLIAGE_TECH_STORAGE_KEY);
+  return raw === 'noise' ? 'noise' : 'cluster';
+}
 
 export class Game {
   private engine: Engine;
@@ -85,15 +92,18 @@ export class Game {
     this.clouds = new CloudSystem(scene, this.expProfile);
     this.mountains = new MountainRing(scene, this.expProfile);
 
-    this.spawnPos = Game.pickRandomSpawn(this.terrain);
+    // Forest must exist before we pick a spawn point — otherwise spawn
+    // can land inside an obstacle collider with no way to confirm it's
+    // clear, which is exactly what trapped the player permanently.
+    this.forest = new ForestGenerator();
+    this.forest.generate(scene, this.expProfile, DEST_POS, this.terrain, readFoliageTechnique());
+    this.colliders = this.forest.getColliders();
+
+    this.spawnPos = Game.pickRandomSpawn(this.terrain, this.colliders);
     this.pursuerPos = Game.pickPursuerStart(this.spawnPos);
 
     this.player = new PlayerController(scene, this.spawnPos.clone());
     this.player.setTerrain(this.terrain);
-
-    this.forest = new ForestGenerator();
-    this.forest.generate(scene, this.expProfile, DEST_POS, this.terrain);
-    this.colliders = this.forest.getColliders();
     this.player.setColliders(this.colliders);
 
     this.daylight = new DaylightSystem(scene, this.runProfile, this.expProfile);
@@ -253,19 +263,38 @@ export class Game {
     this.fadeIn(1200);
   }
 
-  private static pickRandomSpawn(terrain: Terrain): Vector3 {
+  private static pickRandomSpawn(terrain: Terrain, colliders: Collider[]): Vector3 {
     const DEST_X = 190, DEST_Z = 140;
     const MIN_DIST_SQ = 110 * 110;
+    const SAFETY_MARGIN = 1.5;
 
-    for (let i = 0; i < 80; i++) {
+    const isClear = (x: number, z: number): boolean => {
+      for (const c of colliders) {
+        const dx = x - c.x, dz = z - c.z;
+        const r = c.radius + SAFETY_MARGIN;
+        if (dx * dx + dz * dz < r * r) return false;
+      }
+      return true;
+    };
+
+    for (let i = 0; i < 120; i++) {
       const angle = Math.random() * Math.PI * 2;
       const r = 45 + Math.random() * 95;
       const x = Math.cos(angle) * r;
       const z = Math.sin(angle) * r;
       const dx = x - DEST_X, dz = z - DEST_Z;
       if (dx * dx + dz * dz < MIN_DIST_SQ) continue;
+      if (!isClear(x, z)) continue;
       const y = terrain.getHeightAt(x, z) + 1.7;
       return new Vector3(x, y, z);
+    }
+    // Fallback also needs to be collider-free, since this spot is used
+    // unconditionally if every random attempt above failed.
+    for (let i = 0; i < 60; i++) {
+      const x = -40 - Math.random() * 60;
+      const z = -40 - Math.random() * 60;
+      if (!isClear(x, z)) continue;
+      return new Vector3(x, terrain.getHeightAt(x, z) + 1.7, z);
     }
     return new Vector3(-70, terrain.getHeightAt(-70, -80) + 1.7, -80);
   }

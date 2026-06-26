@@ -10,10 +10,25 @@ import {
 import type { ExperienceProfile } from '@dissonance/shared-types';
 
 const WORLD_SIZE = 400;
-const GRID_RES = 64;
-const MAX_HEIGHT = 8;
+const GRID_RES = 128;
+const MAX_HEIGHT = 6;
 const NOISE_SCALE = 0.019;
 const SEED = 7331;
+
+// Large, slow-wavelength layer that produces actual hills and valleys.
+// Wavelength must be short enough relative to fog draw distance (~80
+// units in ps1 mode) that you can actually see a hill-and-valley shape
+// from one spot — the original 150-unit wavelength meant you only ever
+// saw a sliver of one slope, which read as "flat."
+const MACRO_SCALE = 0.018;
+const MACRO_HEIGHT = 32;
+
+function macro(x: number, y: number): number {
+  return (
+    vnoise(x,     y,     SEED + 700) * 0.6 +
+    vnoise(x * 2, y * 2, SEED + 800) * 0.4
+  );
+}
 
 function fade(t: number): number {
   return t * t * (3 - 2 * t);
@@ -37,12 +52,17 @@ function vnoise(x: number, y: number, seed: number): number {
   return v00 + (v10 - v00) * ux + (v01 - v00) * uy + (v00 - v10 - v01 + v11) * ux * uy;
 }
 
+// The last two octaves are higher frequency than the rolling base shape —
+// they add small mounds/dips at human/walking scale so the ground floor
+// reads as textured underfoot, not just a smooth rolling sheet.
 function fbm(x: number, y: number): number {
   return (
-    vnoise(x,     y,     SEED)       * 0.50 +
-    vnoise(x * 2, y * 2, SEED + 100) * 0.25 +
-    vnoise(x * 4, y * 4, SEED + 200) * 0.15 +
-    vnoise(x * 8, y * 8, SEED + 300) * 0.10
+    vnoise(x,      y,      SEED)       * 0.45 +
+    vnoise(x * 2,  y * 2,  SEED + 100) * 0.22 +
+    vnoise(x * 4,  y * 4,  SEED + 200) * 0.13 +
+    vnoise(x * 8,  y * 8,  SEED + 300) * 0.09 +
+    vnoise(x * 16, y * 16, SEED + 400) * 0.07 +
+    vnoise(x * 32, y * 32, SEED + 500) * 0.04
   );
 }
 
@@ -64,7 +84,8 @@ export class Terrain {
         const wx = (ix / GRID_RES - 0.5) * WORLD_SIZE;
         const wz = (iz / GRID_RES - 0.5) * WORLD_SIZE;
 
-        let h = fbm(wx * NOISE_SCALE, wz * NOISE_SCALE) * MAX_HEIGHT;
+        let h = macro(wx * MACRO_SCALE, wz * MACRO_SCALE) * MACRO_HEIGHT
+          + fbm(wx * NOISE_SCALE, wz * NOISE_SCALE) * MAX_HEIGHT;
 
         const dStart = Math.sqrt(wx * wx + wz * wz);
         if (dStart < 20) h *= Math.pow(dStart / 20, 2);
