@@ -2,6 +2,7 @@ import {
   Scene,
   DirectionalLight,
   HemisphericLight,
+  ShadowGenerator,
   Color3,
   Vector3,
 } from '@babylonjs/core';
@@ -10,11 +11,14 @@ import type { RunProfile, ExperienceProfile } from '@dissonance/shared-types';
 export class DaylightSystem {
   private sun: DirectionalLight;
   private ambient: HemisphericLight;
+  private shadowGenerator: ShadowGenerator;
   private elapsed = 0;
   private lightLevel: number;
+  private isNight: boolean;
 
   constructor(scene: Scene, runProfile: RunProfile, expProfile: ExperienceProfile) {
     this.lightLevel = runProfile.startingLightLevel;
+    this.isNight = runProfile.departureTime === 'night';
 
     this.sun = new DirectionalLight('sun', new Vector3(-0.5, -1, 0.3), scene);
     this.sun.specular = Color3.Black();
@@ -22,7 +26,21 @@ export class DaylightSystem {
     this.ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
     this.ambient.specular = Color3.Black();
 
-    if (expProfile.mode === 'ps1') {
+    // One shadow-casting light only — a real-time shadow map per light is
+    // expensive, and the moonlight/sun is the only one that needs to ground
+    // trees/rocks visually. The player's flashlight (PlayerController)
+    // deliberately does not cast shadows.
+    this.shadowGenerator = new ShadowGenerator(1024, this.sun);
+    this.shadowGenerator.usePercentageCloserFiltering = true;
+    this.shadowGenerator.bias = 0.002;
+
+    if (this.isNight) {
+      this.sun.diffuse = new Color3(0.55, 0.62, 0.85);
+      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 5.5;
+      this.ambient.diffuse = new Color3(0.10, 0.16, 0.24);
+      this.ambient.groundColor = new Color3(0.02, 0.03, 0.02);
+      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 1.6;
+    } else if (expProfile.mode === 'ps1') {
       this.sun.diffuse = new Color3(1.0, 0.80, 0.32);
       this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 5.5;
       this.ambient.diffuse = new Color3(0.42, 0.60, 0.90);
@@ -47,7 +65,17 @@ export class DaylightSystem {
 
     const warmth = this.lightLevel;
 
-    if (expProfile.mode === 'ps1') {
+    if (this.isNight) {
+      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 5.5;
+      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 1.6;
+      // Stays cool/blue rather than warming up — moonlight doesn't redden
+      // the way a setting sun does.
+      this.sun.diffuse = new Color3(
+        0.30 + warmth * 0.25,
+        0.36 + warmth * 0.26,
+        0.55 + warmth * 0.30,
+      );
+    } else if (expProfile.mode === 'ps1') {
       this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 5.5;
       this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 1.6;
       this.sun.diffuse = new Color3(
@@ -68,5 +96,9 @@ export class DaylightSystem {
 
   getNightLevel(): number {
     return 1 - this.lightLevel;
+  }
+
+  getShadowGenerator(): ShadowGenerator {
+    return this.shadowGenerator;
   }
 }

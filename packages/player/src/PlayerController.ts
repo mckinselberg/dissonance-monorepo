@@ -1,4 +1,4 @@
-import { Vector3, FreeCamera, Scene } from '@babylonjs/core';
+import { Vector3, FreeCamera, Scene, SpotLight, Color3 } from '@babylonjs/core';
 import { PLAYER_CONFIG } from './defaults';
 import { BreathSystem } from './BreathSystem';
 import { AdrenalineSystem } from './AdrenalineSystem';
@@ -13,6 +13,7 @@ export class PlayerController {
   readonly camera: FreeCamera;
   readonly breath: BreathSystem;
   readonly adrenaline: AdrenalineSystem;
+  private readonly flashlight: SpotLight;
 
   isCrouching = false;
 
@@ -26,6 +27,7 @@ export class PlayerController {
 
   private terrain: Terrain | null = null;
   private colliders: Collider[] = [];
+  private worldBoundaryRadius: number | null = null;
 
   constructor(scene: Scene, startPosition: Vector3) {
     this.breath = new BreathSystem();
@@ -36,7 +38,25 @@ export class PlayerController {
     this.camera.fov = 1.05;
     this.camera.rotation = Vector3.Zero();
 
+    // Camera-carried flashlight. Position/direction are synced manually
+    // each frame in update() rather than via light.parent — matches how
+    // the camera itself is driven (manual transforms, no node hierarchy
+    // magic) elsewhere in this class. Deliberately no shadow generator
+    // here — per-light shadow maps are expensive, and the moonlight sun
+    // in DaylightSystem already covers that job.
+    this.flashlight = new SpotLight(
+      'flashlight', startPosition.clone(), Vector3.Forward(), Math.PI / 5, 2, scene,
+    );
+    this.flashlight.diffuse = new Color3(1.0, 0.82, 0.55);
+    this.flashlight.specular = Color3.Black();
+    this.flashlight.intensity = 1.4;
+    this.flashlight.range = 9;
+
     this.setupInput(scene);
+  }
+
+  setFlashlightEnabled(enabled: boolean): void {
+    this.flashlight.setEnabled(enabled);
   }
 
   setTerrain(terrain: Terrain): void {
@@ -45,6 +65,15 @@ export class PlayerController {
 
   setColliders(colliders: Collider[]): void {
     this.colliders = colliders;
+  }
+
+  // Decorative meshes (mountains) aren't real colliders — without this the
+  // player can walk straight through the mountain ring. A simple distance-
+  // from-origin cap is far cheaper than deriving collision geometry from
+  // the procedural mountain mesh, and is invisible during normal play since
+  // it sits well past where the forest/pursuer logic ever needs the player.
+  setWorldBoundaryRadius(radius: number | null): void {
+    this.worldBoundaryRadius = radius;
   }
 
   private setupInput(scene: Scene): void {
@@ -132,6 +161,9 @@ export class PlayerController {
       this.camera.rotation.x += nx * shakeMag;
       this.camera.rotation.y += ny * shakeMag * 0.5;
     }
+
+    this.flashlight.position.copyFrom(this.camera.position);
+    this.flashlight.direction = this.camera.getDirection(Vector3.Forward());
   }
 
   private tryMove(dx: number, dz: number): void {
@@ -153,6 +185,10 @@ export class PlayerController {
   }
 
   private isColliding(x: number, z: number): boolean {
+    if (this.worldBoundaryRadius !== null) {
+      const r = this.worldBoundaryRadius;
+      if (x * x + z * z > r * r) return true;
+    }
     for (const c of this.colliders) {
       const dx = x - c.x;
       const dz = z - c.z;

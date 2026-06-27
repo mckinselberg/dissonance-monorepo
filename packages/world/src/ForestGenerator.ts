@@ -2,6 +2,8 @@ import {
   Scene,
   MeshBuilder,
   StandardMaterial,
+  PBRMaterial,
+  ShadowGenerator,
   Color3,
   Vector3,
   Quaternion,
@@ -36,6 +38,7 @@ export class ForestGenerator {
   private terrain!: Terrain;
   private _colliders: Collider[] = [];
   private foliageTechnique: FoliageTechnique = 'cluster';
+  private shadowGenerator: ShadowGenerator | undefined;
 
   getColliders(): Collider[] { return this._colliders; }
 
@@ -45,10 +48,12 @@ export class ForestGenerator {
     destinationPos: Vector3,
     terrain: Terrain,
     foliageTechnique: FoliageTechnique = 'cluster',
+    shadowGenerator?: ShadowGenerator,
   ): void {
     this.terrain = terrain;
     this._colliders = [];
     this.foliageTechnique = foliageTechnique;
+    this.shadowGenerator = shadowGenerator;
     this.buildTrees(scene, profile, destinationPos);
     this.buildDestinationTower(scene, profile, destinationPos);
     this.buildRocks(scene, profile);
@@ -59,6 +64,17 @@ export class ForestGenerator {
     this.buildLowGroundcover(scene, profile);
     this.buildForestFloor(scene, profile);
     this.buildHikingTrail(scene, profile);
+  }
+
+  // Registers shadow casters for substantial geometry only (trunks,
+  // standalone canopy blobs, rocks) — grass/leaf-litter/moss, branch stubs,
+  // and the 'cluster' canopy technique's many small instances are
+  // deliberately skipped, since registering that many individual shadow
+  // casters measurably hurt frame rate for a visual contribution nobody
+  // would notice (branches are thin enough their shadows barely register).
+  private addCasters(meshes: Mesh[]): void {
+    if (!this.shadowGenerator) return;
+    for (const m of meshes) this.shadowGenerator.addShadowCaster(m);
   }
 
   private inTrailCorridor(x: number, z: number): boolean {
@@ -101,7 +117,7 @@ export class ForestGenerator {
     x: number, z: number, groundY: number,
     totalHeight: number,
     baseRad: number, topRad: number,
-    mat: StandardMaterial,
+    mat: PBRMaterial,
     ps1: boolean,
     id: string,
     segments: number,
@@ -147,7 +163,7 @@ export class ForestGenerator {
   private addBranchStubs(
     scene: Scene,
     x: number, z: number, topY: number,
-    trunkMat: StandardMaterial,
+    trunkMat: PBRMaterial,
     ps1: boolean,
     id: string,
     count: number,
@@ -191,7 +207,7 @@ export class ForestGenerator {
     scene: Scene,
     x: number, z: number, baseY: number,
     width: number, height: number,
-    mat: StandardMaterial,
+    mat: PBRMaterial,
     ps1: boolean,
     id: string,
     clumpTemplate?: Mesh,
@@ -236,8 +252,8 @@ export class ForestGenerator {
     profile: ExperienceProfile,
     x: number, z: number,
     groundY: number,
-    trunkMats: StandardMaterial[],
-    foliageMats: StandardMaterial[],
+    trunkMats: PBRMaterial[],
+    foliageMats: PBRMaterial[],
     id: number,
     clumpTemplates: Mesh[],
   ): number {
@@ -260,6 +276,7 @@ export class ForestGenerator {
       m.material = pick(trunkMats);
       if (ps1) m.convertToFlatShadedMesh();
       this.treeMeshes.push(m);
+      this.addCasters([m]);
       return rad;
     }
 
@@ -276,6 +293,7 @@ export class ForestGenerator {
       m.material = pick(trunkMats);
       if (ps1) m.convertToFlatShadedMesh();
       this.treeMeshes.push(m);
+      this.addCasters([m]);
       return rad;
     }
 
@@ -299,6 +317,8 @@ export class ForestGenerator {
         `${id}`, clumpTemplates[fmIndex],
       );
       this.treeMeshes.push(...trunkMeshes, ...branches, ...canopyMeshes);
+      this.addCasters(trunkMeshes);
+      this.addCasters(canopyMeshes);
       return rad;
     }
 
@@ -323,6 +343,8 @@ export class ForestGenerator {
         `${id}`, clumpTemplates[fmIndex],
       );
       this.treeMeshes.push(...canopyMeshes, ...branches, ...trunkMeshes);
+      this.addCasters(trunkMeshes);
+      this.addCasters(canopyMeshes);
       return rad;
     }
 
@@ -349,6 +371,8 @@ export class ForestGenerator {
           `${id}_${ti}`, clumpTemplates[fmIndex],
         );
         this.treeMeshes.push(...canopyMeshes, trunk);
+        this.addCasters([trunk]);
+        this.addCasters(canopyMeshes);
       }
       return baseRad + 0.35;
     }
@@ -372,22 +396,24 @@ export class ForestGenerator {
       `${id}`, clumpTemplates[fmIndex],
     );
     this.treeMeshes.push(...canopyMeshes, ...branches, ...trunkMeshes);
+    this.addCasters(trunkMeshes);
+    this.addCasters(canopyMeshes);
     return rad;
   }
 
   private buildTrees(scene: Scene, profile: ExperienceProfile, destinationPos: Vector3): void {
-    const trunkMats: StandardMaterial[] = [];
-    const foliageMats: StandardMaterial[] = [];
+    const trunkMats: PBRMaterial[] = [];
+    const foliageMats: PBRMaterial[] = [];
 
     if (profile.mode === 'radio') {
-      const t = new StandardMaterial('trunkMat', scene);
-      t.diffuseColor = new Color3(0.12, 0.12, 0.14);
-      t.specularColor = Color3.Black();
+      const t = new PBRMaterial('trunkMat', scene);
+      t.albedoColor = new Color3(0.12, 0.12, 0.14);
+      t.metallic = 0; t.roughness = 0.85;
       trunkMats.push(t);
 
-      const f = new StandardMaterial('foliageMat', scene);
-      f.diffuseColor = new Color3(0.08, 0.10, 0.10);
-      f.specularColor = Color3.Black();
+      const f = new PBRMaterial('foliageMat', scene);
+      f.albedoColor = new Color3(0.08, 0.10, 0.10);
+      f.metallic = 0; f.roughness = 0.6;
       f.backFaceCulling = false;
       foliageMats.push(f);
     } else {
@@ -395,9 +421,9 @@ export class ForestGenerator {
         [0.30, 0.19, 0.09], [0.20, 0.13, 0.06],
         [0.36, 0.24, 0.14], [0.15, 0.10, 0.05],
       ]) {
-        const m = new StandardMaterial(`trunkMat_${trunkMats.length}`, scene);
-        m.diffuseColor = new Color3(r, g, b);
-        m.specularColor = Color3.Black();
+        const m = new PBRMaterial(`trunkMat_${trunkMats.length}`, scene);
+        m.albedoColor = new Color3(r, g, b);
+        m.metallic = 0; m.roughness = 0.85;
         trunkMats.push(m);
       }
       for (const [r, g, b] of [
@@ -405,9 +431,9 @@ export class ForestGenerator {
         [0.04, 0.22, 0.14], [0.09, 0.24, 0.07],
         [0.28, 0.24, 0.04],
       ]) {
-        const m = new StandardMaterial(`foliageMat_${foliageMats.length}`, scene);
-        m.diffuseColor = new Color3(r, g, b);
-        m.specularColor = Color3.Black();
+        const m = new PBRMaterial(`foliageMat_${foliageMats.length}`, scene);
+        m.albedoColor = new Color3(r, g, b);
+        m.metallic = 0; m.roughness = 0.6;
         m.backFaceCulling = false;
         foliageMats.push(m);
       }
@@ -462,8 +488,8 @@ export class ForestGenerator {
 
   private buildTrailWalls(
     scene: Scene,
-    trunkMat: StandardMaterial,
-    foliageMat: StandardMaterial,
+    trunkMat: PBRMaterial,
+    foliageMat: PBRMaterial,
     profile: ExperienceProfile,
     clumpTemplate?: Mesh,
   ): void {
@@ -497,6 +523,8 @@ export class ForestGenerator {
           profile.mode === 'ps1', `trail_${i}_${side}`, clumpTemplate,
         );
         this.treeMeshes.push(trunk, ...canopyMeshes);
+        this.addCasters([trunk]);
+        this.addCasters(canopyMeshes);
       }
     }
   }
@@ -549,13 +577,13 @@ export class ForestGenerator {
   }
 
   private buildDeadEndTrail(scene: Scene, profile: ExperienceProfile): void {
-    const rockMat = new StandardMaterial('deadEndRockMat', scene);
+    const rockMat = new PBRMaterial('deadEndRockMat', scene);
     if (profile.mode === 'radio') {
-      rockMat.diffuseColor = new Color3(0.14, 0.12, 0.14);
+      rockMat.albedoColor = new Color3(0.14, 0.12, 0.14);
     } else {
-      rockMat.diffuseColor = new Color3(0.32, 0.28, 0.22);
+      rockMat.albedoColor = new Color3(0.32, 0.28, 0.22);
     }
-    rockMat.specularColor = Color3.Black();
+    rockMat.metallic = 0; rockMat.roughness = 0.9;
 
     const endX = TRAIL_START.x + TRAIL_DIR.x * TRAIL_LENGTH;
     const endZ = TRAIL_START.z + TRAIL_DIR.z * TRAIL_LENGTH;
@@ -578,13 +606,15 @@ export class ForestGenerator {
         0.8 + Math.random() * 0.6, 0.5 + Math.random() * 0.5, 0.9 + Math.random() * 0.5,
       );
       boulder.material = rockMat;
+      this.treeMeshes.push(boulder);
+      this.addCasters([boulder]);
     }
 
-    const deadTrunkMat = new StandardMaterial('deadTrunkMat', scene);
-    deadTrunkMat.diffuseColor = profile.mode === 'radio'
+    const deadTrunkMat = new PBRMaterial('deadTrunkMat', scene);
+    deadTrunkMat.albedoColor = profile.mode === 'radio'
       ? new Color3(0.08, 0.08, 0.09)
       : new Color3(0.18, 0.14, 0.10);
-    deadTrunkMat.specularColor = Color3.Black();
+    deadTrunkMat.metallic = 0; deadTrunkMat.roughness = 0.85;
 
     for (let i = 0; i < 5; i++) {
       const ox = (Math.random() - 0.5) * 12;
@@ -602,6 +632,7 @@ export class ForestGenerator {
       dead.rotation.set(lean, Math.random() * Math.PI * 2, lean * 0.5);
       dead.material = deadTrunkMat;
       this.treeMeshes.push(dead);
+      this.addCasters([dead]);
     }
   }
 
@@ -643,8 +674,8 @@ export class ForestGenerator {
         ];
 
     const rockMats = rockColors.map((c, i) => {
-      const m = new StandardMaterial(`rockMat_${i}`, scene);
-      m.diffuseColor = c; m.specularColor = Color3.Black();
+      const m = new PBRMaterial(`rockMat_${i}`, scene);
+      m.albedoColor = c; m.metallic = 0; m.roughness = 0.9;
       return m;
     });
 
@@ -669,6 +700,8 @@ export class ForestGenerator {
       );
       rock.material = rockMats[Math.floor(Math.random() * rockMats.length)];
       if (profile.mode === 'ps1') rock.convertToFlatShadedMesh();
+      this.treeMeshes.push(rock);
+      this.addCasters([rock]);
     }
   }
 
@@ -684,8 +717,8 @@ export class ForestGenerator {
           new Color3(0.40, 0.33, 0.24), new Color3(0.20, 0.19, 0.24),
         ];
     const rockMats = rockColors.map((c, i) => {
-      const m = new StandardMaterial(`outcropMat_${i}`, scene);
-      m.diffuseColor = c; m.specularColor = Color3.Black();
+      const m = new PBRMaterial(`outcropMat_${i}`, scene);
+      m.albedoColor = c; m.metallic = 0; m.roughness = 0.9;
       return m;
     });
     const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
@@ -727,6 +760,7 @@ export class ForestGenerator {
         boulder.material = mat;
         if (profile.mode === 'ps1') boulder.convertToFlatShadedMesh();
         this.treeMeshes.push(boulder);
+        this.addCasters([boulder]);
         this._colliders.push({ x: bx, z: bz, radius: size * 0.45 });
       }
       placed++;

@@ -1,7 +1,7 @@
 import {
   Scene,
   MeshBuilder,
-  StandardMaterial,
+  PBRMaterial,
   Color3,
   VertexBuffer,
   VertexData,
@@ -9,9 +9,9 @@ import {
 } from '@babylonjs/core';
 import type { ExperienceProfile } from '@dissonance/shared-types';
 
-const WORLD_SIZE = 400;
-const GRID_RES = 128;
-const MAX_HEIGHT = 6;
+const WORLD_SIZE = 800;
+const GRID_RES = 192;
+const MAX_HEIGHT = 12;
 const NOISE_SCALE = 0.019;
 const SEED = 7331;
 
@@ -19,9 +19,11 @@ const SEED = 7331;
 // Wavelength must be short enough relative to fog draw distance (~80
 // units in ps1 mode) that you can actually see a hill-and-valley shape
 // from one spot — the original 150-unit wavelength meant you only ever
-// saw a sliver of one slope, which read as "flat."
+// saw a sliver of one slope, which read as "flat." NOISE_SCALE/MACRO_SCALE
+// are frequencies, not extents, so they don't need to change when
+// WORLD_SIZE grows — only the amplitudes (MAX_HEIGHT/MACRO_HEIGHT) do.
 const MACRO_SCALE = 0.018;
-const MACRO_HEIGHT = 32;
+const MACRO_HEIGHT = 64;
 
 function macro(x: number, y: number): number {
   return (
@@ -133,16 +135,18 @@ export class Terrain {
     VertexData.ComputeNormals(positions, indices, normals);
     ground.updateVerticesData(VertexBuffer.NormalKind, normals);
 
-    const mat = new StandardMaterial('terrainMat', scene);
+    const mat = new PBRMaterial('terrainMat', scene);
+    mat.metallic = 0;
+    mat.roughness = 0.9;
     if (profile.mode === 'radio') {
-      mat.diffuseColor = new Color3(0.04, 0.04, 0.04);
+      mat.albedoColor = new Color3(0.04, 0.04, 0.04);
       mat.ambientColor = new Color3(0.02, 0.02, 0.03);
     } else {
-      mat.diffuseColor = new Color3(0.14, 0.22, 0.07);
+      mat.albedoColor = new Color3(0.14, 0.22, 0.07);
       mat.ambientColor = new Color3(0.10, 0.16, 0.05);
     }
-    mat.specularColor = Color3.Black();
     ground.material = mat;
+    ground.receiveShadows = true;
 
     if (profile.mode === 'ps1') ground.convertToFlatShadedMesh();
 

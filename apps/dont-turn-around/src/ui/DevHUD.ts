@@ -47,6 +47,7 @@ export class DevHUD {
   private refreshDebug(): void {
     const s = this.game.getDebugState();
     this.debugEl.innerHTML =
+      row('fps', s.fps.toFixed(0)) +
       row('pursuer', `${s.pursuerState}  ${s.pursuerDistance.toFixed(1)}m  aggr ${s.pursuerAggression.toFixed(2)}  ${s.isHidden ? 'HIDDEN' : 'los'}`) +
       row('speed', `${s.playerSpeed.toFixed(1)} m/s  ${s.isCrouching ? 'crouch' : ''}`) +
       row('breath', bar(s.breathLoad)) +

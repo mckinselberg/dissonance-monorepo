@@ -15,6 +15,13 @@ export const RUN_PROFILES: Record<DepartureTime, RunProfile> = {
     startingFogDensity: 0.045,
     runDurationSeconds: 300,
   },
+  night: {
+    departureTime: 'night',
+    startingLightLevel: 0.12,
+    daylightDecayRate: 0.0010,
+    startingFogDensity: 0.055,
+    runDurationSeconds: 300,
+  },
 };
 
 export const PURSUER_CONFIG = {

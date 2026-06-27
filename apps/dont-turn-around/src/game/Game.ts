@@ -1,9 +1,9 @@
-import { Engine, Scene, Vector3 } from '@babylonjs/core';
+import { Engine, Scene, Vector3, MotionBlurPostProcess } from '@babylonjs/core';
 import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dissonance/shared-types';
 import { SceneFactory, GameLoop } from '@dissonance/engine';
 import { ForestGenerator, DaylightSystem, WeatherSystem, WatcherEffect, Terrain, CloudSystem, MountainRing } from '@dissonance/world';
 import type { Collider, FoliageTechnique } from '@dissonance/world';
-import { PlayerController } from '@dissonance/player';
+import { PlayerController, PLAYER_CONFIG } from '@dissonance/player';
 import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio } from '@dissonance/audio';
 import { PursuerSystem } from '@dissonance/pursuit';
 
@@ -26,6 +26,7 @@ export interface GameDebugState {
   windIntensity: number;
   isHidden: boolean;
   isCrouching: boolean;
+  fps: number;
 }
 
 export interface GameControls {
@@ -40,6 +41,12 @@ export interface GameControls {
 
 // ~235 units away — at jog speed ~35-40s in open air, ~3-4 min through the forest
 const DEST_POS = new Vector3(190, 0, 140);
+
+// Mountains are decorative geometry, not real colliders — this caps how far
+// the player can wander so they can't walk straight through them. Kept a
+// margin inside MountainRing's RING_RADIUS (340) so the boundary is never
+// visible/felt before the mountain's own base is already in view.
+const WORLD_BOUNDARY_RADIUS = 320;
 
 const FOLIAGE_TECH_STORAGE_KEY = 'dta_foliage_tech';
 
@@ -69,6 +76,7 @@ export class Game {
   private heartbeat: HeartbeatAudio;
   private proximity: ProximityOverlay;
   private colliders: Collider[] = [];
+  private motionBlur: MotionBlurPostProcess;
 
   private expProfile: ExperienceProfile;
   private runProfile: RunProfile;
@@ -92,11 +100,20 @@ export class Game {
     this.clouds = new CloudSystem(scene, this.expProfile);
     this.mountains = new MountainRing(scene, this.expProfile);
 
+    // DaylightSystem must exist before the forest is generated — its
+    // ShadowGenerator (off the sun/moonlight) needs to be handed to
+    // ForestGenerator so trunks/branches/rocks register as shadow casters
+    // as they're built.
+    this.daylight = new DaylightSystem(scene, this.runProfile, this.expProfile);
+
     // Forest must exist before we pick a spawn point — otherwise spawn
     // can land inside an obstacle collider with no way to confirm it's
     // clear, which is exactly what trapped the player permanently.
     this.forest = new ForestGenerator();
-    this.forest.generate(scene, this.expProfile, DEST_POS, this.terrain, readFoliageTechnique());
+    this.forest.generate(
+      scene, this.expProfile, DEST_POS, this.terrain, readFoliageTechnique(),
+      this.daylight.getShadowGenerator(),
+    );
     this.colliders = this.forest.getColliders();
 
     this.spawnPos = Game.pickRandomSpawn(this.terrain, this.colliders);
@@ -105,8 +122,10 @@ export class Game {
     this.player = new PlayerController(scene, this.spawnPos.clone());
     this.player.setTerrain(this.terrain);
     this.player.setColliders(this.colliders);
+    this.player.setWorldBoundaryRadius(WORLD_BOUNDARY_RADIUS);
 
-    this.daylight = new DaylightSystem(scene, this.runProfile, this.expProfile);
+    this.motionBlur = SceneFactory.createPostProcessing(scene, this.player.camera).motionBlur;
+
     this.weather = new WeatherSystem(scene);
     this.weather.setMode('clear');
 
@@ -145,6 +164,15 @@ export class Game {
     this.player.update(dt);
     const playerPos = this.player.getPosition();
     const speed = this.player.getSpeed();
+
+    // Motion blur only kicks in once actually running (jog speed and
+    // below stay blur-free), ramping to its max at full sprint — a
+    // constant blur regardless of movement just reads as a smeared image,
+    // not as "you're moving fast."
+    const runFactor = Math.max(0, Math.min(1,
+      (speed - PLAYER_CONFIG.jogSpeed) / (PLAYER_CONFIG.sprintSpeed - PLAYER_CONFIG.jogSpeed),
+    ));
+    this.motionBlur.motionStrength = runFactor * 0.12;
 
     const playerPos2d = { x: playerPos.x, z: playerPos.z };
     const hasLoS = this.checkLineOfSight(playerPos2d, this.pursuerPos);
@@ -367,6 +395,7 @@ export class Game {
       windIntensity: this.weather.getMaskLevel(),
       isHidden: this.pursuer.getModel().isHidden,
       isCrouching: this.player.isCrouching,
+      fps: this.engine.getFps(),
     };
   }
 

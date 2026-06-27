@@ -49,6 +49,7 @@ export class MainMenu {
           <div class="opts" id="time-opts" style="display:flex;flex-direction:column;gap:0.5rem;">
             <button data-time="afternoon" class="menu-btn">AFTERNOON</button>
             <button data-time="dusk" class="menu-btn">DUSK</button>
+            <button data-time="night" class="menu-btn">NIGHT</button>
           </div>
         </section>
 

@@ -11,7 +11,10 @@ import type { ExperienceProfile } from '@dissonance/shared-types';
 import { displaceRadial, noise3 } from './noise';
 
 const CLUSTER_COUNT = 16;
-const RING_RADIUS = 210;
+// Must stay clearly outside the destination tower's distance from origin
+// (~236 units) — it used to sit at 210, i.e. *inside* that distance, which
+// is exactly why the mountains were rendering in front of/around the goal.
+const RING_RADIUS = 340;
 
 interface RidgePeak {
   angle: number;
@@ -191,14 +194,19 @@ export class MountainRing {
 
         const coneBaseY = height / 2 - 10;
 
+        // A true point (diameterTop: 0) is what reads as a cartoon spike no
+        // matter how jagged the sides get — real peaks have a blunt, broken
+        // crown. Truncating the top and letting displaceRadial jitter that
+        // now-nonzero ring (rather than just nudging a single apex vertex)
+        // is what kills the "goofy" look.
         const peak = MeshBuilder.CreateCylinder(`mtn_${c}_${p}`, {
           height,
-          diameterTop:    0,
+          diameterTop:    baseDiam * (0.10 + Math.random() * 0.10),
           diameterBottom: baseDiam,
           tessellation:   tess,
           subdivisions:   5,
         }, scene);
-        displaceRadial(peak, 0.48, seed);
+        displaceRadial(peak, 0.55, seed);
 
         peak.scaling.set(
           0.75 + Math.random() * 0.55,

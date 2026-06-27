@@ -1,11 +1,16 @@
 import {
   Engine,
   Scene,
+  Camera,
   Color3,
   Color4,
   MeshBuilder,
   StandardMaterial,
   VertexBuffer,
+  DefaultRenderingPipeline,
+  SSAO2RenderingPipeline,
+  MotionBlurPostProcess,
+  ColorCurves,
 } from '@babylonjs/core';
 import type { ExperienceProfile, RunProfile } from '@dissonance/shared-types';
 
@@ -71,6 +76,48 @@ export class SceneFactory {
     dome.setVerticesData(VertexBuffer.ColorKind, colors);
 
     dome.renderingGroupId = 0;
+  }
+
+  // Conservative/cheap settings throughout — low SSAO render ratio, small
+  // bloom kernel, light motion blur. This scene already carries a doubled
+  // tree count plus shadows/PBR; the post-process budget here is deliberately
+  // trimmed rather than matched 1:1 to the graphics-prompt doc's settings.
+  // Returns the motion blur post-process so the caller can drive its
+  // strength from actual player speed each frame (see Game.tick) instead
+  // of leaving it at one constant value regardless of movement.
+  static createPostProcessing(scene: Scene, camera: Camera): { motionBlur: MotionBlurPostProcess } {
+    const ssao = new SSAO2RenderingPipeline('ssao', scene, {
+      ssaoRatio: 0.5,
+      blurRatio: 0.5,
+    }, [camera]);
+    ssao.totalStrength = 0.35;
+    ssao.radius = 2;
+    ssao.base = 0.2;
+    ssao.samples = 8;
+
+    const pipeline = new DefaultRenderingPipeline('default', true, scene, [camera]);
+
+    pipeline.bloomEnabled = true;
+    pipeline.bloomThreshold = 0.8;
+    pipeline.bloomWeight = 0.12;
+    pipeline.bloomKernel = 32;
+    pipeline.bloomScale = 0.5;
+
+    pipeline.grainEnabled = true;
+    pipeline.grain.intensity = 6;
+    pipeline.grain.animated = true;
+
+    pipeline.imageProcessingEnabled = true;
+    pipeline.imageProcessing.contrast = 1.0;
+    pipeline.imageProcessing.exposure = 1.0;
+    pipeline.imageProcessing.colorCurvesEnabled = true;
+    const curves = new ColorCurves();
+    curves.globalSaturation = -8;
+    curves.globalDensity = 4;
+    pipeline.imageProcessing.colorCurves = curves;
+
+    const motionBlur = new MotionBlurPostProcess('motionBlur', scene, 0, camera);
+    return { motionBlur };
   }
 
   static updateFog(
