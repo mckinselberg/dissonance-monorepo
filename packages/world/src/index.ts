@@ -1,5 +1,5 @@
 export { Terrain } from './Terrain';
-export type { Collider, FoliageTechnique } from './ForestGenerator';
+export type { Collider } from './ForestGenerator';
 export { ForestGenerator } from './ForestGenerator';
 export { DaylightSystem } from './DaylightSystem';
 export { WeatherSystem } from './WeatherSystem';

@@ -2,8 +2,6 @@ import type { Game, GameControls } from '../game/Game';
 import type { ExperienceMode } from '@dissonance/shared-types';
 
 const STORAGE_KEY = 'dta_config';
-const FOLIAGE_TECH_STORAGE_KEY = 'dta_foliage_tech';
-type FoliageTechnique = 'noise' | 'cluster';
 
 export class DevHUD {
   private panel: HTMLElement;
@@ -160,20 +158,6 @@ export class DevHUD {
     modeRow.appendChild(modeBtns);
     panel.appendChild(modeRow);
 
-    const currentFoliageTech: FoliageTechnique =
-      localStorage.getItem(FOLIAGE_TECH_STORAGE_KEY) === 'noise' ? 'noise' : 'cluster';
-
-    const foliageRow = document.createElement('div');
-    foliageRow.className = 'dh-row';
-    foliageRow.appendChild(el('span', 'color:#666;flex-shrink:0', 'canopy'));
-    const foliageBtns = document.createElement('div');
-    foliageBtns.style.cssText = 'display:flex;gap:6px';
-    const clusterBtn = modeBtn('CLUSTER', currentFoliageTech === 'cluster', () => this.switchFoliageTechnique('cluster'));
-    const noiseBtn = modeBtn('NOISE', currentFoliageTech === 'noise', () => this.switchFoliageTechnique('noise'));
-    foliageBtns.appendChild(clusterBtn);
-    foliageBtns.appendChild(noiseBtn);
-    foliageRow.appendChild(foliageBtns);
-    panel.appendChild(foliageRow);
 
     panel.appendChild(sectionLabel('debug'));
     const debugDiv = document.createElement('div');
@@ -197,11 +181,6 @@ export class DevHUD {
     const config = raw ? JSON.parse(raw) : {};
     config.experienceMode = mode;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    window.location.reload();
-  }
-
-  private switchFoliageTechnique(technique: FoliageTechnique): void {
-    localStorage.setItem(FOLIAGE_TECH_STORAGE_KEY, technique);
     window.location.reload();
   }
 

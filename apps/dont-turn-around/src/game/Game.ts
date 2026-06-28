@@ -2,7 +2,7 @@ import { Engine, Scene, Vector3, MotionBlurPostProcess } from '@babylonjs/core';
 import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dissonance/shared-types';
 import { SceneFactory, GameLoop } from '@dissonance/engine';
 import { ForestGenerator, DaylightSystem, WeatherSystem, WatcherEffect, Terrain, CloudSystem, MountainRing } from '@dissonance/world';
-import type { Collider, FoliageTechnique } from '@dissonance/world';
+import type { Collider } from '@dissonance/world';
 import { PlayerController, PLAYER_CONFIG } from '@dissonance/player';
 import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio } from '@dissonance/audio';
 import { PursuerSystem } from '@dissonance/pursuit';
@@ -47,13 +47,6 @@ const DEST_POS = new Vector3(190, 0, 140);
 // margin inside MountainRing's RING_RADIUS (340) so the boundary is never
 // visible/felt before the mountain's own base is already in view.
 const WORLD_BOUNDARY_RADIUS = 320;
-
-const FOLIAGE_TECH_STORAGE_KEY = 'dta_foliage_tech';
-
-function readFoliageTechnique(): FoliageTechnique {
-  const raw = localStorage.getItem(FOLIAGE_TECH_STORAGE_KEY);
-  return raw === 'noise' ? 'noise' : 'cluster';
-}
 
 export class Game {
   private engine: Engine;
@@ -111,8 +104,7 @@ export class Game {
     // clear, which is exactly what trapped the player permanently.
     this.forest = new ForestGenerator();
     this.forest.generate(
-      scene, this.expProfile, DEST_POS, this.terrain, readFoliageTechnique(),
-      this.daylight.getShadowGenerator(),
+      scene, this.expProfile, DEST_POS, this.terrain, this.daylight.getShadowGenerator(),
     );
     this.colliders = this.forest.getColliders();
 
