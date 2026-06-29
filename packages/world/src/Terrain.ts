@@ -25,6 +25,14 @@ const SEED = 7331;
 const MACRO_SCALE = 0.018;
 const MACRO_HEIGHT = 64;
 
+// A constant directional grade layered under the hills/valleys — real
+// forests are very often on a hillside, not a flat plain. Tuned down from
+// a literal 10-15° (which over an 800-unit world would add 70-110 units of
+// edge-to-edge elevation on top of the existing macro hills) to whatever
+// reads as that tilt within the player's actual draw distance. Starting
+// value — adjust after seeing it in motion.
+const TILT_GRADE = Math.tan((6 * Math.PI) / 180); // ~6°, ~0.105 rise per unit
+
 function macro(x: number, y: number): number {
   return (
     vnoise(x,     y,     SEED + 700) * 0.6 +
@@ -87,7 +95,8 @@ export class Terrain {
         const wz = (iz / GRID_RES - 0.5) * WORLD_SIZE;
 
         let h = macro(wx * MACRO_SCALE, wz * MACRO_SCALE) * MACRO_HEIGHT
-          + fbm(wx * NOISE_SCALE, wz * NOISE_SCALE) * MAX_HEIGHT;
+          + fbm(wx * NOISE_SCALE, wz * NOISE_SCALE) * MAX_HEIGHT
+          + wx * TILT_GRADE;
 
         const dStart = Math.sqrt(wx * wx + wz * wz);
         if (dStart < 20) h *= Math.pow(dStart / 20, 2);

@@ -3,6 +3,7 @@ import {
   DirectionalLight,
   HemisphericLight,
   ShadowGenerator,
+  RenderTargetTexture,
   Color3,
   Vector3,
 } from '@babylonjs/core';
@@ -33,6 +34,18 @@ export class DaylightSystem {
     this.shadowGenerator = new ShadowGenerator(1024, this.sun);
     this.shadowGenerator.usePercentageCloserFiltering = true;
     this.shadowGenerator.bias = 0.002;
+
+    // Every registered caster (trees, rocks — over a thousand at full
+    // forest scale) is static once placed, and the sun's *direction* never
+    // changes (only its color/intensity over time) — so the shadow map's
+    // actual content never needs to change after the first frame. Without
+    // this, Babylon re-renders the full depth pass for every caster every
+    // single frame forever, which is almost certainly what was driving FPS
+    // down into single digits. World generation (which adds all the
+    // casters) runs synchronously before the game loop's first render, so
+    // by the time this "render once" actually fires, every caster is
+    // already registered.
+    this.shadowGenerator.getShadowMap()!.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
 
     if (this.isNight) {
       this.sun.diffuse = new Color3(0.55, 0.62, 0.85);

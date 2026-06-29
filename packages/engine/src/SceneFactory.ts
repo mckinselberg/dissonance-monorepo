@@ -85,7 +85,9 @@ export class SceneFactory {
   // Returns the motion blur post-process so the caller can drive its
   // strength from actual player speed each frame (see Game.tick) instead
   // of leaving it at one constant value regardless of movement.
-  static createPostProcessing(scene: Scene, camera: Camera): { motionBlur: MotionBlurPostProcess } {
+  static createPostProcessing(
+    scene: Scene, camera: Camera,
+  ): { motionBlur: MotionBlurPostProcess; ssao: SSAO2RenderingPipeline; pipeline: DefaultRenderingPipeline } {
     const ssao = new SSAO2RenderingPipeline('ssao', scene, {
       ssaoRatio: 0.5,
       blurRatio: 0.5,
@@ -117,7 +119,7 @@ export class SceneFactory {
     pipeline.imageProcessing.colorCurves = curves;
 
     const motionBlur = new MotionBlurPostProcess('motionBlur', scene, 0, camera);
-    return { motionBlur };
+    return { motionBlur, ssao, pipeline };
   }
 
   static updateFog(

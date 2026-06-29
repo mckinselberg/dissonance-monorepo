@@ -4,9 +4,12 @@ import {
   StandardMaterial,
   PBRMaterial,
   ShadowGenerator,
+  PointLight,
   AbstractMesh,
   Color3,
   Vector3,
+  Matrix,
+  Quaternion,
   Mesh,
 } from '@babylonjs/core';
 import type { ExperienceProfile } from '@dissonance/shared-types';
@@ -29,7 +32,7 @@ export interface Collider { x: number; z: number; radius: number; }
 
 export class ForestGenerator {
   private treeMeshes: Mesh[] = [];
-  private towerMesh: Mesh | null = null;
+  private lights: PointLight[] = [];
   private terrain!: Terrain;
   private _colliders: Collider[] = [];
   private shadowGenerator: ShadowGenerator | undefined;
@@ -47,7 +50,7 @@ export class ForestGenerator {
     this._colliders = [];
     this.shadowGenerator = shadowGenerator;
     this.buildForest(scene, profile, destinationPos);
-    this.buildDestinationTower(scene, profile, destinationPos);
+    this.buildCarGoal(scene, profile, destinationPos);
     this.buildRocks(scene, profile);
     this.buildRockOutcrops(scene, profile);
     this.buildUnderbrush(scene, profile);
@@ -118,7 +121,7 @@ export class ForestGenerator {
   // rebuilt fresh per scattered tree.
   private buildOneTreeTemplate(scene: Scene, profile: ExperienceProfile, id: number): { mesh: Mesh; radius: number } {
     const ps1 = profile.mode === 'ps1';
-    const height = 4 + Math.random() * 9;
+    const height = 4 + Math.random() * 18;
     const baseRad = 0.12 + Math.random() * 0.22;
     const topRad = baseRad * 0.75;
     const lean = (Math.random() - 0.5) * 0.12;
@@ -241,7 +244,9 @@ export class ForestGenerator {
     const merged = Mesh.MergeMeshes(parts, true, true, undefined, false, true);
     if (!merged) throw new Error(`tree template ${id} failed to merge`);
     merged.name = `treeTemplate_${id}`;
-    merged.isVisible = false;
+    // Thin instances (used to scatter this template — see buildForest)
+    // require the source mesh to stay visible; its own base transform
+    // contributes nothing extra once thin instances are added.
     this.treeMeshes.push(merged);
 
     return { mesh: merged, radius: baseRad + 0.1 };
@@ -263,8 +268,15 @@ export class ForestGenerator {
   // Bakes the template library once, then scatters cheap instances of it
   // across the whole map (avoiding trail corridors and a clearing around
   // the destination), plus a denser flanking wall along the dead-end trail.
+  // Thin-instanced, same as the ground-cover systems — was regular
+  // createInstance() per tree (up to 1,000 full InstancedMesh objects,
+  // each a multi-submesh/multi-material node). Matrices accumulate across
+  // both this scatter pass and buildTrailWalls, then commit once per
+  // template at the end so bounding-info refresh only happens once.
   private buildForest(scene: Scene, profile: ExperienceProfile, destinationPos: Vector3): void {
     const templates = this.buildTreeTemplates(scene, profile, 30);
+    const matricesByTemplate: Matrix[][] = templates.map(() => []);
+    const maxRadius = profile.drawDistance * 1.15;
 
     let placed = 0;
     let attempts = 0;
@@ -273,7 +285,7 @@ export class ForestGenerator {
     while (placed < profile.treeCount && attempts < maxAttempts) {
       attempts++;
       const angle = Math.random() * Math.PI * 2;
-      const radius = 8 + Math.random() * 160;
+      const radius = 8 + Math.random() * (maxRadius - 8);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
 
@@ -282,22 +294,31 @@ export class ForestGenerator {
       if (tdx * tdx + tdz * tdz < 36) continue;
 
       const groundY = this.terrain.getHeightAt(x, z);
-      const { mesh: template, radius: rad } = templates[Math.floor(Math.random() * templates.length)];
-      const inst = template.createInstance(`tree_${placed}`);
-      inst.position.set(x, groundY, z);
-      inst.rotation.y = Math.random() * Math.PI * 2;
+      const ti = Math.floor(Math.random() * templates.length);
+      const rad = templates[ti].radius;
       const scale = 0.85 + Math.random() * 0.45;
-      inst.scaling.setAll(scale);
-      this.addCasters([inst]);
+      matricesByTemplate[ti].push(Matrix.Compose(
+        new Vector3(scale, scale, scale),
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x, groundY, z),
+      ));
 
       this._colliders.push({ x, z, radius: rad * scale });
       placed++;
     }
 
-    this.buildTrailWalls(templates);
+    this.buildTrailWalls(templates, matricesByTemplate);
+
+    templates.forEach((t, i) => {
+      t.mesh.thinInstanceAdd(matricesByTemplate[i], true);
+      this.addCasters([t.mesh]);
+    });
   }
 
-  private buildTrailWalls(templates: { mesh: Mesh; radius: number }[]): void {
+  private buildTrailWalls(
+    templates: { mesh: Mesh; radius: number }[],
+    matricesByTemplate: Matrix[][],
+  ): void {
     const wallTreeCount = 28;
     const perp = new Vector3(-TRAIL_DIR.z, 0, TRAIL_DIR.x);
 
@@ -308,23 +329,27 @@ export class ForestGenerator {
 
       for (const side of [-1, 1]) {
         const jitter = (Math.random() - 0.5) * 2.5;
-        const x = cx + perp.x * (TRAIL_WIDTH + 1.5 + jitter);
-        const z = cz + perp.z * (TRAIL_WIDTH + 1.5 + jitter);
+        const x = cx + perp.x * (TRAIL_WIDTH + 1.5 + jitter) * side;
+        const z = cz + perp.z * (TRAIL_WIDTH + 1.5 + jitter) * side;
         const groundY = this.terrain.getHeightAt(x, z);
 
-        const { mesh: template, radius: rad } = templates[Math.floor(Math.random() * templates.length)];
-        const inst = template.createInstance(`trailTree_${i}_${side}`);
-        inst.position.set(x, groundY, z);
-        inst.rotation.y = Math.random() * Math.PI * 2;
+        const ti = Math.floor(Math.random() * templates.length);
+        const rad = templates[ti].radius;
         const scale = 0.8 + Math.random() * 0.4;
-        inst.scaling.setAll(scale);
-        this.addCasters([inst]);
+        matricesByTemplate[ti].push(Matrix.Compose(
+          new Vector3(scale, scale, scale),
+          Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+          new Vector3(x, groundY, z),
+        ));
 
         this._colliders.push({ x, z, radius: rad * scale });
       }
     }
   }
 
+  // One shared box/cone-or-sphere template, thin-instanced — was one unique
+  // mesh per shrub (160-220 individual draw calls) for a shape that never
+  // varied beyond size/rotation.
   private buildUnderbrush(scene: Scene, profile: ExperienceProfile): void {
     const mat = new StandardMaterial('underbrushMat', scene);
     if (profile.mode === 'radio') {
@@ -335,13 +360,22 @@ export class ForestGenerator {
     mat.specularColor = Color3.Black();
     mat.backFaceCulling = false;
 
-    const count = profile.mode === 'ps1' ? 220 : 160;
+    const ps1 = profile.mode === 'ps1';
+    const template = ps1
+      ? MeshBuilder.CreateCylinder('shrubBase', { height: 1, diameterTop: 0, diameterBottom: 1, tessellation: 4 }, scene)
+      : MeshBuilder.CreateSphere('shrubBase', { diameter: 1, segments: 3 }, scene);
+    template.material = mat;
+    this.treeMeshes.push(template);
+
+    const count = ps1 ? 220 : 160;
+    const maxRadius = profile.drawDistance * 1.15;
+    const matrices: Matrix[] = [];
     let placed = 0, attempts = 0;
 
     while (placed < count && attempts < count * 5) {
       attempts++;
       const angle = Math.random() * Math.PI * 2;
-      const radius = 5 + Math.random() * 160;
+      const radius = 5 + Math.random() * (maxRadius - 5);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
       if (this.inEitherCorridor(x, z)) continue;
@@ -349,27 +383,16 @@ export class ForestGenerator {
       const groundY = this.terrain.getHeightAt(x, z);
       const w = 0.6 + Math.random() * 1.1;
       const h = 0.25 + Math.random() * 0.45;
+      const scale = ps1 ? new Vector3(w * 2, h, w * 2) : new Vector3(w, w, w);
 
-      let shrub: Mesh;
-      if (profile.mode === 'ps1') {
-        shrub = MeshBuilder.CreateCylinder(
-          `shrub_${placed}`,
-          { height: h, diameterTop: 0, diameterBottom: w * 2, tessellation: 4 },
-          scene,
-        );
-      } else {
-        shrub = MeshBuilder.CreateSphere(
-          `shrub_${placed}`,
-          { diameter: w, segments: 3 },
-          scene,
-        );
-      }
-      shrub.position.set(x, groundY + h * 0.5, z);
-      shrub.rotation.y = Math.random() * Math.PI * 2;
-      shrub.material = mat;
-      this.treeMeshes.push(shrub);
+      matrices.push(Matrix.Compose(
+        scale,
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x, groundY + h * 0.5, z),
+      ));
       placed++;
     }
+    template.thinInstanceAdd(matrices, true);
   }
 
   private buildDeadEndTrail(scene: Scene, profile: ExperienceProfile): void {
@@ -432,35 +455,101 @@ export class ForestGenerator {
     }
   }
 
-  private buildDestinationTower(scene: Scene, profile: ExperienceProfile, pos: Vector3): void {
+  // The goal: a parked car on an asphalt clearing, lit by two lamp posts.
+  // Boxes/cylinders only — no asset pipeline needed. Only two real
+  // PointLights total, fixed and non-shadow-casting, so the cost stays
+  // negligible regardless of how the rest of the scene is doing.
+  private buildCarGoal(scene: Scene, profile: ExperienceProfile, pos: Vector3): void {
+    const ps1 = profile.mode === 'ps1';
     const groundY = this.terrain.getHeightAt(pos.x, pos.z);
-    const mat = new StandardMaterial('towerMat', scene);
-    if (profile.mode === 'radio') {
-      mat.diffuseColor = new Color3(0.5, 0.5, 0.55);
-      mat.emissiveColor = new Color3(0.05, 0.05, 0.08);
-    } else {
-      mat.diffuseColor = new Color3(0.55, 0.50, 0.40);
+
+    const lotMat = new StandardMaterial('parkingLotMat', scene);
+    lotMat.diffuseColor = new Color3(0.10, 0.10, 0.11);
+    lotMat.specularColor = Color3.Black();
+    const lot = MeshBuilder.CreateBox('parkingLot', { width: 16, height: 0.1, depth: 12 }, scene);
+    lot.position.set(pos.x, groundY + 0.05, pos.z);
+    lot.material = lotMat;
+    this.treeMeshes.push(lot);
+
+    const bodyMat = new StandardMaterial('carBodyMat', scene);
+    bodyMat.diffuseColor = new Color3(0.16, 0.22, 0.34);
+    bodyMat.specularColor = Color3.Black();
+
+    const glassMat = new StandardMaterial('carGlassMat', scene);
+    glassMat.diffuseColor = new Color3(0.04, 0.05, 0.06);
+    glassMat.specularColor = Color3.Black();
+
+    const wheelMat = new StandardMaterial('carWheelMat', scene);
+    wheelMat.diffuseColor = new Color3(0.03, 0.03, 0.03);
+    wheelMat.specularColor = Color3.Black();
+
+    const bodyY = groundY + 0.55;
+    const body = MeshBuilder.CreateBox('carBody', { width: 1.8, height: 1.0, depth: 4.2 }, scene);
+    body.position.set(pos.x, bodyY, pos.z);
+    body.material = bodyMat;
+    if (ps1) body.convertToFlatShadedMesh();
+    this.treeMeshes.push(body);
+
+    const cabin = MeshBuilder.CreateBox('carCabin', { width: 1.5, height: 0.7, depth: 2.2 }, scene);
+    cabin.position.set(pos.x, bodyY + 0.85, pos.z - 0.3);
+    cabin.material = glassMat;
+    if (ps1) cabin.convertToFlatShadedMesh();
+    this.treeMeshes.push(cabin);
+
+    const wheelOffsets: [number, number][] = [
+      [-0.95, 1.4], [0.95, 1.4], [-0.95, -1.4], [0.95, -1.4],
+    ];
+    for (const [wx, wz] of wheelOffsets) {
+      const wheel = MeshBuilder.CreateCylinder('carWheel', {
+        height: 0.35, diameter: 0.7, tessellation: ps1 ? 8 : 12,
+      }, scene);
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(pos.x + wx, groundY + 0.35, pos.z + wz);
+      wheel.material = wheelMat;
+      if (ps1) wheel.convertToFlatShadedMesh();
+      this.treeMeshes.push(wheel);
     }
-    mat.specularColor = Color3.Black();
 
-    const base = MeshBuilder.CreateCylinder(
-      'towerBase',
-      { height: 20, diameter: 4, tessellation: profile.mode === 'ps1' ? 8 : 12 },
-      scene,
-    );
-    base.position.set(pos.x, groundY + 10, pos.z);
-    base.material = mat;
+    const poleMat = new StandardMaterial('lampPoleMat', scene);
+    poleMat.diffuseColor = new Color3(0.08, 0.08, 0.08);
+    poleMat.specularColor = Color3.Black();
 
-    const cap = MeshBuilder.CreateCylinder(
-      'towerCap',
-      { height: 3, diameterTop: 1, diameterBottom: 5, tessellation: profile.mode === 'ps1' ? 8 : 12 },
-      scene,
-    );
-    cap.position.set(pos.x, groundY + 21.5, pos.z);
-    cap.material = mat;
-    this.towerMesh = base;
+    const lampMat = new StandardMaterial('lampHeadMat', scene);
+    lampMat.diffuseColor = new Color3(0.3, 0.28, 0.18);
+    lampMat.emissiveColor = new Color3(1.0, 0.85, 0.55);
+    lampMat.specularColor = Color3.Black();
+
+    const lampOffsets: [number, number][] = [[-6, 4], [6, -4]];
+    for (const [lx, lz] of lampOffsets) {
+      const lampGroundY = this.terrain.getHeightAt(pos.x + lx, pos.z + lz);
+      const poleHeight = 4.2;
+
+      const pole = MeshBuilder.CreateCylinder('lampPole', {
+        height: poleHeight, diameter: 0.12, tessellation: ps1 ? 6 : 8,
+      }, scene);
+      pole.position.set(pos.x + lx, lampGroundY + poleHeight / 2, pos.z + lz);
+      pole.material = poleMat;
+      this.treeMeshes.push(pole);
+
+      const lampHeadPos = new Vector3(pos.x + lx, lampGroundY + poleHeight + 0.2, pos.z + lz);
+      const lampHead = MeshBuilder.CreateBox('lampHead', { size: 0.4 }, scene);
+      lampHead.position.copyFrom(lampHeadPos);
+      lampHead.material = lampMat;
+      this.treeMeshes.push(lampHead);
+
+      const light = new PointLight('lampLight', lampHeadPos, scene);
+      light.diffuse = new Color3(1.0, 0.85, 0.55);
+      light.specular = Color3.Black();
+      light.intensity = 0.8;
+      light.range = 18;
+      this.lights.push(light);
+    }
   }
 
+  // One box template per rock color, thin-instanced — was one unique box
+  // mesh per rock (55-80 individual draw calls + individual shadow casters).
+  // Shadow casting is now registered once per template since thin instances
+  // ride along with the source mesh's render/shadow pass automatically.
   private buildRocks(scene: Scene, profile: ExperienceProfile): void {
     const rockColors = profile.mode === 'radio'
       ? [new Color3(0.10, 0.10, 0.12)]
@@ -469,42 +558,55 @@ export class ForestGenerator {
           new Color3(0.38, 0.30, 0.20), new Color3(0.18, 0.16, 0.22),
         ];
 
-    const rockMats = rockColors.map((c, i) => {
+    const templates = rockColors.map((c, i) => {
       const m = new PBRMaterial(`rockMat_${i}`, scene);
       m.albedoColor = c; m.metallic = 0; m.roughness = 0.9;
-      return m;
+      const t = MeshBuilder.CreateBox(`rockTemplate_${i}`, { size: 1 }, scene);
+      t.material = m;
+      if (profile.mode === 'ps1') t.convertToFlatShadedMesh();
+      this.treeMeshes.push(t);
+      return t;
     });
+    const matricesByTemplate: Matrix[][] = templates.map(() => []);
 
     const count = profile.mode === 'ps1' ? 80 : 55;
+    const maxRadius = profile.drawDistance * 1.15;
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const radius = 10 + Math.random() * 130;
+      const radius = 10 + Math.random() * (maxRadius - 10);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
       if (this.inEitherCorridor(x, z)) continue;
 
       const groundY = this.terrain.getHeightAt(x, z);
       const size = 0.3 + Math.random() * 1.4;
-      const rock = MeshBuilder.CreateBox(`rock_${i}`, { size }, scene);
-      rock.position.set(x, groundY + size * 0.4, z);
       this._colliders.push({ x, z, radius: size * 0.55 });
-      rock.rotation.set(
-        Math.random() * 0.5, Math.random() * Math.PI * 2, Math.random() * 0.5,
-      );
-      rock.scaling.set(
-        1 + Math.random() * 0.5, 0.6 + Math.random() * 0.4, 1 + Math.random() * 0.5,
-      );
-      rock.material = rockMats[Math.floor(Math.random() * rockMats.length)];
-      if (profile.mode === 'ps1') rock.convertToFlatShadedMesh();
-      this.treeMeshes.push(rock);
-      this.addCasters([rock]);
+
+      const ti = Math.floor(Math.random() * templates.length);
+      matricesByTemplate[ti].push(Matrix.Compose(
+        new Vector3(
+          size * (1 + Math.random() * 0.5),
+          size * (0.6 + Math.random() * 0.4),
+          size * (1 + Math.random() * 0.5),
+        ),
+        Quaternion.FromEulerAngles(Math.random() * 0.5, Math.random() * Math.PI * 2, Math.random() * 0.5),
+        new Vector3(x, groundY + size * 0.4, z),
+      ));
     }
+    templates.forEach((t, i) => {
+      t.thinInstanceAdd(matricesByTemplate[i], true);
+      this.addCasters([t]);
+    });
   }
 
   // Larger angular bedrock formations — a handful of multi-boulder clusters,
   // part-buried in the ground, distinct from the small scattered pebbles in
   // buildRocks(). This is what actually reads as "rock outcropping" instead
   // of loose stones.
+  // Same template+thin-instance pattern as buildRocks — was up to ~110
+  // individual unique-geometry boulders. One material is still picked per
+  // outcrop cluster (so a whole formation reads as one rock type), so
+  // boulders group into their cluster's chosen template's matrix array.
   private buildRockOutcrops(scene: Scene, profile: ExperienceProfile): void {
     const rockColors = profile.mode === 'radio'
       ? [new Color3(0.09, 0.09, 0.11), new Color3(0.13, 0.12, 0.14)]
@@ -512,25 +614,30 @@ export class ForestGenerator {
           new Color3(0.34, 0.31, 0.27), new Color3(0.24, 0.25, 0.23),
           new Color3(0.40, 0.33, 0.24), new Color3(0.20, 0.19, 0.24),
         ];
-    const rockMats = rockColors.map((c, i) => {
+    const templates = rockColors.map((c, i) => {
       const m = new PBRMaterial(`outcropMat_${i}`, scene);
       m.albedoColor = c; m.metallic = 0; m.roughness = 0.9;
-      return m;
+      const t = MeshBuilder.CreateBox(`outcropTemplate_${i}`, { size: 1 }, scene);
+      t.material = m;
+      if (profile.mode === 'ps1') t.convertToFlatShadedMesh();
+      this.treeMeshes.push(t);
+      return t;
     });
-    const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+    const matricesByTemplate: Matrix[][] = templates.map(() => []);
 
     const outcropCount = profile.mode === 'ps1' ? 14 : 9;
+    const maxRadius = profile.drawDistance * 1.15;
     let placed = 0, attempts = 0;
     while (placed < outcropCount && attempts < outcropCount * 8) {
       attempts++;
       const angle = Math.random() * Math.PI * 2;
-      const radius = 18 + Math.random() * 140;
+      const radius = 18 + Math.random() * (maxRadius - 18);
       const cx = Math.cos(angle) * radius;
       const cz = Math.sin(angle) * radius;
       if (this.inEitherCorridor(cx, cz)) continue;
 
       const boulderCount = 4 + Math.floor(Math.random() * 5);
-      const mat = pick(rockMats);
+      const ti = Math.floor(Math.random() * templates.length);
 
       for (let b = 0; b < boulderCount; b++) {
         // Spread boulders around the outcrop center rather than scattering
@@ -544,25 +651,29 @@ export class ForestGenerator {
         const by = this.terrain.getHeightAt(bx, bz);
         const size = 1.5 + Math.random() * 2.3;
 
-        const boulder = MeshBuilder.CreateBox(`outcrop_${placed}_${b}`, { size }, scene);
         // sunk so the bottom third or so is buried, like real exposed bedrock
-        boulder.position.set(bx, by + size * 0.22, bz);
-        boulder.rotation.set(
-          Math.random() * 0.6, Math.random() * Math.PI * 2, Math.random() * 0.6,
-        );
-        boulder.scaling.set(
-          1 + Math.random() * 0.7, 0.7 + Math.random() * 0.6, 1 + Math.random() * 0.7,
-        );
-        boulder.material = mat;
-        if (profile.mode === 'ps1') boulder.convertToFlatShadedMesh();
-        this.treeMeshes.push(boulder);
-        this.addCasters([boulder]);
+        matricesByTemplate[ti].push(Matrix.Compose(
+          new Vector3(
+            size * (1 + Math.random() * 0.7),
+            size * (0.7 + Math.random() * 0.6),
+            size * (1 + Math.random() * 0.7),
+          ),
+          Quaternion.FromEulerAngles(Math.random() * 0.6, Math.random() * Math.PI * 2, Math.random() * 0.6),
+          new Vector3(bx, by + size * 0.22, bz),
+        ));
         this._colliders.push({ x: bx, z: bz, radius: size * 0.45 });
       }
       placed++;
     }
+    templates.forEach((t, i) => {
+      t.thinInstanceAdd(matricesByTemplate[i], true);
+      this.addCasters([t]);
+    });
   }
 
+  // Thin-instanced — was a regular InstancedMesh per blade (up to ~4,400
+  // full mesh-node objects). Thin instances are just a matrix appended to
+  // a buffer on the template, no per-instance JS object at all.
   private buildGrass(scene: Scene, profile: ExperienceProfile): void {
     const grassPalette = profile.mode === 'ps1'
       ? [
@@ -585,39 +696,43 @@ export class ForestGenerator {
         scene,
       );
       base.material = mat;
-      base.isVisible = false;
       if (profile.mode === 'ps1') base.convertToFlatShadedMesh();
       bases.push(base);
       this.treeMeshes.push(base);
     }
 
     const perBase = profile.mode === 'ps1' ? 1100 : 640;
+    const maxRadius = profile.drawDistance * 1.15;
     for (let bi = 0; bi < bases.length; bi++) {
+      const matrices: Matrix[] = [];
       let placed = 0, attempts = 0;
       while (placed < perBase && attempts < perBase * 4) {
         attempts++;
         const angle = Math.random() * Math.PI * 2;
-        const radius = 4 + Math.random() * 158;
+        const radius = 4 + Math.random() * (maxRadius - 4);
         const x = Math.cos(angle) * radius;
         const z = Math.sin(angle) * radius;
         if (this.inEitherCorridor(x, z)) continue;
 
         const groundY = this.terrain.getHeightAt(x, z);
         const h = 0.28 + Math.random() * 0.32;
-        const inst = bases[bi].createInstance(`grass_${bi}_${placed}`);
-        inst.position.set(x, groundY + h / 2, z);
-        inst.rotation.y = Math.random() * Math.PI * 2;
-        inst.rotation.x = (Math.random() - 0.5) * 0.22;
-        inst.rotation.z = (Math.random() - 0.5) * 0.22;
-        inst.scaling.set(1, h / 0.42, 1);
+        matrices.push(Matrix.Compose(
+          new Vector3(1, h / 0.42, 1),
+          Quaternion.FromEulerAngles((Math.random() - 0.5) * 0.22, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.22),
+          new Vector3(x, groundY + h / 2, z),
+        ));
         placed++;
       }
+      bases[bi].thinInstanceAdd(matrices, true);
     }
   }
 
   // Dense, wispy low groundcover (ferns/clearweed) — thin double-sided
-  // "blade" instances clustered into small fern-like clumps, with a touch of
-  // emissive green so they read as backlit/translucent rather than solid.
+  // "blade" thin-instances clustered into small fern-like clumps, with a
+  // touch of emissive green so they read as backlit/translucent rather
+  // than solid. This is the single largest instance count in the forest
+  // (~17,500) — was regular instances (one full mesh-node object each),
+  // now thin instances (one matrix in a buffer each).
   private buildLowGroundcover(scene: Scene, profile: ExperienceProfile): void {
     const ps1 = profile.mode === 'ps1';
     const palette = ps1
@@ -636,39 +751,45 @@ export class ForestGenerator {
         width: 0.10, height: 0.6,
       }, scene);
       blade.material = mat;
-      blade.isVisible = false;
       this.treeMeshes.push(blade);
       return blade;
     });
+    const matricesByTemplate: Matrix[][] = bladeTemplates.map(() => []);
 
-    const clumpCount = ps1 ? 600 : 420;
+    const clumpCount = ps1 ? 950 : 650;
+    const maxRadius = profile.drawDistance * 1.15;
     let placed = 0, attempts = 0;
     while (placed < clumpCount && attempts < clumpCount * 5) {
       attempts++;
       const angle = Math.random() * Math.PI * 2;
-      const radius = 4 + Math.random() * 150;
+      const radius = 4 + Math.random() * (maxRadius - 4);
       const cx = Math.cos(angle) * radius;
       const cz = Math.sin(angle) * radius;
       if (this.inEitherCorridor(cx, cz)) continue;
 
       const groundY = this.terrain.getHeightAt(cx, cz);
-      const bladesInClump = 9 + Math.floor(Math.random() * 8);
-      const template = bladeTemplates[Math.floor(Math.random() * bladeTemplates.length)];
+      const bladesInClump = 14 + Math.floor(Math.random() * 10);
+      const ti = Math.floor(Math.random() * bladeTemplates.length);
 
       for (let b = 0; b < bladesInClump; b++) {
         const bx = cx + (Math.random() - 0.5) * 0.55;
         const bz = cz + (Math.random() - 0.5) * 0.55;
         const h = 0.35 + Math.random() * 0.5;
-        const inst = template.createInstance(`groundcover_${placed}_${b}`);
-        inst.position.set(bx, groundY + h * 0.5, bz);
-        inst.rotation.y = Math.random() * Math.PI * 2;
-        inst.rotation.x = (Math.random() - 0.5) * 0.5;
-        inst.scaling.set(1, h / 0.55, 1);
+        matricesByTemplate[ti].push(Matrix.Compose(
+          new Vector3(1, h / 0.55, 1),
+          Quaternion.FromEulerAngles((Math.random() - 0.5) * 0.5, Math.random() * Math.PI * 2, 0),
+          new Vector3(bx, groundY + h * 0.5, bz),
+        ));
       }
       placed++;
     }
+    bladeTemplates.forEach((t, i) => t.thinInstanceAdd(matricesByTemplate[i], true));
   }
 
+  // Leaves and moss were already regular instances; logs were unique
+  // geometry per log (length/radius varied per-log). All three now use
+  // thin instances — logs via a unit-size template scaled per instance
+  // instead of building bespoke geometry each time.
   private buildForestFloor(scene: Scene, profile: ExperienceProfile): void {
     const leafColors = profile.mode === 'ps1'
       ? [
@@ -692,25 +813,28 @@ export class ForestGenerator {
         scene,
       );
       base.material = mat;
-      base.isVisible = false;
       leafBases.push(base);
       this.treeMeshes.push(base);
     }
 
+    const maxRadius = profile.drawDistance * 1.15;
     const leavesPerColor = profile.mode === 'ps1' ? 260 : 110;
     for (let bi = 0; bi < leafBases.length; bi++) {
+      const matrices: Matrix[] = [];
       for (let i = 0; i < leavesPerColor; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const radius = 5 + Math.random() * 158;
+        const radius = 5 + Math.random() * (maxRadius - 5);
         const x = Math.cos(angle) * radius;
         const z = Math.sin(angle) * radius;
         const groundY = this.terrain.getHeightAt(x, z);
         const scale = 0.6 + Math.random() * 1.6;
-        const leaf = leafBases[bi].createInstance(`leaf_${bi}_${i}`);
-        leaf.position.set(x, groundY + 0.013, z);
-        leaf.rotation.y = Math.random() * Math.PI * 2;
-        leaf.scaling.setAll(scale);
+        matrices.push(Matrix.Compose(
+          new Vector3(scale, scale, scale),
+          Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+          new Vector3(x, groundY + 0.013, z),
+        ));
       }
+      leafBases[bi].thinInstanceAdd(matrices, true);
     }
 
     const mossMat = new StandardMaterial('mossMat', scene);
@@ -725,22 +849,24 @@ export class ForestGenerator {
       scene,
     );
     mossBase.material = mossMat;
-    mossBase.isVisible = false;
     this.treeMeshes.push(mossBase);
 
     const mossCount = profile.mode === 'ps1' ? 90 : 55;
+    const mossMatrices: Matrix[] = [];
     for (let i = 0; i < mossCount; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const radius = 6 + Math.random() * 140;
+      const radius = 6 + Math.random() * (maxRadius - 6);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
       const groundY = this.terrain.getHeightAt(x, z);
       const scale = 0.5 + Math.random() * 1.8;
-      const moss = mossBase.createInstance(`moss_${i}`);
-      moss.position.set(x, groundY + 0.02, z);
-      moss.rotation.y = Math.random() * Math.PI * 2;
-      moss.scaling.setAll(scale);
+      mossMatrices.push(Matrix.Compose(
+        new Vector3(scale, scale, scale),
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x, groundY + 0.02, z),
+      ));
     }
+    mossBase.thinInstanceAdd(mossMatrices, true);
 
     const logMat = new StandardMaterial('logMat', scene);
     logMat.diffuseColor = profile.mode === 'ps1'
@@ -748,10 +874,20 @@ export class ForestGenerator {
       : new Color3(0.06, 0.05, 0.04);
     logMat.specularColor = Color3.Black();
 
+    const logBase = MeshBuilder.CreateCylinder(
+      'logBase',
+      { height: 1, diameter: 1, tessellation: profile.mode === 'ps1' ? 6 : 8 },
+      scene,
+    );
+    logBase.material = logMat;
+    if (profile.mode === 'ps1') logBase.convertToFlatShadedMesh();
+    this.treeMeshes.push(logBase);
+
     const logCount = profile.mode === 'ps1' ? 42 : 28;
+    const logMatrices: Matrix[] = [];
     for (let i = 0; i < logCount; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const radius = 8 + Math.random() * 145;
+      const radius = 8 + Math.random() * (maxRadius - 8);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
       if (this.inEitherCorridor(x, z)) continue;
@@ -761,17 +897,13 @@ export class ForestGenerator {
       const logRad = 0.14 + Math.random() * 0.18;
       const yaw = Math.random() * Math.PI * 2;
 
-      const log = MeshBuilder.CreateCylinder(
-        `fallenLog_${i}`,
-        { height: logLen, diameter: logRad * 2, tessellation: profile.mode === 'ps1' ? 6 : 8 },
-        scene,
-      );
-      log.rotation.set(0, yaw, Math.PI / 2);
-      log.position.set(x, groundY + logRad, z);
-      log.material = logMat;
-      if (profile.mode === 'ps1') log.convertToFlatShadedMesh();
-      this.treeMeshes.push(log);
+      logMatrices.push(Matrix.Compose(
+        new Vector3(logRad * 2, logLen, logRad * 2),
+        Quaternion.FromEulerAngles(0, yaw, Math.PI / 2),
+        new Vector3(x, groundY + logRad, z),
+      ));
     }
+    logBase.thinInstanceAdd(logMatrices, true);
   }
 
   private buildHikingTrail(scene: Scene, profile: ExperienceProfile): void {
@@ -900,6 +1032,7 @@ export class ForestGenerator {
   dispose(): void {
     this.treeMeshes.forEach(m => m.dispose());
     this.treeMeshes = [];
-    this.towerMesh?.dispose();
+    this.lights.forEach(l => l.dispose());
+    this.lights = [];
   }
 }

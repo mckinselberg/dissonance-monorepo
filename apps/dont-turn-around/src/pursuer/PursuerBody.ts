@@ -56,6 +56,19 @@ export class PursuerBody {
     this.capsule.isVisible = visible;
   }
 
+  // The capsule's diffuse/specular are already black, but its emissiveColor
+  // (the heartbeat glow tint) was still self-illuminating it — alpha alone
+  // wasn't enough to read as a flat black silhouette instead of a glowing
+  // shape. Zero the emissive while lit (also starves the GlowLayer halo,
+  // which samples emissive) and restore it once out of the beam.
+  setIlluminated(lit: boolean): void {
+    const mat = this.capsule.material as StandardMaterial;
+    mat.alpha = lit ? 1 : 0;
+    mat.emissiveColor = lit
+      ? Color3.Black()
+      : new Color3(this.glowR, this.glowG, this.glowB);
+  }
+
   update(dt: number, pos: { x: number; z: number }, groundY: number): void {
     this.capsule.position.set(pos.x, groundY + this.height / 2, pos.z);
     this.heartbeat.update(dt);

@@ -2,6 +2,7 @@ import type { Game, GameControls } from '../game/Game';
 import type { ExperienceMode } from '@dissonance/shared-types';
 
 const STORAGE_KEY = 'dta_config';
+const PERF_MODE_STORAGE_KEY = 'dta_perf_mode';
 
 export class DevHUD {
   private panel: HTMLElement;
@@ -47,6 +48,7 @@ export class DevHUD {
     this.debugEl.innerHTML =
       row('fps', s.fps.toFixed(0)) +
       row('pursuer', `${s.pursuerState}  ${s.pursuerDistance.toFixed(1)}m  aggr ${s.pursuerAggression.toFixed(2)}  ${s.isHidden ? 'HIDDEN' : 'los'}`) +
+      row('flashlight', `LoS:${s.hasLoS ? 'Y' : 'n'}  lit:${s.isIlluminated ? 'YES' : 'no'}  range≤18m cone±22.5°`) +
       row('speed', `${s.playerSpeed.toFixed(1)} m/s  ${s.isCrouching ? 'crouch' : ''}`) +
       row('breath', bar(s.breathLoad)) +
       row('adrenaline', bar(s.adrenaline)) +
@@ -158,6 +160,29 @@ export class DevHUD {
     modeRow.appendChild(modeBtns);
     panel.appendChild(modeRow);
 
+    const currentLowSpec = localStorage.getItem(PERF_MODE_STORAGE_KEY) === 'low';
+    const lowSpecRow = document.createElement('div');
+    lowSpecRow.className = 'dh-row';
+    lowSpecRow.appendChild(el('span', 'color:#666;flex-shrink:0', 'quality'));
+    const lowSpecBtns = document.createElement('div');
+    lowSpecBtns.style.cssText = 'display:flex;gap:6px';
+    const normalBtn = modeBtn('NORMAL', !currentLowSpec, () => this.switchPerfMode(false));
+    const lowSpecBtn = modeBtn('LOW-SPEC', currentLowSpec, () => this.switchPerfMode(true));
+    lowSpecBtns.appendChild(normalBtn);
+    lowSpecBtns.appendChild(lowSpecBtn);
+    lowSpecRow.appendChild(lowSpecBtns);
+    panel.appendChild(lowSpecRow);
+
+    panel.appendChild(sectionLabel('perf (for bisecting fps)'));
+    panel.appendChild(toggleRow('shadows', true, (on) => {
+      this.controls.setShadowsEnabled(on);
+    }));
+    panel.appendChild(toggleRow('ssao', true, (on) => {
+      this.controls.setSSAOEnabled(on);
+    }));
+    panel.appendChild(toggleRow('post-fx (bloom/grain/blur)', true, (on) => {
+      this.controls.setPostFXEnabled(on);
+    }));
 
     panel.appendChild(sectionLabel('debug'));
     const debugDiv = document.createElement('div');
@@ -181,6 +206,11 @@ export class DevHUD {
     const config = raw ? JSON.parse(raw) : {};
     config.experienceMode = mode;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    window.location.reload();
+  }
+
+  private switchPerfMode(lowSpec: boolean): void {
+    localStorage.setItem(PERF_MODE_STORAGE_KEY, lowSpec ? 'low' : 'normal');
     window.location.reload();
   }
 

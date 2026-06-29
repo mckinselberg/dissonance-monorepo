@@ -1,4 +1,7 @@
-import { Engine, Scene, Vector3, MotionBlurPostProcess } from '@babylonjs/core';
+import {
+  Engine, Scene, Vector3, MotionBlurPostProcess, DefaultRenderingPipeline,
+  AbstractMesh,
+} from '@babylonjs/core';
 import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dissonance/shared-types';
 import { SceneFactory, GameLoop } from '@dissonance/engine';
 import { ForestGenerator, DaylightSystem, WeatherSystem, WatcherEffect, Terrain, CloudSystem, MountainRing } from '@dissonance/world';
@@ -27,6 +30,8 @@ export interface GameDebugState {
   isHidden: boolean;
   isCrouching: boolean;
   fps: number;
+  hasLoS: boolean;
+  isIlluminated: boolean;
 }
 
 export interface GameControls {
@@ -37,6 +42,9 @@ export interface GameControls {
   setWatcherEnabled: (enabled: boolean) => void;
   forceSpawnEyes: () => void;
   setPursuerBodyVisible: (visible: boolean) => void;
+  setSSAOEnabled: (enabled: boolean) => void;
+  setPostFXEnabled: (enabled: boolean) => void;
+  setShadowsEnabled: (enabled: boolean) => void;
 }
 
 // ~235 units away — at jog speed ~35-40s in open air, ~3-4 min through the forest
@@ -47,6 +55,14 @@ const DEST_POS = new Vector3(190, 0, 140);
 // margin inside MountainRing's RING_RADIUS (340) so the boundary is never
 // visible/felt before the mountain's own base is already in view.
 const WORLD_BOUNDARY_RADIUS = 320;
+
+// Tree count/draw distance are baked into world generation, so toggling
+// this requires a reload — same pattern as the PS1/RADIO mode switch.
+const PERF_MODE_STORAGE_KEY = 'dta_perf_mode';
+
+function readLowSpecMode(): boolean {
+  return localStorage.getItem(PERF_MODE_STORAGE_KEY) === 'low';
+}
 
 export class Game {
   private engine: Engine;
@@ -69,7 +85,12 @@ export class Game {
   private heartbeat: HeartbeatAudio;
   private proximity: ProximityOverlay;
   private colliders: Collider[] = [];
-  private motionBlur: MotionBlurPostProcess;
+  private lastHasLoS = false;
+  private lastIlluminated = false;
+  private motionBlur: MotionBlurPostProcess | null;
+  private postFXPipeline: DefaultRenderingPipeline | null;
+  private lowSpec: boolean;
+  private savedShadowCasters: AbstractMesh[] | null = null;
 
   private expProfile: ExperienceProfile;
   private runProfile: RunProfile;
@@ -82,7 +103,20 @@ export class Game {
   private hasWon = false;
 
   constructor(canvas: HTMLCanvasElement, config: GameConfig) {
+    this.lowSpec = readLowSpecMode();
     this.expProfile = EXPERIENCE_PROFILES[config.experienceMode];
+    if (this.lowSpec) {
+      // Tree count and draw distance drive total scene complexity more
+      // than anything else we control — cut both substantially, and
+      // densify fog a bit to mask the shorter visible range rather than
+      // letting it cut off abruptly.
+      this.expProfile = {
+        ...this.expProfile,
+        treeCount: Math.round(this.expProfile.treeCount * 0.4),
+        drawDistance: Math.round(this.expProfile.drawDistance * 0.65),
+        fogDensity: this.expProfile.fogDensity * 1.3,
+      };
+    }
     this.runProfile = RUN_PROFILES[config.departureTime];
 
     const { engine, scene } = SceneFactory.create(canvas, this.expProfile, this.runProfile);
@@ -104,7 +138,8 @@ export class Game {
     // clear, which is exactly what trapped the player permanently.
     this.forest = new ForestGenerator();
     this.forest.generate(
-      scene, this.expProfile, DEST_POS, this.terrain, this.daylight.getShadowGenerator(),
+      scene, this.expProfile, DEST_POS, this.terrain,
+      this.lowSpec ? undefined : this.daylight.getShadowGenerator(),
     );
     this.colliders = this.forest.getColliders();
 
@@ -116,7 +151,16 @@ export class Game {
     this.player.setColliders(this.colliders);
     this.player.setWorldBoundaryRadius(WORLD_BOUNDARY_RADIUS);
 
-    this.motionBlur = SceneFactory.createPostProcessing(scene, this.player.camera).motionBlur;
+    if (this.lowSpec) {
+      // SSAO/bloom/grain/motion-blur are all real per-pixel GPU cost —
+      // skip creating them entirely rather than creating-then-disabling.
+      this.motionBlur = null;
+      this.postFXPipeline = null;
+    } else {
+      const postFX = SceneFactory.createPostProcessing(scene, this.player.camera);
+      this.motionBlur = postFX.motionBlur;
+      this.postFXPipeline = postFX.pipeline;
+    }
 
     this.weather = new WeatherSystem(scene);
     this.weather.setMode('clear');
@@ -161,14 +205,28 @@ export class Game {
     // below stay blur-free), ramping to its max at full sprint — a
     // constant blur regardless of movement just reads as a smeared image,
     // not as "you're moving fast."
-    const runFactor = Math.max(0, Math.min(1,
-      (speed - PLAYER_CONFIG.jogSpeed) / (PLAYER_CONFIG.sprintSpeed - PLAYER_CONFIG.jogSpeed),
-    ));
-    this.motionBlur.motionStrength = runFactor * 0.12;
+    if (this.motionBlur) {
+      const runFactor = Math.max(0, Math.min(1,
+        (speed - PLAYER_CONFIG.jogSpeed) / (PLAYER_CONFIG.sprintSpeed - PLAYER_CONFIG.jogSpeed),
+      ));
+      this.motionBlur.motionStrength = runFactor * 0.12;
+    }
 
     const playerPos2d = { x: playerPos.x, z: playerPos.z };
     const hasLoS = this.checkLineOfSight(playerPos2d, this.pursuerPos);
-    this.pursuer.update(dt, speed, playerPos2d, this.pursuerPos, hasLoS, this.player.isCrouching);
+
+    // Illumination check happens before pursuer.update() moves the
+    // pursuer — one frame stale against where it ends up, imperceptible
+    // at frame rate, but needed so the flee response can feed into the
+    // same update() call that would otherwise have it approach.
+    const preMoveGroundY = this.terrain.getHeightAt(this.pursuerPos.x, this.pursuerPos.z);
+    const pursuerCenter = new Vector3(this.pursuerPos.x, preMoveGroundY + 0.9, this.pursuerPos.z);
+    const isIlluminated = hasLoS && this.player.isPointIlluminated(pursuerCenter);
+    this.pursuerBody.setIlluminated(isIlluminated);
+    this.lastHasLoS = hasLoS;
+    this.lastIlluminated = isIlluminated;
+
+    this.pursuer.update(dt, speed, playerPos2d, this.pursuerPos, hasLoS, this.player.isCrouching, isIlluminated);
     const pursuerModel = this.pursuer.getModel();
     this.player.adrenaline.update(dt, pursuerModel.state);
 
@@ -388,6 +446,8 @@ export class Game {
       isHidden: this.pursuer.getModel().isHidden,
       isCrouching: this.player.isCrouching,
       fps: this.engine.getFps(),
+      hasLoS: this.lastHasLoS,
+      isIlluminated: this.lastIlluminated,
     };
   }
 
@@ -408,6 +468,34 @@ export class Game {
         );
       },
       setPursuerBodyVisible: (visible) => this.pursuerBody.setVisible(visible),
+      setSSAOEnabled: (enabled) => {
+        if (enabled) {
+          this.scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline('ssao', this.player.camera);
+        } else {
+          this.scene.postProcessRenderPipelineManager.detachCamerasFromRenderPipeline('ssao', this.player.camera);
+        }
+      },
+      setPostFXEnabled: (enabled) => {
+        if (!this.postFXPipeline || !this.motionBlur) return;
+        this.postFXPipeline.bloomEnabled = enabled;
+        this.postFXPipeline.grainEnabled = enabled;
+        this.postFXPipeline.imageProcessingEnabled = enabled;
+        if (enabled) {
+          this.player.camera.attachPostProcess(this.motionBlur);
+        } else {
+          this.player.camera.detachPostProcess(this.motionBlur);
+        }
+      },
+      setShadowsEnabled: (enabled) => {
+        const shadowMap = this.daylight.getShadowGenerator().getShadowMap()!;
+        if (!enabled) {
+          this.savedShadowCasters = (shadowMap.renderList ?? []).slice();
+          shadowMap.renderList = [];
+        } else if (this.savedShadowCasters) {
+          shadowMap.renderList = this.savedShadowCasters;
+          this.savedShadowCasters = null;
+        }
+      },
     };
   }
 
