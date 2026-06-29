@@ -100,150 +100,190 @@ export class ForestGenerator {
     return this.inTrailCorridor(x, z) || this.inHikingTrailCorridor(x, z);
   }
 
-  // A 4×4 grid of test trees near the world origin — one axis varies trunk
-  // width, the other varies height (range confirmed good as-is, kept as
-  // randomizable variety rather than converging on one size). Canopy
-  // alternates conifer (cone) / deciduous (flattened dome) checkerboard-
-  // style across the grid so both styles are visible across the full size
-  // range side by side.
-  private buildTestTree(scene: Scene, profile: ExperienceProfile): void {
-    const ps1 = profile.mode === 'ps1';
-    const widths = [0.12, 0.19, 0.27, 0.34];
-    const heights = [4, 7, 10, 13];
-    const spacing = 4;
+  // Per-tree/per-blob color jitter — a shared material means every canopy
+  // piece is the *exact* same shade, which alone makes a forest read as
+  // copy-pasted. Green swings further than red/blue since that's the
+  // channel that actually reads as "this leaf mass vs that one."
+  private jitterColor(base: Color3): Color3 {
+    return new Color3(
+      Math.max(0, base.r + (Math.random() - 0.5) * 0.08),
+      Math.max(0, base.g + (Math.random() - 0.5) * 0.22),
+      Math.max(0, base.b + (Math.random() - 0.5) * 0.06),
+    );
+  }
 
-    const trunkMat = new PBRMaterial('testTreeTrunkMat', scene);
-    trunkMat.albedoColor = new Color3(0.36, 0.16, 0.07);
+  // Builds one fully-randomized tree (trunk + conifer tiers or deciduous
+  // dome+clumps) at local origin, then merges every part into a single
+  // mesh. Called a fixed number of times up front to bake a small library
+  // of unique trees — the design itself (widths/heights/tier counts/colors)
+  // is exactly what was validated in the test grid, just no longer
+  // rebuilt fresh per scattered tree.
+  private buildOneTreeTemplate(scene: Scene, profile: ExperienceProfile, id: number): { mesh: Mesh; radius: number } {
+    const ps1 = profile.mode === 'ps1';
+    const height = 4 + Math.random() * 9;
+    const baseRad = 0.12 + Math.random() * 0.22;
+    const topRad = baseRad * 0.75;
+    const lean = (Math.random() - 0.5) * 0.12;
+    const seed = Math.floor(Math.random() * 100000);
+    const parts: Mesh[] = [];
+
+    const trunkMat = new PBRMaterial(`treeTrunkMat_${id}`, scene);
+    trunkMat.albedoColor = this.jitterColor(new Color3(0.36, 0.16, 0.07));
     trunkMat.metallic = 0;
     trunkMat.roughness = 0.85;
 
-    const coniferMat = new PBRMaterial('testTreeConiferMat', scene);
-    coniferMat.albedoColor = new Color3(0.06, 0.26, 0.10);
-    coniferMat.metallic = 0;
-    coniferMat.roughness = 0.7;
+    const trunk = MeshBuilder.CreateCylinder(`tree_${id}_trunk`, {
+      height,
+      diameterBottom: baseRad * 2,
+      diameterTop: topRad * 2,
+      tessellation: ps1 ? 6 : 8,
+    }, scene);
+    trunk.position.set(0, height / 2, 0);
+    trunk.rotation.set(lean, Math.random() * Math.PI * 2, lean * 0.6);
+    trunk.material = trunkMat;
+    if (ps1) trunk.convertToFlatShadedMesh();
+    parts.push(trunk);
 
-    const deciduousMat = new PBRMaterial('testTreeDeciduousMat', scene);
-    deciduousMat.albedoColor = new Color3(0.16, 0.34, 0.06);
-    deciduousMat.metallic = 0;
-    deciduousMat.roughness = 0.6;
+    const isConifer = Math.random() < 0.5;
+    const apexY = height;
 
-    for (let wi = 0; wi < widths.length; wi++) {
-      for (let hi = 0; hi < heights.length; hi++) {
+    if (isConifer) {
+      const coniferMat = new PBRMaterial(`treeConiferMat_${id}`, scene);
+      coniferMat.albedoColor = new Color3(0.06, 0.26, 0.10);
+      coniferMat.metallic = 0;
+      coniferMat.roughness = 0.7;
+
+      const angleSeed = Math.random();
+      const coneBaseWidth = baseRad * 4 + height * (0.22 + angleSeed * 0.28);
+      const coneHeight = height * (0.7 + Math.random() * 0.25);
+      const tierCount = 3 + Math.floor(Math.random() * 3);
+      const gapFrac = 0.12 + Math.random() * 0.12;
+      let cursorY = apexY;
+
+      for (let t = 0; t < tierCount; t++) {
+        const tFrac = (t + 1) / tierCount;
+        const tierHeight = (coneHeight / tierCount) * (0.85 + Math.random() * 0.25);
+        const tierBottomDiam = coneBaseWidth * (0.35 + tFrac * 0.65) * (0.85 + Math.random() * 0.3);
+        const tierTopDiam = t === 0 ? 0 : tierBottomDiam * (0.25 + Math.random() * 0.15);
+
+        const tier = MeshBuilder.CreateCylinder(`tree_${id}_tier_${t}`, {
+          height: tierHeight,
+          diameterTop: tierTopDiam,
+          diameterBottom: tierBottomDiam,
+          tessellation: ps1 ? 6 : 9,
+          subdivisions: 2,
+        }, scene);
+        displaceRadial(tier, 0.28, seed + t * 53 + 11);
+        const ox = (Math.random() - 0.5) * tierBottomDiam * 0.15;
+        const oz = (Math.random() - 0.5) * tierBottomDiam * 0.15;
+        tier.position.set(ox, cursorY - tierHeight / 2, oz);
+        tier.rotation.y = Math.random() * Math.PI * 2;
+        const tierMat = coniferMat.clone(`treeConiferMat_${id}_${t}`);
+        tierMat.albedoColor = this.jitterColor(coniferMat.albedoColor);
+        tier.material = tierMat;
+        if (ps1) tier.convertToFlatShadedMesh();
+        parts.push(tier);
+
+        cursorY -= tierHeight * (1 + gapFrac);
+      }
+    } else {
+      const deciduousMat = new PBRMaterial(`treeDeciduousMat_${id}`, scene);
+      deciduousMat.albedoColor = new Color3(0.16, 0.34, 0.06);
+      deciduousMat.metallic = 0;
+      deciduousMat.roughness = 0.6;
+
+      // Superlinear in height (not just a flat fraction) — taller trees
+      // get a disproportionately bigger canopy, not just a scaled-up copy
+      // of a small tree's canopy.
+      const canopyWidth = Math.pow(height, 1.12) * 0.38;
+
+      const dome = MeshBuilder.CreateSphere(`tree_${id}_canopy`, {
+        diameter: canopyWidth, segments: ps1 ? 6 : 10,
+      }, scene);
+      displaceToBlob(dome, 0.4, 2.2, seed);
+      dome.scaling.set(
+        0.85 + Math.random() * 0.3,
+        0.5 + Math.random() * 0.15,
+        0.85 + Math.random() * 0.3,
+      );
+      dome.position.set(0, height - canopyWidth * 0.12, 0);
+      dome.rotation.y = Math.random() * Math.PI * 2;
+      const domeMat = deciduousMat.clone(`treeDeciduousMat_${id}_dome`);
+      domeMat.albedoColor = this.jitterColor(deciduousMat.albedoColor);
+      dome.material = domeMat;
+      if (ps1) dome.convertToFlatShadedMesh();
+      parts.push(dome);
+
+      const clumpCount = 3 + Math.floor(Math.random() * 3);
+      for (let c = 0; c < clumpCount; c++) {
+        const ox = (Math.random() - 0.5) * (canopyWidth * 0.6 + baseRad * 2);
+        const oz = (Math.random() - 0.5) * (canopyWidth * 0.6 + baseRad * 2);
+        const oy = (Math.random() - 0.3) * (height * 0.18);
+        const clumpDiam = canopyWidth * (0.4 + Math.random() * 0.35);
+
+        const clump = MeshBuilder.CreateSphere(`tree_${id}_clump_${c}`, {
+          diameter: clumpDiam, segments: ps1 ? 5 : 8,
+        }, scene);
+        displaceToBlob(clump, 0.45, 2.4, seed + c * 31 + 7);
+        clump.scaling.set(
+          0.8 + Math.random() * 0.4,
+          0.55 + Math.random() * 0.25,
+          0.8 + Math.random() * 0.4,
+        );
+        clump.position.set(ox, height - canopyWidth * 0.12 + oy, oz);
+        clump.rotation.y = Math.random() * Math.PI * 2;
+        const clumpMat = deciduousMat.clone(`treeDeciduousMat_${id}_${c}`);
+        clumpMat.albedoColor = this.jitterColor(deciduousMat.albedoColor);
+        clump.material = clumpMat;
+        if (ps1) clump.convertToFlatShadedMesh();
+        parts.push(clump);
+      }
+    }
+
+    const merged = Mesh.MergeMeshes(parts, true, true, undefined, false, true);
+    if (!merged) throw new Error(`tree template ${id} failed to merge`);
+    merged.name = `treeTemplate_${id}`;
+    merged.isVisible = false;
+    this.treeMeshes.push(merged);
+
+    return { mesh: merged, radius: baseRad + 0.1 };
+  }
+
+  // Bakes a fixed library of unique trees once. Every scattered tree
+  // afterward is a cheap GPU instance of one of these, not unique geometry —
+  // the whole point of moving past the per-tree-build test grid.
+  private buildTreeTemplates(
+    scene: Scene, profile: ExperienceProfile, count: number,
+  ): { mesh: Mesh; radius: number }[] {
+    const templates: { mesh: Mesh; radius: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      templates.push(this.buildOneTreeTemplate(scene, profile, i));
+    }
+    return templates;
+  }
+
+  // 4×4 grid near the world origin, each cell a cheap instance of a
+  // randomly-picked baked template — proves the factory works before
+  // scattering templates across the whole map.
+  private buildTestTree(scene: Scene, profile: ExperienceProfile): void {
+    const templates = this.buildTreeTemplates(scene, profile, 24);
+    const gridSize = 4;
+    const spacing = 4;
+    let idx = 0;
+
+    for (let wi = 0; wi < gridSize; wi++) {
+      for (let hi = 0; hi < gridSize; hi++) {
         const x = wi * spacing;
         const z = hi * spacing;
         const groundY = this.terrain.getHeightAt(x, z);
 
-        const height = heights[hi];
-        const baseRad = widths[wi];
-        const topRad = baseRad * 0.75;
-        const lean = (Math.random() - 0.5) * 0.12;
+        const { mesh, radius } = templates[Math.floor(Math.random() * templates.length)];
+        const inst = mesh.createInstance(`testTreeInst_${idx++}`);
+        inst.position.set(x, groundY, z);
+        inst.rotation.y = Math.random() * Math.PI * 2;
+        this.addCasters([inst]);
 
-        const trunk = MeshBuilder.CreateCylinder(`testTree_${wi}_${hi}`, {
-          height,
-          diameterBottom: baseRad * 2,
-          diameterTop: topRad * 2,
-          tessellation: ps1 ? 6 : 8,
-        }, scene);
-        trunk.position.set(x, groundY + height / 2, z);
-        trunk.rotation.set(lean, Math.random() * Math.PI * 2, lean * 0.6);
-        trunk.material = trunkMat;
-        if (ps1) trunk.convertToFlatShadedMesh();
-        this.treeMeshes.push(trunk);
-        this.addCasters([trunk]);
-
-        const isConifer = (wi + hi) % 2 === 0;
-        const canopyWidth = height * 0.4;
-        const seed = wi * 47 + hi * 113;
-
-        // Per-tree/per-blob material clone with a randomized color — a
-        // shared material means every canopy piece is the *exact* same
-        // shade, which alone makes a forest read as copy-pasted. Green
-        // swings further than red/blue since that's the channel that
-        // actually reads as "this leaf mass vs that one."
-        const jitterColor = (base: Color3): Color3 => new Color3(
-          Math.max(0, base.r + (Math.random() - 0.5) * 0.08),
-          Math.max(0, base.g + (Math.random() - 0.5) * 0.22),
-          Math.max(0, base.b + (Math.random() - 0.5) * 0.06),
-        );
-
-        if (isConifer) {
-          // The "triangle angle" — base width relative to height — comes
-          // from the trunk's own height/width plus a random seed, instead
-          // of one fixed ratio for every conifer. Apex is pinned exactly at
-          // the tree's top; the base falls wherever coneHeight puts it,
-          // generously overlapping the trunk rather than floating above it.
-          const angleSeed = Math.random();
-          const coneBaseWidth = baseRad * 4 + height * (0.22 + angleSeed * 0.28);
-          const coneHeight = height * (0.7 + Math.random() * 0.25);
-          const cone = MeshBuilder.CreateCylinder(`testTree_${wi}_${hi}_canopy`, {
-            height: coneHeight,
-            diameterTop: 0,
-            diameterBottom: coneBaseWidth,
-            tessellation: ps1 ? 7 : 10,
-            subdivisions: 4,
-          }, scene);
-          displaceRadial(cone, 0.3, seed);
-          const apexY = groundY + height;
-          cone.position.set(x, apexY - coneHeight / 2, z);
-          cone.scaling.set(0.85 + Math.random() * 0.3, 1, 0.85 + Math.random() * 0.3);
-          cone.rotation.y = Math.random() * Math.PI * 2;
-          const coneMat = coniferMat.clone(`testTreeConiferMat_${wi}_${hi}`);
-          coneMat.albedoColor = jitterColor(coniferMat.albedoColor);
-          cone.material = coneMat;
-          if (ps1) cone.convertToFlatShadedMesh();
-          this.treeMeshes.push(cone);
-          this.addCasters([cone]);
-        } else {
-          const dome = MeshBuilder.CreateSphere(`testTree_${wi}_${hi}_canopy`, {
-            diameter: canopyWidth, segments: ps1 ? 6 : 10,
-          }, scene);
-          displaceToBlob(dome, 0.4, 2.2, seed);
-          dome.scaling.set(
-            0.85 + Math.random() * 0.3,
-            0.5 + Math.random() * 0.15,
-            0.85 + Math.random() * 0.3,
-          );
-          // sink into the trunk top instead of resting exactly on it
-          dome.position.set(x, groundY + height - canopyWidth * 0.12, z);
-          dome.rotation.y = Math.random() * Math.PI * 2;
-          const domeMat = deciduousMat.clone(`testTreeDeciduousMat_${wi}_${hi}`);
-          domeMat.albedoColor = jitterColor(deciduousMat.albedoColor);
-          dome.material = domeMat;
-          if (ps1) dome.convertToFlatShadedMesh();
-          this.treeMeshes.push(dome);
-          this.addCasters([dome]);
-
-          // A handful of extra small blobs clustered around the main dome,
-          // offset relative to the trunk's own height/width — breaks the
-          // "one perfect sphere" look into a clumpier, more clustered crown.
-          const clumpCount = 3 + Math.floor(Math.random() * 3);
-          for (let c = 0; c < clumpCount; c++) {
-            const ox = (Math.random() - 0.5) * (canopyWidth * 0.6 + baseRad * 2);
-            const oz = (Math.random() - 0.5) * (canopyWidth * 0.6 + baseRad * 2);
-            const oy = (Math.random() - 0.3) * (height * 0.18);
-            const clumpDiam = canopyWidth * (0.4 + Math.random() * 0.35);
-
-            const clump = MeshBuilder.CreateSphere(`testTree_${wi}_${hi}_clump_${c}`, {
-              diameter: clumpDiam, segments: ps1 ? 5 : 8,
-            }, scene);
-            displaceToBlob(clump, 0.45, 2.4, seed + c * 31 + 7);
-            clump.scaling.set(
-              0.8 + Math.random() * 0.4,
-              0.55 + Math.random() * 0.25,
-              0.8 + Math.random() * 0.4,
-            );
-            clump.position.set(x + ox, groundY + height - canopyWidth * 0.12 + oy, z + oz);
-            clump.rotation.y = Math.random() * Math.PI * 2;
-            const clumpMat = deciduousMat.clone(`testTreeDeciduousMat_${wi}_${hi}_${c}`);
-            clumpMat.albedoColor = jitterColor(deciduousMat.albedoColor);
-            clump.material = clumpMat;
-            if (ps1) clump.convertToFlatShadedMesh();
-            this.treeMeshes.push(clump);
-            this.addCasters([clump]);
-          }
-        }
-
-        this._colliders.push({ x, z, radius: baseRad + 0.1 });
+        this._colliders.push({ x, z, radius });
       }
     }
   }

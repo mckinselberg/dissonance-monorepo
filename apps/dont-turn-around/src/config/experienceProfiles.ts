@@ -15,12 +15,17 @@ export const EXPERIENCE_PROFILES: Record<ExperienceMode, ExperienceProfile> = {
   ps1: {
     mode: 'ps1',
     treeCount: 1000,
-    fogDensity: 0.04,
+    // Was (0.42, 0.52, 0.35) — a saturated olive-green that, combined with
+    // exponential falloff, painted everything within ~30 units a flat
+    // green and erased all the tree-color variation work. Neutralized
+    // toward a grayer haze and the density lowered so material color
+    // actually survives into the midground instead of washing out early.
+    fogDensity: 0.028,
     drawDistance: 80,
     ambientIntensity: 0.28,
     visualNoise: 0.0,
     audioLoFiAmount: 0.1,
-    fogColor: { r: 0.42, g: 0.52, b: 0.35 },
+    fogColor: { r: 0.32, g: 0.36, b: 0.30 },
     skyColor: { r: 0.18, g: 0.28, b: 0.44 },
   },
 };
