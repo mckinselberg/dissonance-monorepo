@@ -46,9 +46,7 @@ export class ForestGenerator {
     this.terrain = terrain;
     this._colliders = [];
     this.shadowGenerator = shadowGenerator;
-    // Trees deliberately removed — redesigning from scratch, one simple
-    // tree at a time, before scattering anything across the world again.
-    this.buildTestTree(scene, profile);
+    this.buildForest(scene, profile, destinationPos);
     this.buildDestinationTower(scene, profile, destinationPos);
     this.buildRocks(scene, profile);
     this.buildRockOutcrops(scene, profile);
@@ -262,28 +260,67 @@ export class ForestGenerator {
     return templates;
   }
 
-  // 4×4 grid near the world origin, each cell a cheap instance of a
-  // randomly-picked baked template — proves the factory works before
-  // scattering templates across the whole map.
-  private buildTestTree(scene: Scene, profile: ExperienceProfile): void {
-    const templates = this.buildTreeTemplates(scene, profile, 24);
-    const gridSize = 4;
-    const spacing = 4;
-    let idx = 0;
+  // Bakes the template library once, then scatters cheap instances of it
+  // across the whole map (avoiding trail corridors and a clearing around
+  // the destination), plus a denser flanking wall along the dead-end trail.
+  private buildForest(scene: Scene, profile: ExperienceProfile, destinationPos: Vector3): void {
+    const templates = this.buildTreeTemplates(scene, profile, 30);
 
-    for (let wi = 0; wi < gridSize; wi++) {
-      for (let hi = 0; hi < gridSize; hi++) {
-        const x = wi * spacing;
-        const z = hi * spacing;
+    let placed = 0;
+    let attempts = 0;
+    const maxAttempts = profile.treeCount * 8;
+
+    while (placed < profile.treeCount && attempts < maxAttempts) {
+      attempts++;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 8 + Math.random() * 160;
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+
+      if (this.inEitherCorridor(x, z)) continue;
+      const tdx = x - destinationPos.x, tdz = z - destinationPos.z;
+      if (tdx * tdx + tdz * tdz < 36) continue;
+
+      const groundY = this.terrain.getHeightAt(x, z);
+      const { mesh: template, radius: rad } = templates[Math.floor(Math.random() * templates.length)];
+      const inst = template.createInstance(`tree_${placed}`);
+      inst.position.set(x, groundY, z);
+      inst.rotation.y = Math.random() * Math.PI * 2;
+      const scale = 0.85 + Math.random() * 0.45;
+      inst.scaling.setAll(scale);
+      this.addCasters([inst]);
+
+      this._colliders.push({ x, z, radius: rad * scale });
+      placed++;
+    }
+
+    this.buildTrailWalls(templates);
+  }
+
+  private buildTrailWalls(templates: { mesh: Mesh; radius: number }[]): void {
+    const wallTreeCount = 28;
+    const perp = new Vector3(-TRAIL_DIR.z, 0, TRAIL_DIR.x);
+
+    for (let i = 0; i < wallTreeCount; i++) {
+      const t = (i / wallTreeCount) * TRAIL_LENGTH;
+      const cx = TRAIL_START.x + TRAIL_DIR.x * t;
+      const cz = TRAIL_START.z + TRAIL_DIR.z * t;
+
+      for (const side of [-1, 1]) {
+        const jitter = (Math.random() - 0.5) * 2.5;
+        const x = cx + perp.x * (TRAIL_WIDTH + 1.5 + jitter);
+        const z = cz + perp.z * (TRAIL_WIDTH + 1.5 + jitter);
         const groundY = this.terrain.getHeightAt(x, z);
 
-        const { mesh, radius } = templates[Math.floor(Math.random() * templates.length)];
-        const inst = mesh.createInstance(`testTreeInst_${idx++}`);
+        const { mesh: template, radius: rad } = templates[Math.floor(Math.random() * templates.length)];
+        const inst = template.createInstance(`trailTree_${i}_${side}`);
         inst.position.set(x, groundY, z);
         inst.rotation.y = Math.random() * Math.PI * 2;
+        const scale = 0.8 + Math.random() * 0.4;
+        inst.scaling.setAll(scale);
         this.addCasters([inst]);
 
-        this._colliders.push({ x, z, radius });
+        this._colliders.push({ x, z, radius: rad * scale });
       }
     }
   }
