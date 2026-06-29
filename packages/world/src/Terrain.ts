@@ -94,18 +94,25 @@ export class Terrain {
         const wx = (ix / GRID_RES - 0.5) * WORLD_SIZE;
         const wz = (iz / GRID_RES - 0.5) * WORLD_SIZE;
 
-        let h = macro(wx * MACRO_SCALE, wz * MACRO_SCALE) * MACRO_HEIGHT
-          + fbm(wx * NOISE_SCALE, wz * NOISE_SCALE) * MAX_HEIGHT
-          + wx * TILT_GRADE;
+        // Flattening near spawn/destination zeroes out the *bumps* only —
+        // the tilt is the base elevation real ground at that location
+        // actually sits at. Flattening it away too (as a previous version
+        // did) forced those clearings down to literal height 0 regardless
+        // of the surrounding tilted ground, creating a cliff at the
+        // flatten radius boundary — exactly what put the car/parking lot
+        // below the nearby trail surface near the (190, 140) destination,
+        // where the tilt term is ~20 units.
+        let bumps = macro(wx * MACRO_SCALE, wz * MACRO_SCALE) * MACRO_HEIGHT
+          + fbm(wx * NOISE_SCALE, wz * NOISE_SCALE) * MAX_HEIGHT;
 
         const dStart = Math.sqrt(wx * wx + wz * wz);
-        if (dStart < 20) h *= Math.pow(dStart / 20, 2);
+        if (dStart < 20) bumps *= Math.pow(dStart / 20, 2);
 
         const ddx = wx - 190, ddz = wz - 140;
         const dDest = Math.sqrt(ddx * ddx + ddz * ddz);
-        if (dDest < 16) h *= Math.pow(dDest / 16, 2);
+        if (dDest < 16) bumps *= Math.pow(dDest / 16, 2);
 
-        grid[iz * n + ix] = h;
+        grid[iz * n + ix] = bumps + wx * TILT_GRADE;
       }
     }
     return grid;
