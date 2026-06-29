@@ -21,7 +21,7 @@ const TRAIL_LENGTH = 90;
 const TRAIL_WIDTH = 7;
 const TRAIL_START = new Vector3(6, 0, 4);
 
-const HIKING_TRAIL_WIDTH = 3.8;
+const HIKING_TRAIL_WIDTH = 1.9;
 const HIKING_WAYPOINTS: [number, number][] = [
   [8, 6],   [22, 17],  [40, 30],  [54, 48],
   [72, 56], [92, 70],  [114, 86], [134, 100],
@@ -307,6 +307,38 @@ export class ForestGenerator {
       placed++;
     }
 
+    // Sparse outer ring, reusing the same baked templates — extends the
+    // "this is a forest" silhouette out toward the world boundary without
+    // paying dense-forest cost that far out (mostly fog-hidden anyway,
+    // just enough visible above/through it to not read as an abrupt edge).
+    const outerRadius = 300;
+    const outerCount = 200;
+    let outerPlaced = 0, outerAttempts = 0;
+    while (outerPlaced < outerCount && outerAttempts < outerCount * 8) {
+      outerAttempts++;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = maxRadius + Math.random() * (outerRadius - maxRadius);
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+
+      if (this.inEitherCorridor(x, z)) continue;
+      const tdx = x - destinationPos.x, tdz = z - destinationPos.z;
+      if (tdx * tdx + tdz * tdz < 36) continue;
+
+      const groundY = this.terrain.getHeightAt(x, z);
+      const ti = Math.floor(Math.random() * templates.length);
+      const rad = templates[ti].radius;
+      const scale = 0.85 + Math.random() * 0.45;
+      matricesByTemplate[ti].push(Matrix.Compose(
+        new Vector3(scale, scale, scale),
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x, groundY, z),
+      ));
+
+      this._colliders.push({ x, z, radius: rad * scale });
+      outerPlaced++;
+    }
+
     this.buildTrailWalls(templates, matricesByTemplate);
 
     templates.forEach((t, i) => {
@@ -463,10 +495,14 @@ export class ForestGenerator {
     const ps1 = profile.mode === 'ps1';
     const groundY = this.terrain.getHeightAt(pos.x, pos.z);
 
+    // Car scaled up ~1.45x from the original boxes — lot/lamp placement
+    // grown to match so the car doesn't crowd the clearing.
+    const carScale = 1.45;
+
     const lotMat = new StandardMaterial('parkingLotMat', scene);
     lotMat.diffuseColor = new Color3(0.10, 0.10, 0.11);
     lotMat.specularColor = Color3.Black();
-    const lot = MeshBuilder.CreateBox('parkingLot', { width: 16, height: 0.1, depth: 12 }, scene);
+    const lot = MeshBuilder.CreateBox('parkingLot', { width: 20, height: 0.1, depth: 14 }, scene);
     lot.position.set(pos.x, groundY + 0.05, pos.z);
     lot.material = lotMat;
     this.treeMeshes.push(lot);
@@ -483,15 +519,19 @@ export class ForestGenerator {
     wheelMat.diffuseColor = new Color3(0.03, 0.03, 0.03);
     wheelMat.specularColor = Color3.Black();
 
-    const bodyY = groundY + 0.55;
-    const body = MeshBuilder.CreateBox('carBody', { width: 1.8, height: 1.0, depth: 4.2 }, scene);
+    const bodyY = groundY + 0.55 * carScale;
+    const body = MeshBuilder.CreateBox('carBody', {
+      width: 1.8 * carScale, height: 1.0 * carScale, depth: 4.2 * carScale,
+    }, scene);
     body.position.set(pos.x, bodyY, pos.z);
     body.material = bodyMat;
     if (ps1) body.convertToFlatShadedMesh();
     this.treeMeshes.push(body);
 
-    const cabin = MeshBuilder.CreateBox('carCabin', { width: 1.5, height: 0.7, depth: 2.2 }, scene);
-    cabin.position.set(pos.x, bodyY + 0.85, pos.z - 0.3);
+    const cabin = MeshBuilder.CreateBox('carCabin', {
+      width: 1.5 * carScale, height: 0.7 * carScale, depth: 2.2 * carScale,
+    }, scene);
+    cabin.position.set(pos.x, bodyY + 0.85 * carScale, pos.z - 0.3 * carScale);
     cabin.material = glassMat;
     if (ps1) cabin.convertToFlatShadedMesh();
     this.treeMeshes.push(cabin);
@@ -501,10 +541,10 @@ export class ForestGenerator {
     ];
     for (const [wx, wz] of wheelOffsets) {
       const wheel = MeshBuilder.CreateCylinder('carWheel', {
-        height: 0.35, diameter: 0.7, tessellation: ps1 ? 8 : 12,
+        height: 0.35 * carScale, diameter: 0.7 * carScale, tessellation: ps1 ? 8 : 12,
       }, scene);
       wheel.rotation.z = Math.PI / 2;
-      wheel.position.set(pos.x + wx, groundY + 0.35, pos.z + wz);
+      wheel.position.set(pos.x + wx * carScale, groundY + 0.35 * carScale, pos.z + wz * carScale);
       wheel.material = wheelMat;
       if (ps1) wheel.convertToFlatShadedMesh();
       this.treeMeshes.push(wheel);
@@ -519,7 +559,7 @@ export class ForestGenerator {
     lampMat.emissiveColor = new Color3(1.0, 0.85, 0.55);
     lampMat.specularColor = Color3.Black();
 
-    const lampOffsets: [number, number][] = [[-6, 4], [6, -4]];
+    const lampOffsets: [number, number][] = [[-7.5, 5], [7.5, -5]];
     for (const [lx, lz] of lampOffsets) {
       const lampGroundY = this.terrain.getHeightAt(pos.x + lx, pos.z + lz);
       const poleHeight = 4.2;
@@ -933,20 +973,36 @@ export class ForestGenerator {
     for (let i = 0; i < pts.length - 1; i++) {
       const [ax, az] = pts[i];
       const [bx, bz] = pts[i + 1];
-      const mx = (ax + bx) / 2, mz = (az + bz) / 2;
       const ddx = bx - ax, ddz = bz - az;
       const len = Math.sqrt(ddx * ddx + ddz * ddz);
-      const groundY = this.terrain.getHeightAt(mx, mz);
+      const yaw = Math.atan2(ddx, ddz);
 
-      const strip = MeshBuilder.CreateBox(`trailStrip_${i}`, {
-        width: HIKING_TRAIL_WIDTH * 2,
-        height: 0.06,
-        depth: len + 1.8,
-      }, scene);
-      strip.position.set(mx, groundY + 0.03, mz);
-      strip.rotation.y = Math.atan2(ddx, ddz);
-      strip.material = dirtMat;
-      this.treeMeshes.push(strip);
+      // Each waypoint-to-waypoint gap used to be one flat box sampled at
+      // its midpoint height only — fine on flat ground, but it clips into
+      // or floats above the now-hillier/tilted terrain along its length.
+      // Splitting into shorter sub-boxes, each pitched to the slope between
+      // its own two endpoints, makes the path follow the grade instead.
+      const subCount = Math.max(1, Math.ceil(len / 8));
+      const subLen = len / subCount;
+      for (let s = 0; s < subCount; s++) {
+        const t0 = s / subCount, t1 = (s + 1) / subCount;
+        const x0 = ax + t0 * ddx, z0 = az + t0 * ddz;
+        const x1 = ax + t1 * ddx, z1 = az + t1 * ddz;
+        const y0 = this.terrain.getHeightAt(x0, z0);
+        const y1 = this.terrain.getHeightAt(x1, z1);
+        const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
+        const slope = Math.atan2(y1 - y0, subLen);
+
+        const strip = MeshBuilder.CreateBox(`trailStrip_${i}_${s}`, {
+          width: HIKING_TRAIL_WIDTH * 2,
+          height: 0.06,
+          depth: subLen + 0.4,
+        }, scene);
+        strip.position.set(mx, my + 0.03, mz);
+        strip.rotation.set(-slope, yaw, 0);
+        strip.material = dirtMat;
+        this.treeMeshes.push(strip);
+      }
 
       if (i === 0 || i === pts.length - 2) {
         const jx = i === 0 ? ax : bx;

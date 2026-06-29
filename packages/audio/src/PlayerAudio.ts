@@ -40,7 +40,7 @@ export class PlayerAudio {
     this.clearFootstepInterval();
     this.activeIntervalMs = intervalMs;
     this.footstepInterval = window.setInterval(() => {
-      const vol = -21 + this.currentBreathLoad * 5 + (Math.random() - 0.5) * 2;
+      const vol = -10 + this.currentBreathLoad * 6 + (Math.random() - 0.5) * 2;
       const crack = Math.random() < 0.20;
       const pan = (Math.random() - 0.5) * 0.15;
       AudioEngine.playForestStep(pan, vol, crack);

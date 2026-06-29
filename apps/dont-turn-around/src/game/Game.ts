@@ -16,6 +16,7 @@ import { DestinationSystem } from '../world/DestinationSystem';
 import { PursuerAudio } from '../pursuer/PursuerAudio';
 import { PursuerBody } from '../pursuer/PursuerBody';
 import { ProximityOverlay } from '../ui/ProximityOverlay';
+import { BreathOverlay } from '../ui/BreathOverlay';
 
 export interface GameDebugState {
   pursuerState: PursuerState;
@@ -84,6 +85,7 @@ export class Game {
   private mountains: MountainRing;
   private heartbeat: HeartbeatAudio;
   private proximity: ProximityOverlay;
+  private breathOverlay: BreathOverlay;
   private colliders: Collider[] = [];
   private lastHasLoS = false;
   private lastIlluminated = false;
@@ -175,6 +177,7 @@ export class Game {
 
     this.heartbeat = new HeartbeatAudio();
     this.proximity = new ProximityOverlay();
+    this.breathOverlay = new BreathOverlay();
     this.catchFadeEl = this.createFadeOverlay();
 
     this.loop = new GameLoop(engine, (dt) => this.tick(dt));
@@ -279,6 +282,7 @@ export class Game {
     this.heartbeat.setStressLevel(adrenaline);
     this.pursuerBody.setStress(adrenaline);
     this.proximity.update(dt, pursuerModel.state, adrenaline);
+    this.breathOverlay.update(dt, this.player.breath.getLoad());
 
     if (pursuerModel.state === 'caught') {
       this.triggerCatch();
@@ -512,6 +516,7 @@ export class Game {
     this.mountains.dispose();
     this.heartbeat.dispose();
     this.proximity.dispose();
+    this.breathOverlay.dispose();
     this.engine.dispose();
     this.catchFadeEl?.remove();
   }
