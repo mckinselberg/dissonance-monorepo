@@ -346,8 +346,6 @@ export class Game {
   }
 
   private static pickRandomSpawn(terrain: Terrain, colliders: Collider[]): Vector3 {
-    const DEST_X = 190, DEST_Z = 140;
-    const MIN_DIST_SQ = 110 * 110;
     const SAFETY_MARGIN = 1.5;
 
     const isClear = (x: number, z: number): boolean => {
@@ -359,26 +357,18 @@ export class Game {
       return true;
     };
 
-    for (let i = 0; i < 120; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const r = 45 + Math.random() * 95;
-      const x = Math.cos(angle) * r;
-      const z = Math.sin(angle) * r;
-      const dx = x - DEST_X, dz = z - DEST_Z;
-      if (dx * dx + dz * dz < MIN_DIST_SQ) continue;
-      if (!isClear(x, z)) continue;
-      const y = terrain.getHeightAt(x, z) + 1.7;
-      return new Vector3(x, y, z);
-    }
-    // Fallback also needs to be collider-free, since this spot is used
-    // unconditionally if every random attempt above failed.
-    for (let i = 0; i < 60; i++) {
-      const x = -40 - Math.random() * 60;
-      const z = -40 - Math.random() * 60;
+    // Spawn at the "bottom of the hill" — the world tilts up along +X so
+    // negative-X is genuinely lower ground, well away from the destination
+    // at (190, 140). The hiking trail entrance at (8, 6) is up the slope
+    // from here, giving the player something to discover rather than
+    // immediately seeing the car.
+    for (let i = 0; i < 200; i++) {
+      const x = -15 - Math.random() * 80;
+      const z = -55 + Math.random() * 110;
       if (!isClear(x, z)) continue;
       return new Vector3(x, terrain.getHeightAt(x, z) + 1.7, z);
     }
-    return new Vector3(-70, terrain.getHeightAt(-70, -80) + 1.7, -80);
+    return new Vector3(-70, terrain.getHeightAt(-70, -10) + 1.7, -10);
   }
 
   private static pickPursuerStart(playerSpawn: Vector3): { x: number; z: number } {

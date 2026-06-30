@@ -291,7 +291,7 @@ export class ForestGenerator {
 
       if (this.inEitherCorridor(x, z)) continue;
       const tdx = x - destinationPos.x, tdz = z - destinationPos.z;
-      if (tdx * tdx + tdz * tdz < 36) continue;
+      if (tdx * tdx + tdz * tdz < 18 * 18) continue;
 
       const groundY = this.terrain.getHeightAt(x, z);
       const ti = Math.floor(Math.random() * templates.length);
@@ -323,7 +323,7 @@ export class ForestGenerator {
 
       if (this.inEitherCorridor(x, z)) continue;
       const tdx = x - destinationPos.x, tdz = z - destinationPos.z;
-      if (tdx * tdx + tdz * tdz < 36) continue;
+      if (tdx * tdx + tdz * tdz < 18 * 18) continue;
 
       const groundY = this.terrain.getHeightAt(x, z);
       const ti = Math.floor(Math.random() * templates.length);
@@ -337,6 +337,29 @@ export class ForestGenerator {
 
       this._colliders.push({ x, z, radius: rad * scale });
       outerPlaced++;
+    }
+
+    // Dense ring of trees framing the parking lot clearing — the lot's
+    // asphalt footprint is ~30x22, so start at radius 18 (just past the
+    // corners, ~sqrt(15²+11²)) and spread outward 20 units for a thick
+    // treeline that makes the clearing feel intentional rather than random.
+    const lotRingMin = 18, lotRingMax = 38;
+    const lotRingCount = 48;
+    for (let r = 0; r < lotRingCount; r++) {
+      const angle = (r / lotRingCount) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI / lotRingCount) * 2;
+      const dist = lotRingMin + Math.random() * (lotRingMax - lotRingMin);
+      const x = destinationPos.x + Math.cos(angle) * dist;
+      const z = destinationPos.z + Math.sin(angle) * dist;
+      const groundY = this.terrain.getHeightAt(x, z);
+      const ti = Math.floor(Math.random() * templates.length);
+      const rad = templates[ti].radius;
+      const scale = 0.9 + Math.random() * 0.4;
+      matricesByTemplate[ti].push(Matrix.Compose(
+        new Vector3(scale, scale, scale),
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x, groundY, z),
+      ));
+      this._colliders.push({ x, z, radius: rad * scale });
     }
 
     this.buildTrailWalls(templates, matricesByTemplate);
@@ -487,92 +510,214 @@ export class ForestGenerator {
     }
   }
 
-  // The goal: a parked car on an asphalt clearing, lit by two lamp posts.
-  // Boxes/cylinders only — no asset pipeline needed. Only two real
-  // PointLights total, fixed and non-shadow-casting, so the cost stays
-  // negligible regardless of how the rest of the scene is doing.
+  // The goal: a parked car on a large asphalt clearing, lit by two lamp
+  // posts, surrounded by forest (the ring is planted in buildForest).
+  // All geometry is boxes/cylinders — no asset pipeline. Two PointLights
+  // only (fixed, non-shadow-casting), a negligible per-frame cost.
   private buildCarGoal(scene: Scene, profile: ExperienceProfile, pos: Vector3): void {
     const ps1 = profile.mode === 'ps1';
     const groundY = this.terrain.getHeightAt(pos.x, pos.z);
+    const cs = 1.45; // uniform scale applied to all car dimensions
 
-    // Car scaled up ~1.45x from the original boxes — lot/lamp placement
-    // grown to match so the car doesn't crowd the clearing.
-    const carScale = 1.45;
-
+    // ─── Parking lot ──────────────────────────────────────────────────
     const lotMat = new StandardMaterial('parkingLotMat', scene);
     lotMat.diffuseColor = new Color3(0.10, 0.10, 0.11);
     lotMat.specularColor = Color3.Black();
-    const lot = MeshBuilder.CreateBox('parkingLot', { width: 20, height: 0.1, depth: 14 }, scene);
+    const lot = MeshBuilder.CreateBox('parkingLot', { width: 30, height: 0.1, depth: 22 }, scene);
     lot.position.set(pos.x, groundY + 0.05, pos.z);
     lot.material = lotMat;
     this.treeMeshes.push(lot);
 
-    const bodyMat = new StandardMaterial('carBodyMat', scene);
-    bodyMat.diffuseColor = new Color3(0.16, 0.22, 0.34);
-    bodyMat.specularColor = Color3.Black();
-
-    const glassMat = new StandardMaterial('carGlassMat', scene);
-    glassMat.diffuseColor = new Color3(0.04, 0.05, 0.06);
-    glassMat.specularColor = Color3.Black();
-
-    const wheelMat = new StandardMaterial('carWheelMat', scene);
-    wheelMat.diffuseColor = new Color3(0.03, 0.03, 0.03);
-    wheelMat.specularColor = Color3.Black();
-
-    const bodyY = groundY + 0.55 * carScale;
-    const body = MeshBuilder.CreateBox('carBody', {
-      width: 1.8 * carScale, height: 1.0 * carScale, depth: 4.2 * carScale,
-    }, scene);
-    body.position.set(pos.x, bodyY, pos.z);
-    body.material = bodyMat;
-    if (ps1) body.convertToFlatShadedMesh();
-    this.treeMeshes.push(body);
-
-    const cabin = MeshBuilder.CreateBox('carCabin', {
-      width: 1.5 * carScale, height: 0.7 * carScale, depth: 2.2 * carScale,
-    }, scene);
-    cabin.position.set(pos.x, bodyY + 0.85 * carScale, pos.z - 0.3 * carScale);
-    cabin.material = glassMat;
-    if (ps1) cabin.convertToFlatShadedMesh();
-    this.treeMeshes.push(cabin);
-
-    const wheelOffsets: [number, number][] = [
-      [-0.95, 1.4], [0.95, 1.4], [-0.95, -1.4], [0.95, -1.4],
+    // Lot border — a slightly raised lip around the edge reads as a kerb.
+    const kerbMat = new StandardMaterial('parkingKerbMat', scene);
+    kerbMat.diffuseColor = new Color3(0.22, 0.22, 0.24);
+    kerbMat.specularColor = Color3.Black();
+    const kerbPairs: [number, number, number, number][] = [
+      // [width, depth, offsetX, offsetZ]
+      [30.5, 0.4, 0, 11], [30.5, 0.4, 0, -11],
+      [0.4, 22.5, 15, 0], [0.4, 22.5, -15, 0],
     ];
-    for (const [wx, wz] of wheelOffsets) {
-      const wheel = MeshBuilder.CreateCylinder('carWheel', {
-        height: 0.35 * carScale, diameter: 0.7 * carScale, tessellation: ps1 ? 8 : 12,
-      }, scene);
-      wheel.rotation.z = Math.PI / 2;
-      wheel.position.set(pos.x + wx * carScale, groundY + 0.35 * carScale, pos.z + wz * carScale);
-      wheel.material = wheelMat;
-      if (ps1) wheel.convertToFlatShadedMesh();
-      this.treeMeshes.push(wheel);
+    for (const [kw, kd, kox, koz] of kerbPairs) {
+      const kerb = MeshBuilder.CreateBox('parkingKerb', { width: kw, height: 0.18, depth: kd }, scene);
+      kerb.position.set(pos.x + kox, groundY + 0.12, pos.z + koz);
+      kerb.material = kerbMat;
+      this.treeMeshes.push(kerb);
     }
 
+    // ─── Car materials ────────────────────────────────────────────────
+    const bodyMat = new StandardMaterial('carBodyMat', scene);
+    bodyMat.diffuseColor = new Color3(0.15, 0.21, 0.32);
+    bodyMat.specularColor = Color3.Black();
+
+    const panelMat = new StandardMaterial('carPanelMat', scene);
+    panelMat.diffuseColor = new Color3(0.13, 0.18, 0.28); // slightly darker for hood/trunk
+    panelMat.specularColor = Color3.Black();
+
+    const glassMat = new StandardMaterial('carGlassMat', scene);
+    glassMat.diffuseColor = new Color3(0.04, 0.06, 0.08);
+    glassMat.specularColor = Color3.Black();
+
+    const bumperMat = new StandardMaterial('carBumperMat', scene);
+    bumperMat.diffuseColor = new Color3(0.09, 0.09, 0.10);
+    bumperMat.specularColor = Color3.Black();
+
+    const wheelMat = new StandardMaterial('carWheelMat', scene);
+    wheelMat.diffuseColor = new Color3(0.04, 0.04, 0.04);
+    wheelMat.specularColor = Color3.Black();
+
+    const rimMat = new StandardMaterial('carRimMat', scene);
+    rimMat.diffuseColor = new Color3(0.44, 0.44, 0.50);
+    rimMat.specularColor = Color3.Black();
+
+    const headlightMat = new StandardMaterial('carHeadlightMat', scene);
+    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.92);
+    headlightMat.emissiveColor = new Color3(0.85, 0.80, 0.60);
+    headlightMat.specularColor = Color3.Black();
+
+    const taillightMat = new StandardMaterial('carTaillightMat', scene);
+    taillightMat.diffuseColor = new Color3(0.6, 0.05, 0.05);
+    taillightMat.emissiveColor = new Color3(0.75, 0.04, 0.04);
+    taillightMat.specularColor = Color3.Black();
+
+    // ─── Car geometry — sedan proportions, car faces +Z ───────────────
+    // Raw dimensions (× cs = actual world size).
+    const bW = 1.72, bH = 0.78, bD = 4.1; // main body
+    const bodyBottom = groundY + 0.18 * cs;
+    const bodyTopY = bodyBottom + bH * cs;
+
+    const addMesh = (m: ReturnType<typeof MeshBuilder.CreateBox>) => {
+      if (ps1) m.convertToFlatShadedMesh();
+      this.treeMeshes.push(m);
+    };
+
+    // Lower body (door sills, side panels)
+    const body = MeshBuilder.CreateBox('carBody', { width: bW * cs, height: bH * cs, depth: bD * cs }, scene);
+    body.position.set(pos.x, bodyBottom + (bH * cs) / 2, pos.z);
+    body.material = bodyMat;
+    addMesh(body);
+
+    // Hood — thin slab on top of front third of body
+    const hoodD = 1.3;
+    const hood = MeshBuilder.CreateBox('carHood', { width: (bW - 0.08) * cs, height: 0.10 * cs, depth: hoodD * cs }, scene);
+    hood.position.set(pos.x, bodyTopY + 0.05 * cs, pos.z + (bD / 2 - hoodD / 2) * cs);
+    hood.material = panelMat;
+    addMesh(hood);
+
+    // Trunk lid — shorter slab on top of rear section
+    const trunkD = 1.0;
+    const trunk = MeshBuilder.CreateBox('carTrunk', { width: (bW - 0.1) * cs, height: 0.10 * cs, depth: trunkD * cs }, scene);
+    trunk.position.set(pos.x, bodyTopY + 0.05 * cs, pos.z - (bD / 2 - trunkD / 2) * cs);
+    trunk.material = panelMat;
+    addMesh(trunk);
+
+    // Cabin / greenhouse (windows + roof)
+    const cW = 1.52, cH = 0.72, cD = 2.3;
+    const cabin = MeshBuilder.CreateBox('carCabin', { width: cW * cs, height: cH * cs, depth: cD * cs }, scene);
+    cabin.position.set(pos.x, bodyTopY + (cH * cs) / 2, pos.z - 0.22 * cs);
+    cabin.material = glassMat;
+    addMesh(cabin);
+
+    // Front bumper
+    const fBumper = MeshBuilder.CreateBox('carFBumper', { width: (bW + 0.06) * cs, height: 0.28 * cs, depth: 0.20 * cs }, scene);
+    fBumper.position.set(pos.x, bodyBottom + 0.14 * cs, pos.z + (bD / 2 + 0.10) * cs);
+    fBumper.material = bumperMat;
+    addMesh(fBumper);
+
+    // Rear bumper
+    const rBumper = MeshBuilder.CreateBox('carRBumper', { width: (bW + 0.06) * cs, height: 0.28 * cs, depth: 0.20 * cs }, scene);
+    rBumper.position.set(pos.x, bodyBottom + 0.14 * cs, pos.z - (bD / 2 + 0.10) * cs);
+    rBumper.material = bumperMat;
+    addMesh(rBumper);
+
+    // Headlights (front face, upper corners)
+    const hlXOff = (bW / 2 - 0.22) * cs;
+    const hlY = bodyBottom + 0.52 * cs;
+    const hlZ = pos.z + (bD / 2 + 0.01) * cs;
+    for (const sx of [-1, 1]) {
+      const hl = MeshBuilder.CreateBox('carHeadlight', { width: 0.40 * cs, height: 0.18 * cs, depth: 0.07 * cs }, scene);
+      hl.position.set(pos.x + sx * hlXOff, hlY, hlZ);
+      hl.material = headlightMat;
+      addMesh(hl);
+    }
+
+    // Taillights (rear face)
+    const tlXOff = (bW / 2 - 0.24) * cs;
+    const tlY = bodyBottom + 0.48 * cs;
+    const tlZ = pos.z - (bD / 2 + 0.01) * cs;
+    for (const sx of [-1, 1]) {
+      const tl = MeshBuilder.CreateBox('carTaillight', { width: 0.36 * cs, height: 0.18 * cs, depth: 0.07 * cs }, scene);
+      tl.position.set(pos.x + sx * tlXOff, tlY, tlZ);
+      tl.material = taillightMat;
+      addMesh(tl);
+    }
+
+    // Wheels + rims (4 corners)
+    const wR = 0.36, wXOff = (bW / 2 + 0.05) * cs, wZOff = 1.28 * cs;
+    const wheelAxes: [number, number][] = [[-1, 1], [1, 1], [-1, -1], [1, -1]];
+    for (const [sx, sz] of wheelAxes) {
+      const tire = MeshBuilder.CreateCylinder('carWheel', {
+        height: 0.30 * cs, diameter: wR * 2 * cs, tessellation: ps1 ? 8 : 14,
+      }, scene);
+      tire.rotation.z = Math.PI / 2;
+      tire.position.set(pos.x + sx * wXOff, groundY + wR * cs, pos.z + sz * wZOff);
+      tire.material = wheelMat;
+      addMesh(tire);
+
+      const rim = MeshBuilder.CreateCylinder('carRim', {
+        height: 0.32 * cs, diameter: wR * 1.26 * cs, tessellation: ps1 ? 6 : 10,
+      }, scene);
+      rim.rotation.z = Math.PI / 2;
+      rim.position.copyFrom(tire.position);
+      rim.material = rimMat;
+      addMesh(rim);
+    }
+
+    // Side mirrors
+    const mirY = bodyTopY - 0.05 * cs;
+    const mirXOff = (bW / 2 + 0.06) * cs;
+    const mirZ = pos.z + 0.72 * cs;
+    for (const sx of [-1, 1]) {
+      const mir = MeshBuilder.CreateBox('carMirror', { width: 0.07 * cs, height: 0.11 * cs, depth: 0.13 * cs }, scene);
+      mir.position.set(pos.x + sx * mirXOff, mirY, mirZ);
+      mir.material = bumperMat;
+      addMesh(mir);
+    }
+
+    // Antenna
+    const antenna = MeshBuilder.CreateCylinder('carAntenna', { height: 0.4 * cs, diameter: 0.025 * cs, tessellation: 4 }, scene);
+    antenna.position.set(pos.x - 0.3 * cs, bodyTopY + cH * cs + 0.2 * cs, pos.z - 0.6 * cs);
+    antenna.material = bumperMat;
+    this.treeMeshes.push(antenna);
+
+    // ─── Lamp posts ────────────────────────────────────────────────────
     const poleMat = new StandardMaterial('lampPoleMat', scene);
-    poleMat.diffuseColor = new Color3(0.08, 0.08, 0.08);
+    poleMat.diffuseColor = new Color3(0.08, 0.08, 0.09);
     poleMat.specularColor = Color3.Black();
 
     const lampMat = new StandardMaterial('lampHeadMat', scene);
-    lampMat.diffuseColor = new Color3(0.3, 0.28, 0.18);
+    lampMat.diffuseColor = new Color3(0.28, 0.26, 0.16);
     lampMat.emissiveColor = new Color3(1.0, 0.85, 0.55);
     lampMat.specularColor = Color3.Black();
 
-    const lampOffsets: [number, number][] = [[-7.5, 5], [7.5, -5]];
+    const lampOffsets: [number, number][] = [[-10, 7], [10, -7]];
     for (const [lx, lz] of lampOffsets) {
       const lampGroundY = this.terrain.getHeightAt(pos.x + lx, pos.z + lz);
-      const poleHeight = 4.2;
+      const poleHeight = 5.0;
 
       const pole = MeshBuilder.CreateCylinder('lampPole', {
-        height: poleHeight, diameter: 0.12, tessellation: ps1 ? 6 : 8,
+        height: poleHeight, diameter: 0.13, tessellation: ps1 ? 6 : 8,
       }, scene);
       pole.position.set(pos.x + lx, lampGroundY + poleHeight / 2, pos.z + lz);
       pole.material = poleMat;
       this.treeMeshes.push(pole);
 
-      const lampHeadPos = new Vector3(pos.x + lx, lampGroundY + poleHeight + 0.2, pos.z + lz);
-      const lampHead = MeshBuilder.CreateBox('lampHead', { size: 0.4 }, scene);
+      const arm = MeshBuilder.CreateBox('lampArm', { width: 0.1, height: 0.1, depth: 0.8 }, scene);
+      arm.position.set(pos.x + lx, lampGroundY + poleHeight + 0.05, pos.z + lz + 0.35);
+      arm.material = poleMat;
+      this.treeMeshes.push(arm);
+
+      const lampHeadPos = new Vector3(pos.x + lx, lampGroundY + poleHeight + 0.22, pos.z + lz + 0.7);
+      const lampHead = MeshBuilder.CreateBox('lampHead', { width: 0.5, height: 0.15, depth: 0.5 }, scene);
       lampHead.position.copyFrom(lampHeadPos);
       lampHead.material = lampMat;
       this.treeMeshes.push(lampHead);
@@ -580,8 +725,8 @@ export class ForestGenerator {
       const light = new PointLight('lampLight', lampHeadPos, scene);
       light.diffuse = new Color3(1.0, 0.85, 0.55);
       light.specular = Color3.Black();
-      light.intensity = 0.8;
-      light.range = 18;
+      light.intensity = 1.0;
+      light.range = 22;
       this.lights.push(light);
     }
   }
