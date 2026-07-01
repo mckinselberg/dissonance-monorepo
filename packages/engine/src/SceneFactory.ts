@@ -18,7 +18,7 @@ export class SceneFactory {
   static create(
     canvas: HTMLCanvasElement,
     expProfile: ExperienceProfile,
-    _runProfile: RunProfile,
+    runProfile: RunProfile,
   ): { engine: Engine; scene: Scene } {
     const engine = new Engine(canvas, true, {
       preserveDrawingBuffer: true,
@@ -27,7 +27,16 @@ export class SceneFactory {
 
     const scene = new Scene(engine);
 
-    const sky = expProfile.skyColor;
+    const isNight = runProfile.departureTime === 'night';
+
+    // Night overrides the profile's day-sky blue with a charcoal gradient so
+    // tree silhouettes read against the sky instead of both being near-black.
+    const sky = isNight
+      ? { r: 0.24, g: 0.24, b: 0.27 }
+      : expProfile.skyColor;
+    const skyZenith = isNight
+      ? { r: 0.05, g: 0.05, b: 0.07 }
+      : null;
     const fog = expProfile.fogColor;
 
     scene.clearColor = new Color4(sky.r, sky.g, sky.b, 1.0);
@@ -35,11 +44,13 @@ export class SceneFactory {
 
     scene.fogMode = Scene.FOGMODE_EXP;
     scene.fogDensity = expProfile.fogDensity;
-    scene.fogColor = new Color3(fog.r, fog.g, fog.b);
+    scene.fogColor = isNight
+      ? new Color3(0.14, 0.14, 0.15)
+      : new Color3(fog.r, fog.g, fog.b);
     scene.fogStart = 2;
     scene.fogEnd = expProfile.drawDistance;
 
-    SceneFactory.buildSkyGradient(scene, sky);
+    SceneFactory.buildSkyGradient(scene, sky, skyZenith);
 
     return { engine, scene };
   }
@@ -47,7 +58,11 @@ export class SceneFactory {
   // A single flat clearColor reads as an unnaturally uniform sky. This
   // paints a cheap zenith-to-horizon gradient onto a giant inverted dome
   // using per-vertex color instead of a texture — no asset pipeline needed.
-  private static buildSkyGradient(scene: Scene, sky: { r: number; g: number; b: number }): void {
+  private static buildSkyGradient(
+    scene: Scene,
+    sky: { r: number; g: number; b: number },
+    zenithOverride?: { r: number; g: number; b: number } | null,
+  ): void {
     const dome = MeshBuilder.CreateSphere('skyDome', { diameter: 850, segments: 14 }, scene);
     dome.infiniteDistance = true;
     dome.applyFog = false;
@@ -59,7 +74,9 @@ export class SceneFactory {
     dome.material = mat;
 
     const horizon = new Color3(sky.r, sky.g, sky.b);
-    const zenith = new Color3(sky.r * 0.45, sky.g * 0.55, sky.b * 0.95);
+    const zenith = zenithOverride
+      ? new Color3(zenithOverride.r, zenithOverride.g, zenithOverride.b)
+      : new Color3(sky.r * 0.45, sky.g * 0.55, sky.b * 0.95);
 
     const positions = dome.getVerticesData(VertexBuffer.PositionKind)!;
     const colors: number[] = [];

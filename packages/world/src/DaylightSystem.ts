@@ -72,7 +72,7 @@ export class DaylightSystem {
     this.elapsed += dt;
 
     this.lightLevel = Math.max(
-      0.04,
+      this.isNight ? 0.10 : 0.04,
       runProfile.startingLightLevel - this.elapsed * runProfile.daylightDecayRate,
     );
 
