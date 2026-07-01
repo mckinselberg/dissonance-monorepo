@@ -1,6 +1,6 @@
 import {
   Engine, Scene, Vector3, MotionBlurPostProcess, DefaultRenderingPipeline,
-  AbstractMesh,
+  AbstractMesh, StandardMaterial,
 } from '@babylonjs/core';
 import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dissonance/shared-types';
 import { SceneFactory, GameLoop } from '@dissonance/engine';
@@ -17,6 +17,10 @@ import { PursuerAudio } from '../pursuer/PursuerAudio';
 import { PursuerBody } from '../pursuer/PursuerBody';
 import { ProximityOverlay } from '../ui/ProximityOverlay';
 import { BreathOverlay } from '../ui/BreathOverlay';
+import { InventoryUI } from '../ui/InventoryUI';
+import { InventorySystem } from '../items/InventorySystem';
+import { PhoneProp } from '../items/PhoneProp';
+import { PlayerHand } from '../player/PlayerHand';
 
 export interface GameDebugState {
   pursuerState: PursuerState;
@@ -33,6 +37,8 @@ export interface GameDebugState {
   fps: number;
   hasLoS: boolean;
   isIlluminated: boolean;
+  flashlightOn: boolean;
+  hasPhone: boolean;
 }
 
 export interface GameControls {
@@ -86,6 +92,12 @@ export class Game {
   private heartbeat: HeartbeatAudio;
   private proximity: ProximityOverlay;
   private breathOverlay: BreathOverlay;
+  private inventory: InventorySystem;
+  private inventoryUI: InventoryUI;
+  private phoneProp: PhoneProp | null = null;
+  private playerHand: PlayerHand | null = null;
+  private phoneFlashlightOn = false;
+  private mouseDownHandler: ((e: PointerEvent) => void) | null = null;
   private colliders: Collider[] = [];
   private lastHasLoS = false;
   private lastIlluminated = false;
@@ -124,6 +136,14 @@ export class Game {
     const { engine, scene } = SceneFactory.create(canvas, this.expProfile, this.runProfile);
     this.engine = engine;
     this.scene = scene;
+
+    // sun + ambient + 2 lamp posts + flashlight = 5 lights, exceeding the default
+    // maxSimultaneousLights=4. Raise the budget on ALL material types (PBRMaterial
+    // for terrain/trees, StandardMaterial for ground cover) before any geometry is
+    // built so every shader includes the flashlight slot.
+    scene.onNewMaterialAddedObservable.add((m) => {
+      if ('maxSimultaneousLights' in m) (m as any).maxSimultaneousLights = 6;
+    });
 
     this.terrain = new Terrain(scene, this.expProfile);
     this.clouds = new CloudSystem(scene, this.expProfile);
@@ -178,7 +198,26 @@ export class Game {
     this.heartbeat = new HeartbeatAudio();
     this.proximity = new ProximityOverlay();
     this.breathOverlay = new BreathOverlay();
+    this.inventory = new InventorySystem();
+    this.inventoryUI = new InventoryUI();
     this.catchFadeEl = this.createFadeOverlay();
+
+    // Flashlight off until the phone prop is picked up
+    this.player.setFlashlightEnabled(false);
+    this.spawnPhoneProp();
+
+    this.playerHand = new PlayerHand(scene, this.player.camera);
+
+    this.mouseDownHandler = (e: PointerEvent) => {
+      if (e.button !== 2) return;
+      console.log('[DTA] right-click | locked:', this.player.isLocked, '| hasPhone:', this.inventory.hasItem('phone'));
+      if (this.player.isLocked && this.inventory.hasItem('phone')) {
+        e.preventDefault();
+        this.togglePhone();
+      }
+    };
+    // capture phase fires before BabylonJS canvas handlers, reliable during pointer lock
+    window.addEventListener('pointerdown', this.mouseDownHandler, true);
 
     this.loop = new GameLoop(engine, (dt) => this.tick(dt));
   }
@@ -270,6 +309,10 @@ export class Game {
       weatherMask,
     );
 
+    if (this.phoneProp?.update(dt, playerPos.x, playerPos.z)) {
+      this.onPhonePickup();
+    }
+
     this.destination.update(playerPos);
     if (this.destination.isReached()) {
       this.triggerWin();
@@ -340,9 +383,71 @@ export class Game {
     this.destination.reset();
     this.destination.start();
 
+    // Reset phone/flashlight state so each run starts in darkness
+    if (!this.inventory.hasItem('phone')) {
+      this.spawnPhoneProp();
+    } else {
+      // Phone was already found — keep inventory but reset flashlight to off
+      // so the player has to consciously raise it again after a restart
+      this.phoneFlashlightOn = false;
+      this.player.setFlashlightEnabled(false);
+      this.playerHand?.setVisible(false);
+    }
+
     this.isCaught = false;
     this.hasWon = false;
     this.fadeIn(1200);
+  }
+
+  private spawnPhoneProp(): void {
+    this.phoneProp?.dispose();
+    // Place phone ~5 units ahead (+Z) of spawn — player faces +Z on reset,
+    // so this lands right in their path and is well outside the 2.5-unit pickup radius.
+    const phoneX = this.spawnPos.x + 0.5;
+    const phoneZ = this.spawnPos.z + 5.0;
+    this.phoneProp = new PhoneProp(this.scene, phoneX, phoneZ, this.terrain);
+  }
+
+  private togglePhone(): void {
+    this.phoneFlashlightOn = !this.phoneFlashlightOn;
+    console.log('[DTA] togglePhone → flashlightOn:', this.phoneFlashlightOn);
+    this.player.setFlashlightEnabled(this.phoneFlashlightOn);
+    this.playerHand?.setVisible(this.phoneFlashlightOn);
+  }
+
+  private onPhonePickup(): void {
+    this.phoneProp?.dispose();
+    this.phoneProp = null;
+    this.inventory.addItem('phone');
+    this.inventoryUI.setItem('phone');
+    this.showToast('found your phone — right-click to use flashlight', 3500);
+  }
+
+  private showToast(text: string, durationMs: number): void {
+    const el = document.createElement('div');
+    el.style.cssText = [
+      'position:fixed',
+      'bottom:60px',
+      'left:50%',
+      'transform:translateX(-50%)',
+      'pointer-events:none',
+      'z-index:90',
+      'padding:8px 20px',
+      'background:rgba(0,0,0,0.70)',
+      'border:1px solid rgba(255,255,255,0.07)',
+      'border-radius:4px',
+      'color:rgba(200,210,220,0.80)',
+      'font-family:monospace',
+      'font-size:0.72rem',
+      'letter-spacing:0.09em',
+      'transition:opacity 600ms ease',
+    ].join(';');
+    el.textContent = text;
+    document.body.appendChild(el);
+    setTimeout(() => {
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 650);
+    }, durationMs);
   }
 
   private static pickRandomSpawn(terrain: Terrain, colliders: Collider[]): Vector3 {
@@ -442,6 +547,8 @@ export class Game {
       fps: this.engine.getFps(),
       hasLoS: this.lastHasLoS,
       isIlluminated: this.lastIlluminated,
+      flashlightOn: this.phoneFlashlightOn,
+      hasPhone: this.inventory.hasItem('phone'),
     };
   }
 
@@ -495,6 +602,9 @@ export class Game {
 
   dispose(): void {
     this.loop.stop();
+    if (this.mouseDownHandler) {
+      window.removeEventListener('pointerdown', this.mouseDownHandler, true);
+    }
     this.destination.dispose();
     this.ambientAudio.stop();
     this.playerAudio.dispose();
@@ -507,6 +617,9 @@ export class Game {
     this.heartbeat.dispose();
     this.proximity.dispose();
     this.breathOverlay.dispose();
+    this.phoneProp?.dispose();
+    this.playerHand?.dispose();
+    this.inventoryUI.dispose();
     this.engine.dispose();
     this.catchFadeEl?.remove();
   }

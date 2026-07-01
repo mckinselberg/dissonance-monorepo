@@ -49,21 +49,24 @@ export class PlayerController {
     );
     this.flashlight.diffuse = new Color3(1.0, 0.82, 0.55);
     this.flashlight.specular = Color3.Black();
-    this.flashlight.intensity = 1.6;
-    this.flashlight.range = 18;
+    this.flashlight.intensity = 0; // starts off — Game enables it after phone pickup
+    this.flashlight.range = 22;
 
     this.setupInput(scene);
   }
 
+  get isLocked(): boolean { return this.isPointerLocked; }
+
+  // Intensity-based toggle is more reliable than setEnabled() across BabylonJS versions.
   setFlashlightEnabled(enabled: boolean): void {
-    this.flashlight.setEnabled(enabled);
+    this.flashlight.intensity = enabled ? 2.8 : 0;
   }
 
   // Cone + range test against the flashlight — same relative-angle math
   // already used elsewhere (pursuer audio panning, line-of-sight) just
   // clamped to the spotlight's half-angle instead of a full circle.
   isPointIlluminated(point: Vector3): boolean {
-    if (!this.flashlight.isEnabled()) return false;
+    if (this.flashlight.intensity <= 0) return false;
     const toPoint = point.subtract(this.camera.position);
     const dist = toPoint.length();
     if (dist < 0.001 || dist > this.flashlight.range) return false;
@@ -97,6 +100,7 @@ export class PlayerController {
     window.addEventListener('keyup',   (e) => { this.keys[e.code] = false; });
 
     canvas.addEventListener('click', () => canvas.requestPointerLock());
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     document.addEventListener('pointerlockchange', () => {
       this.isPointerLocked = document.pointerLockElement === canvas;
