@@ -49,10 +49,10 @@ export class DaylightSystem {
 
     if (this.isNight) {
       this.sun.diffuse = new Color3(0.55, 0.62, 0.85);
-      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 5.5;
+      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 2.5;
       this.ambient.diffuse = new Color3(0.10, 0.16, 0.24);
       this.ambient.groundColor = new Color3(0.02, 0.03, 0.02);
-      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 1.6;
+      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 0.7;
     } else if (expProfile.mode === 'ps1') {
       this.sun.diffuse = new Color3(1.0, 0.80, 0.32);
       this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 5.5;
@@ -79,8 +79,8 @@ export class DaylightSystem {
     const warmth = this.lightLevel;
 
     if (this.isNight) {
-      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 5.5;
-      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 1.6;
+      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 2.5;
+      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 0.7;
       // Stays cool/blue rather than warming up — moonlight doesn't redden
       // the way a setting sun does.
       this.sun.diffuse = new Color3(

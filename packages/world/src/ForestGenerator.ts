@@ -129,9 +129,9 @@ export class ForestGenerator {
     const parts: Mesh[] = [];
 
     const trunkMat = new PBRMaterial(`treeTrunkMat_${id}`, scene);
-    trunkMat.albedoColor = this.jitterColor(new Color3(0.36, 0.16, 0.07));
+    trunkMat.albedoColor = this.jitterColor(new Color3(0.06, 0.03, 0.01));
     trunkMat.metallic = 0;
-    trunkMat.roughness = 0.85;
+    trunkMat.roughness = 0.95;
 
     const trunk = MeshBuilder.CreateCylinder(`tree_${id}_trunk`, {
       height,
@@ -150,7 +150,7 @@ export class ForestGenerator {
 
     if (isConifer) {
       const coniferMat = new PBRMaterial(`treeConiferMat_${id}`, scene);
-      coniferMat.albedoColor = new Color3(0.06, 0.26, 0.10);
+      coniferMat.albedoColor = new Color3(0.06, 0.75, 0.16);
       coniferMat.metallic = 0;
       coniferMat.roughness = 0.7;
 
@@ -189,7 +189,7 @@ export class ForestGenerator {
       }
     } else {
       const deciduousMat = new PBRMaterial(`treeDeciduousMat_${id}`, scene);
-      deciduousMat.albedoColor = new Color3(0.16, 0.34, 0.06);
+      deciduousMat.albedoColor = new Color3(0.08, 0.72, 0.14);
       deciduousMat.metallic = 0;
       deciduousMat.roughness = 0.6;
 

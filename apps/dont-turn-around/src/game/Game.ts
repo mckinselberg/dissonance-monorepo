@@ -467,32 +467,34 @@ export class Game {
       return true;
     };
 
-    // Spawn at the "bottom of the hill" — the world tilts up along +X so
-    // negative-X is genuinely lower ground, well away from the destination
-    // at (190, 140). The hiking trail entrance at (8, 6) is up the slope
-    // from here, giving the player something to discover rather than
-    // immediately seeing the car.
+    // Spawn at the center-bottom of the terrain — the world tilts up along +X
+    // so negative-X is the low ground. Centering on z≈0 gives the player a
+    // consistent orientation each run (forest in front, hill rising to the right).
     for (let i = 0; i < 200; i++) {
-      const x = -15 - Math.random() * 80;
-      const z = -55 + Math.random() * 110;
+      const x = -45 - Math.random() * 30;   // -45 to -75
+      const z = -15 + Math.random() * 30;   // -15 to +15
       if (!isClear(x, z)) continue;
       return new Vector3(x, terrain.getHeightAt(x, z) + 1.7, z);
     }
-    return new Vector3(-70, terrain.getHeightAt(-70, -10) + 1.7, -10);
+    return new Vector3(-60, terrain.getHeightAt(-60, 0) + 1.7, 0);
   }
 
   private static pickPursuerStart(playerSpawn: Vector3): { x: number; z: number } {
+    // Spawn in the forest interior — 30-80 units from map origin, which puts
+    // the pursuer in the dense tree ring rather than at the far world edge.
+    // Ensures at least 50 units separation from the player so there's time
+    // to orient before the first encounter.
     for (let i = 0; i < 60; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const r = 155 + Math.random() * 35;
-      const x = playerSpawn.x + Math.cos(angle) * r;
-      const z = playerSpawn.z + Math.sin(angle) * r;
+      const r = 30 + Math.random() * 50;
+      const x = Math.cos(angle) * r;
+      const z = Math.sin(angle) * r;
       if (Math.abs(x) > 185 || Math.abs(z) > 185) continue;
+      const dx = x - playerSpawn.x, dz = z - playerSpawn.z;
+      if (dx * dx + dz * dz < 50 * 50) continue;
       return { x, z };
     }
-    const fx = Math.max(-185, Math.min(185, -playerSpawn.x * 1.5));
-    const fz = Math.max(-185, Math.min(185, -playerSpawn.z * 1.5));
-    return { x: fx, z: fz };
+    return { x: 40, z: 40 };
   }
 
   private createFadeOverlay(): HTMLElement {
