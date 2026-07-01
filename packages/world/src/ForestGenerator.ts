@@ -145,12 +145,17 @@ export class ForestGenerator {
     if (ps1) trunk.convertToFlatShadedMesh();
     parts.push(trunk);
 
+    // Per-template shade factor — spreads 30 templates across 0.35-1.0 of
+    // the base canopy brightness so adjacent trees have clearly different values.
+    // Darkest templates (0.35) read as shadowed/dead; brightest (1.0) as vivid
+    // green. The 3:1 ratio stays perceptible even at night's low ambient.
+    const shadeFactor = 0.35 + Math.random() * 0.65;
     const isConifer = Math.random() < 0.5;
     const apexY = height;
 
     if (isConifer) {
       const coniferMat = new PBRMaterial(`treeConiferMat_${id}`, scene);
-      coniferMat.albedoColor = new Color3(0.06, 0.75, 0.16);
+      coniferMat.albedoColor = new Color3(0.06, 0.75 * shadeFactor, 0.16 * shadeFactor);
       coniferMat.metallic = 0;
       coniferMat.roughness = 0.7;
 
@@ -189,7 +194,7 @@ export class ForestGenerator {
       }
     } else {
       const deciduousMat = new PBRMaterial(`treeDeciduousMat_${id}`, scene);
-      deciduousMat.albedoColor = new Color3(0.08, 0.72, 0.14);
+      deciduousMat.albedoColor = new Color3(0.08, 0.72 * shadeFactor, 0.14 * shadeFactor);
       deciduousMat.metallic = 0;
       deciduousMat.roughness = 0.6;
 
