@@ -14,6 +14,8 @@ export interface PursuerConfig {
 
 export class PursuerSystem {
   private model: PursuerModel;
+  private stunTimer = 0;
+  private wasIlluminated = false;
 
   constructor(
     private readonly config: PursuerConfig,
@@ -38,17 +40,22 @@ export class PursuerSystem {
     const dist = Math.sqrt(dx * dx + dz * dz);
 
     if (isIlluminated) {
-      // Caught directly in the flashlight beam — break off and flee
-      // instead of pressing the approach. Being seen is a liability, not
-      // bait; aggression bleeds off fast like a spooked animal.
+      // First frame caught in the beam → freeze briefly before fleeing.
+      if (!this.wasIlluminated) this.stunTimer = 0.65 + Math.random() * 0.35;
+      this.wasIlluminated = true;
+
       this.model.aggression = Math.max(0, this.model.aggression - cfg.stillAggressionLoss * 4 * dt);
-      if (dist > 0.01) {
+
+      if (this.stunTimer > 0) {
+        this.stunTimer -= dt; // frozen — no movement
+      } else if (dist > 0.01) {
         const fleeSpeed = cfg.maxSpeed * 1.1;
         const move = Math.min(fleeSpeed * dt, dist);
         pursuerPos.x -= (dx / dist) * move;
         pursuerPos.z -= (dz / dist) * move;
       }
     } else {
+      this.wasIlluminated = false;
       if (playerSpeed > 8.5) {
         this.model.aggression = Math.min(1, this.model.aggression + cfg.sprintAggressionGain * dt);
       } else if (!hasLoS && isCrouching) {
@@ -88,5 +95,7 @@ export class PursuerSystem {
 
   reset(startDistance: number = this.config.startDistance): void {
     this.model = { distance: startDistance, state: 'far', aggression: 0, isHidden: false };
+    this.stunTimer = 0;
+    this.wasIlluminated = false;
   }
 }

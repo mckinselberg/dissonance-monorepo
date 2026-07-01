@@ -13,7 +13,7 @@ const LOOK_ANGLE_RAD = 0.6;
 export class WatcherEffect {
   private scene: Scene;
   private mode: ExperienceMode;
-  private cooldown = 4.0;
+  private cooldown = 1.0;
   private activePairs: Mesh[][] = [];
   private enabled = true;
 
@@ -63,8 +63,8 @@ export class WatcherEffect {
     onAdrenalineSpike();
 
     this.cooldown = pursuerState === 'close'
-      ? 4  + Math.random() * 5
-      : 9  + Math.random() * 10;
+      ? 2  + Math.random() * 3
+      : 4  + Math.random() * 6;
   }
 
   private spawnEyes(

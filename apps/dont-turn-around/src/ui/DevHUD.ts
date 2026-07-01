@@ -20,6 +20,7 @@ export class DevHUD {
 
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Backquote') this.toggle();
+      if (e.code === 'KeyM') this.controls.dropMarker();
     });
 
     this.debugEl = this.panel.querySelector<HTMLElement>('#dev-debug')!;
@@ -45,6 +46,11 @@ export class DevHUD {
 
   private refreshDebug(): void {
     const s = this.game.getDebugState();
+    const tapeVal = !s.markerA
+      ? '—  [M] to place A'
+      : !s.markerB
+      ? `A(${s.markerA.x.toFixed(1)},${s.markerA.z.toFixed(1)})  [M] for B`
+      : `${s.markerDist!.toFixed(1)}m  A:${s.markerA.x.toFixed(1)},${s.markerA.z.toFixed(1)}  B:${s.markerB.x.toFixed(1)},${s.markerB.z.toFixed(1)}`;
     this.debugEl.innerHTML =
       row('fps', s.fps.toFixed(0)) +
       row('pursuer', `${s.pursuerState}  ${s.pursuerDistance.toFixed(1)}m  aggr ${s.pursuerAggression.toFixed(2)}  ${s.isHidden ? 'HIDDEN' : 'los'}`) +
@@ -54,7 +60,8 @@ export class DevHUD {
       row('adrenaline', bar(s.adrenaline)) +
       row('dest', `${s.destDistance.toFixed(1)}m`) +
       row('light', bar(s.lightLevel)) +
-      row('wind', bar(s.windIntensity));
+      row('wind', bar(s.windIntensity)) +
+      row('tape', tapeVal);
   }
 
   private build(): HTMLElement {
@@ -188,6 +195,18 @@ export class DevHUD {
     const debugDiv = document.createElement('div');
     debugDiv.id = 'dev-debug';
     panel.appendChild(debugDiv);
+
+    panel.appendChild(sectionLabel('tape [M]'));
+    const tapeDropBtn = document.createElement('button');
+    tapeDropBtn.className = 'dh-action';
+    tapeDropBtn.textContent = 'drop marker [M]';
+    tapeDropBtn.addEventListener('click', () => this.controls.dropMarker());
+    panel.appendChild(tapeDropBtn);
+    const tapeClearBtn = document.createElement('button');
+    tapeClearBtn.className = 'dh-action';
+    tapeClearBtn.textContent = 'clear tape';
+    tapeClearBtn.addEventListener('click', () => this.controls.clearMarkers());
+    panel.appendChild(tapeClearBtn);
 
     const resetBtn = document.createElement('button');
     resetBtn.className = 'dh-action';

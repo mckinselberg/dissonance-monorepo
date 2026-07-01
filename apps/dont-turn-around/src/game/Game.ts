@@ -1,6 +1,6 @@
 import {
   Engine, Scene, Vector3, MotionBlurPostProcess, DefaultRenderingPipeline,
-  AbstractMesh, StandardMaterial,
+  AbstractMesh,
 } from '@babylonjs/core';
 import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dissonance/shared-types';
 import { SceneFactory, GameLoop } from '@dissonance/engine';
@@ -39,6 +39,9 @@ export interface GameDebugState {
   isIlluminated: boolean;
   flashlightOn: boolean;
   hasPhone: boolean;
+  markerA: { x: number; z: number } | null;
+  markerB: { x: number; z: number } | null;
+  markerDist: number | null;
 }
 
 export interface GameControls {
@@ -52,6 +55,8 @@ export interface GameControls {
   setSSAOEnabled: (enabled: boolean) => void;
   setPostFXEnabled: (enabled: boolean) => void;
   setShadowsEnabled: (enabled: boolean) => void;
+  dropMarker: () => void;
+  clearMarkers: () => void;
 }
 
 // ~235 units away — at jog speed ~35-40s in open air, ~3-4 min through the forest
@@ -111,6 +116,8 @@ export class Game {
 
   private pursuerPos = { x: 0, z: 0 };
   private spawnPos = new Vector3(0, 1.7, 0);
+  private markerA: { x: number; z: number } | null = null;
+  private markerB: { x: number; z: number } | null = null;
 
   private isCaught = false;
   private catchFadeEl: HTMLElement | null = null;
@@ -210,7 +217,6 @@ export class Game {
 
     this.mouseDownHandler = (e: PointerEvent) => {
       if (e.button !== 2) return;
-      console.log('[DTA] right-click | locked:', this.player.isLocked, '| hasPhone:', this.inventory.hasItem('phone'));
       if (this.player.isLocked && this.inventory.hasItem('phone')) {
         e.preventDefault();
         this.togglePhone();
@@ -410,7 +416,6 @@ export class Game {
 
   private togglePhone(): void {
     this.phoneFlashlightOn = !this.phoneFlashlightOn;
-    console.log('[DTA] togglePhone → flashlightOn:', this.phoneFlashlightOn);
     this.player.setFlashlightEnabled(this.phoneFlashlightOn);
     this.playerHand?.setVisible(this.phoneFlashlightOn);
   }
@@ -549,6 +554,11 @@ export class Game {
       isIlluminated: this.lastIlluminated,
       flashlightOn: this.phoneFlashlightOn,
       hasPhone: this.inventory.hasItem('phone'),
+      markerA: this.markerA,
+      markerB: this.markerB,
+      markerDist: this.markerA && this.markerB
+        ? Math.sqrt((this.markerB.x - this.markerA.x) ** 2 + (this.markerB.z - this.markerA.z) ** 2)
+        : null,
     };
   }
 
@@ -596,6 +606,22 @@ export class Game {
           shadowMap.renderList = this.savedShadowCasters;
           this.savedShadowCasters = null;
         }
+      },
+      dropMarker: () => {
+        const pp = this.player.getPosition();
+        const pos = { x: pp.x, z: pp.z };
+        if (!this.markerA || this.markerB) {
+          // No markers yet, or both already set — start fresh with A
+          this.markerA = pos;
+          this.markerB = null;
+        } else {
+          // A set, B not yet — place B
+          this.markerB = pos;
+        }
+      },
+      clearMarkers: () => {
+        this.markerA = null;
+        this.markerB = null;
       },
     };
   }
