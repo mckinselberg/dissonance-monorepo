@@ -48,14 +48,8 @@ export class HeartbeatAudio {
     }, intervalMs);
   }
 
-  setStressLevel(stress: number): void {
-    this.bpm = 65 + stress * 90;
-
-    const heartVol = Math.max(0, Math.min(1, (stress - 0.28) / 0.57));
-    this.masterGain.gain.rampTo(heartVol * 0.52, 0.8);
-
-    const droneVol = Math.max(0, Math.min(1, (stress - 0.68) / 0.32)) * 0.16;
-    this.droneGain.gain.rampTo(droneVol, 0.35);
+  setStressLevel(_stress: number): void {
+    // Heartbeat muted — kept wired so BPM state still drives HeartbeatGlow.
   }
 
   stop(): void {
