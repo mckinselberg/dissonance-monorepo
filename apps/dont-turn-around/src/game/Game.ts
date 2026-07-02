@@ -474,16 +474,16 @@ export class Game {
       return true;
     };
 
-    // Spawn at the center-bottom of the terrain — the world tilts up along +X
-    // so negative-X is the low ground. Centering on z≈0 gives the player a
-    // consistent orientation each run (forest in front, hill rising to the right).
-    for (let i = 0; i < 200; i++) {
-      const x = -45 - Math.random() * 30;   // -45 to -75
-      const z = -15 + Math.random() * 30;   // -15 to +15
+    // Spawn at the base of the southern mountains — player faces north (+Z)
+    // through the forest toward the car alarm. Narrow x-band so they always
+    // start centered, slight z randomisation so each run feels slightly different.
+    for (let i = 0; i < 60; i++) {
+      const x = -8 + Math.random() * 16;    // -8 to +8
+      const z = -255 - Math.random() * 15;  // -255 to -270
       if (!isClear(x, z)) continue;
       return new Vector3(x, terrain.getHeightAt(x, z) + 1.7, z);
     }
-    return new Vector3(-60, terrain.getHeightAt(-60, 0) + 1.7, 0);
+    return new Vector3(0, terrain.getHeightAt(0, -260) + 1.7, -260);
   }
 
   private static pickPursuerStart(playerSpawn: Vector3): { x: number; z: number } {
