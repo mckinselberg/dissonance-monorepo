@@ -1,11 +1,13 @@
 import * as Tone from 'tone';
 
 // Car alarm beacon for the destination parking lot.
-// Two descending WOOP chirps per 3.5-second cycle — volume driven by
-// distance so the player can use it as a directional beacon.
+// Two descending WOOP chirps per 3.5-second cycle — volume and reverb wet
+// both driven by distance so the alarm sounds close/dry at the car and
+// washes into a distant forest echo from far away.
 export class DestinationAudio {
   private synth: Tone.Synth;
   private filter: Tone.Filter;
+  private reverb: Tone.Reverb;
   private masterGain: Tone.Gain;
   private loop: Tone.Loop | null = null;
   private running = false;
@@ -22,10 +24,16 @@ export class DestinationAudio {
 
     // Bandpass centred on 1.2 kHz shapes the horn bite without full harshness
     this.filter = new Tone.Filter({ frequency: 1200, type: 'bandpass', rolloff: -12 });
+
+    // Long forest reverb — fully dry at the car, wetter as the player moves
+    // further away. wet is set each frame via setDistance().
+    this.reverb = new Tone.Reverb({ decay: 5.0, preDelay: 0.02, wet: 0.6 });
+
     this.masterGain = new Tone.Gain(0.0);
 
     this.synth.connect(this.filter);
-    this.filter.connect(this.masterGain);
+    this.filter.connect(this.reverb);
+    this.reverb.connect(this.masterGain);
     this.masterGain.toDestination();
   }
 
@@ -58,6 +66,11 @@ export class DestinationAudio {
       this.masterGain.gain.rampTo(target, 1.0);
       this.currentVolume = target;
     }
+
+    // Dry at the car (distance≈0), progressively wetter further away.
+    // Cap at 0.8 so even at max distance there's still some direct signal.
+    const targetWet = normalizedDistance * 0.8;
+    this.reverb.wet.rampTo(targetWet, 2.0);
   }
 
   setGainMultiplier(v: number): void {
@@ -69,6 +82,7 @@ export class DestinationAudio {
     this.stop();
     this.synth.dispose();
     this.filter.dispose();
+    this.reverb.dispose();
     this.masterGain.dispose();
   }
 }
