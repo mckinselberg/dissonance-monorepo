@@ -1,8 +1,11 @@
 import * as Tone from 'tone';
 
+// Car alarm beacon for the destination parking lot.
+// Two descending WOOP chirps per 3.5-second cycle — volume driven by
+// distance so the player can use it as a directional beacon.
 export class DestinationAudio {
-  private synth: Tone.FMSynth;
-  private reverb: Tone.Reverb;
+  private synth: Tone.Synth;
+  private filter: Tone.Filter;
   private masterGain: Tone.Gain;
   private loop: Tone.Loop | null = null;
   private running = false;
@@ -10,27 +13,28 @@ export class DestinationAudio {
   private gainMultiplier = 1.0;
 
   constructor() {
-    this.synth = new Tone.FMSynth({
-      harmonicity: 3.01,
-      modulationIndex: 14,
-      oscillator: { type: 'sine' },
-      modulation: { type: 'sine' },
-      envelope: { attack: 0.001, decay: 5.0, sustain: 0.0, release: 0.5 },
-      modulationEnvelope: { attack: 0.002, decay: 1.5, sustain: 0.0, release: 0.5 },
+    // Sawtooth with 4 harmonics → buzzy electronic alarm character
+    this.synth = new Tone.Synth({
+      oscillator: { type: 'sawtooth4' },
+      envelope: { attack: 0.006, decay: 0.0, sustain: 1.0, release: 0.05 },
+      volume: -6,
     });
 
-    this.reverb = new Tone.Reverb({ decay: 10, wet: 0.75 });
+    // Bandpass centred on 1.2 kHz shapes the horn bite without full harshness
+    this.filter = new Tone.Filter({ frequency: 1200, type: 'bandpass', rolloff: -12 });
     this.masterGain = new Tone.Gain(0.0);
 
-    this.synth.connect(this.reverb);
-    this.reverb.connect(this.masterGain);
+    this.synth.connect(this.filter);
+    this.filter.connect(this.masterGain);
     this.masterGain.toDestination();
   }
 
   start(): void {
     if (this.running) return;
+    // A5 → F#5 — descending minor third, classic two-tone alarm interval
     this.loop = new Tone.Loop((time) => {
-      this.synth.triggerAttackRelease('A3', '8n', time);
+      this.synth.triggerAttackRelease('A5', 0.24, time);
+      this.synth.triggerAttackRelease('F#5', 0.24, time + 0.38);
     }, '3.5');
     this.loop.start(0);
     if (Tone.getTransport().state !== 'started') {
@@ -64,7 +68,7 @@ export class DestinationAudio {
   dispose(): void {
     this.stop();
     this.synth.dispose();
-    this.reverb.dispose();
+    this.filter.dispose();
     this.masterGain.dispose();
   }
 }

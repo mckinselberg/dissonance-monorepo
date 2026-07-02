@@ -98,7 +98,7 @@ export class DevHUD {
 
     panel.appendChild(sectionLabel('audio'));
 
-    panel.appendChild(sliderRow('bell vol', 0, 2, 0.05, 1, (v) => {
+    panel.appendChild(sliderRow('alarm vol', 0, 2, 0.05, 1, (v) => {
       this.controls.setBellMultiplier(v);
     }));
 

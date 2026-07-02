@@ -69,7 +69,13 @@ export class PursuerSystem {
       }
 
       const losScale = hasLoS ? 1.0 : 0.55;
-      const speed = (cfg.baseSpeed + this.model.aggression * (cfg.maxSpeed - cfg.baseSpeed)) * losScale;
+      // Slow to ~35% when very close — gives the player time to pivot and
+      // shine the flashlight before being caught.
+      const STALK_THRESHOLD = 15.0;
+      const closeScale = dist < STALK_THRESHOLD
+        ? 0.35 + 0.65 * (dist / STALK_THRESHOLD)
+        : 1.0;
+      const speed = (cfg.baseSpeed + this.model.aggression * (cfg.maxSpeed - cfg.baseSpeed)) * losScale * closeScale;
 
       if (dist > 0.01) {
         const move = Math.min(speed * dt, dist);
