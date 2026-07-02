@@ -11,7 +11,7 @@ import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio } from '@dissona
 import { PursuerSystem } from '@dissonance/pursuit';
 
 import { EXPERIENCE_PROFILES } from '../config/experienceProfiles';
-import { RUN_PROFILES, PURSUER_CONFIG } from '../config/runProfiles';
+import { RUN_PROFILES, RUN_COUNT_KEY, buildPursuerConfig } from '../config/runProfiles';
 import { DestinationSystem } from '../world/DestinationSystem';
 import { PursuerAudio } from '../pursuer/PursuerAudio';
 import { PursuerBody } from '../pursuer/PursuerBody';
@@ -39,6 +39,7 @@ export interface GameDebugState {
   isIlluminated: boolean;
   flashlightOn: boolean;
   hasPhone: boolean;
+  runCount: number;
   markerA: { x: number; z: number } | null;
   markerB: { x: number; z: number } | null;
   markerDist: number | null;
@@ -122,9 +123,11 @@ export class Game {
   private isCaught = false;
   private catchFadeEl: HTMLElement | null = null;
   private hasWon = false;
+  private runCount: number;
 
   constructor(canvas: HTMLCanvasElement, config: GameConfig) {
     this.lowSpec = readLowSpecMode();
+    this.runCount = parseInt(localStorage.getItem(RUN_COUNT_KEY) ?? '0', 10);
     this.expProfile = EXPERIENCE_PROFILES[config.experienceMode];
     if (this.lowSpec) {
       // Tree count and draw distance drive total scene complexity more
@@ -195,7 +198,7 @@ export class Game {
     this.weather.setMode('clear');
 
     this.destination = new DestinationSystem(DEST_POS);
-    this.pursuer = new PursuerSystem(PURSUER_CONFIG);
+    this.pursuer = new PursuerSystem(buildPursuerConfig(this.runCount));
     this.pursuerAudio = new PursuerAudio();
     this.ambientAudio = new AmbientAudio();
     this.playerAudio = new PlayerAudio();
@@ -382,6 +385,10 @@ export class Game {
   }
 
   private restart(): void {
+    this.runCount++;
+    localStorage.setItem(RUN_COUNT_KEY, String(this.runCount));
+    this.pursuer = new PursuerSystem(buildPursuerConfig(this.runCount));
+
     this.player.reset(this.spawnPos.clone());
 
     this.pursuerPos = Game.pickPursuerStart(this.spawnPos);
@@ -556,6 +563,7 @@ export class Game {
       isIlluminated: this.lastIlluminated,
       flashlightOn: this.phoneFlashlightOn,
       hasPhone: this.inventory.hasItem('phone'),
+      runCount: this.runCount,
       markerA: this.markerA,
       markerB: this.markerB,
       markerDist: this.markerA && this.markerB

@@ -10,6 +10,8 @@ export interface PursuerConfig {
   sprintAggressionGain: number;
   stillAggressionLoss: number;
   aggressionDecayRate: number;
+  stunMin: number;
+  stunRange: number;
 }
 
 export class PursuerSystem {
@@ -41,7 +43,7 @@ export class PursuerSystem {
 
     if (isIlluminated) {
       // First frame caught in the beam → freeze briefly before fleeing.
-      if (!this.wasIlluminated) this.stunTimer = 0.65 + Math.random() * 0.35;
+      if (!this.wasIlluminated) this.stunTimer = cfg.stunMin + Math.random() * cfg.stunRange;
       this.wasIlluminated = true;
 
       this.model.aggression = Math.max(0, this.model.aggression - cfg.stillAggressionLoss * 4 * dt);

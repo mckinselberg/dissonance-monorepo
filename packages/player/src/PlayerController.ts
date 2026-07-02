@@ -45,7 +45,7 @@ export class PlayerController {
     // here — per-light shadow maps are expensive, and the moonlight sun
     // in DaylightSystem already covers that job.
     this.flashlight = new SpotLight(
-      'flashlight', startPosition.clone(), Vector3.Forward(), Math.PI / 4, 2, scene,
+      'flashlight', startPosition.clone(), Vector3.Forward(), Math.PI / 3, 2, scene,
     );
     this.flashlight.diffuse = new Color3(1.0, 0.82, 0.55);
     this.flashlight.specular = Color3.Black();
@@ -72,7 +72,8 @@ export class PlayerController {
     if (dist < 0.001 || dist > this.flashlight.range) return false;
     const dir = this.camera.getDirection(Vector3.Forward());
     const cosAngle = Vector3.Dot(dir, toPoint.normalize());
-    return cosAngle > Math.cos(this.flashlight.angle / 2);
+    // Use full half-angle (not half of it) — detection fills the entire visible cone.
+    return cosAngle > Math.cos(this.flashlight.angle);
   }
 
   setTerrain(terrain: Terrain): void {
