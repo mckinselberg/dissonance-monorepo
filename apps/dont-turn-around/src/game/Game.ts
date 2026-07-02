@@ -302,7 +302,7 @@ export class Game {
       pursuerGroundY,
       () => this.player.adrenaline.spike(0.22),
     );
-    this.pursuerBody.update(dt, this.pursuerPos, pursuerGroundY);
+    this.pursuerBody.update(dt, this.pursuerPos, pursuerGroundY, playerPos2d);
 
     this.clouds.update(dt);
 
