@@ -58,10 +58,6 @@ export class PursuerBody {
     //   2.10–2.36  horns  (splayed outward ~25°)
     //
     const parts = [
-      // Legs: slightly taller and narrower than a human
-      bake('legL', 0.14, 0.92, 0.14, -0.11, 0.46, 0),
-      bake('legR', 0.14, 0.92, 0.14,  0.11, 0.46, 0),
-
       // Pelvis: narrow hips start the inverted-V
       bake('pelvis', 0.38, 0.22, 0.20, 0, 1.03, 0),
 

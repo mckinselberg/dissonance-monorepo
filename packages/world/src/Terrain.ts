@@ -117,12 +117,20 @@ export class Terrain {
 
         const ddx = wx - 190, ddz = wz - 140;
         const dDest = Math.sqrt(ddx * ddx + ddz * ddz);
-        // Extend flatten to radius 50 (was 16). The old 16-unit radius left
-        // full-amplitude macro hills at radius 17, which created a visible
-        // cliff face across the entire approach from the hiking trail.
+        // Flatten bumps out to radius 50 so no cliff band appears on approach.
         if (dDest < 50) bumps *= Math.pow(dDest / 50, 2);
 
-        grid[iz * n + ix] = bumps + wx * TILT_GRADE;
+        // Flatten the tilt gradient near the lot so the parking-lot surface is
+        // level. Without this, a 30-unit-wide box placed at the centre height
+        // floats ~1.6 units above terrain on the low-X side (TILT_GRADE ×15).
+        // We blend toward the tilt at the lot centre (190 × TILT_GRADE), not
+        // toward 0 — keeping the base elevation so there's no cliff at the edge.
+        const baseTilt = wx * TILT_GRADE;
+        const destTilt = 190 * TILT_GRADE;
+        const tiltBlend = dDest < 50 ? Math.pow(dDest / 50, 2) : 1;
+        const tilt = destTilt + (baseTilt - destTilt) * tiltBlend;
+
+        grid[iz * n + ix] = bumps + tilt;
       }
     }
     return grid;

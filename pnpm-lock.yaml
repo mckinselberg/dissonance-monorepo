@@ -134,6 +134,9 @@ importers:
       '@babylonjs/core':
         specifier: ^7.0.0
         version: 7.54.3
+      '@babylonjs/materials':
+        specifier: ^7.0.0
+        version: 7.54.3(@babylonjs/core@7.54.3)
       '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../shared-types
@@ -152,6 +155,11 @@ packages:
     peerDependencies:
       '@babylonjs/core': ^7.0.0
       babylonjs-gltf2interface: ^7.0.0
+
+  '@babylonjs/materials@7.54.3':
+    resolution: {integrity: sha512-WYqvpX6+iR0/h/X0SaoFZH2hD1nDIzu9Qo86/yEK8R+whhShgpkJ9VDdTE1yYNBxf5azFoUrxWcMy3OXNn3Z3w==}
+    peerDependencies:
+      '@babylonjs/core': ^7.0.0
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -559,6 +567,10 @@ snapshots:
     dependencies:
       '@babylonjs/core': 7.54.3
       babylonjs-gltf2interface: 7.54.3
+
+  '@babylonjs/materials@7.54.3(@babylonjs/core@7.54.3)':
+    dependencies:
+      '@babylonjs/core': 7.54.3
 
   '@esbuild/aix-ppc64@0.21.5':
     optional: true

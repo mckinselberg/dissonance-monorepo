@@ -21,4 +21,4 @@ for the pursuer/flashlight system - we want the pursuer to pause when the light 
 
 instead of a bell, let's have the sound be the car (in the parking lot and our goal) alarm going off.
 
-fix the look of the mountains. they still look kinda funny
+fix the look of the mountains. they still look kinda funny. I actually think billboards for the backdrop with a boundary that player cannot cross would be great for this

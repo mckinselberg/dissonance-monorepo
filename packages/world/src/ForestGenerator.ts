@@ -12,6 +12,7 @@ import {
   Quaternion,
   Mesh,
 } from '@babylonjs/core';
+
 import type { ExperienceProfile } from '@dissonance/shared-types';
 import type { Terrain } from './Terrain';
 import { displaceToBlob, displaceRadial } from './noise';
@@ -130,6 +131,14 @@ export class ForestGenerator {
     );
   }
 
+  private makeWindMat(name: string, albedo: Color3, roughness: number, scene: Scene): PBRMaterial {
+    const mat = new PBRMaterial(name, scene);
+    mat.albedoColor = albedo;
+    mat.metallic = 0;
+    mat.roughness = roughness;
+    return mat;
+  }
+
   // Builds one fully-randomized tree (trunk + conifer tiers or deciduous
   // dome+clumps) at local origin, then merges every part into a single
   // mesh. Called a fixed number of times up front to bake a small library
@@ -171,10 +180,7 @@ export class ForestGenerator {
     const apexY = height;
 
     if (isConifer) {
-      const coniferMat = new PBRMaterial(`treeConiferMat_${id}`, scene);
-      coniferMat.albedoColor = new Color3(0.06, 0.75 * shadeFactor, 0.16 * shadeFactor);
-      coniferMat.metallic = 0;
-      coniferMat.roughness = 0.7;
+      const baseConiferColor = new Color3(0.06, 0.75 * shadeFactor, 0.16 * shadeFactor);
 
       const angleSeed = Math.random();
       const coneBaseWidth = baseRad * 4 + height * (0.22 + angleSeed * 0.28);
@@ -201,19 +207,14 @@ export class ForestGenerator {
         const oz = (Math.random() - 0.5) * tierBottomDiam * 0.15;
         tier.position.set(ox, cursorY - tierHeight / 2, oz);
         tier.rotation.y = Math.random() * Math.PI * 2;
-        const tierMat = coniferMat.clone(`treeConiferMat_${id}_${t}`);
-        tierMat.albedoColor = this.jitterColor(coniferMat.albedoColor);
-        tier.material = tierMat;
+        tier.material = this.makeWindMat(`treeConiferMat_${id}_${t}`, this.jitterColor(baseConiferColor), 0.7, scene);
         if (ps1) tier.convertToFlatShadedMesh();
         parts.push(tier);
 
         cursorY -= tierHeight * (1 + gapFrac);
       }
     } else {
-      const deciduousMat = new PBRMaterial(`treeDeciduousMat_${id}`, scene);
-      deciduousMat.albedoColor = new Color3(0.08, 0.72 * shadeFactor, 0.14 * shadeFactor);
-      deciduousMat.metallic = 0;
-      deciduousMat.roughness = 0.6;
+      const baseDeciduousColor = new Color3(0.08, 0.72 * shadeFactor, 0.14 * shadeFactor);
 
       // Superlinear in height (not just a flat fraction) — taller trees
       // get a disproportionately bigger canopy, not just a scaled-up copy
@@ -231,9 +232,7 @@ export class ForestGenerator {
       );
       dome.position.set(0, height - canopyWidth * 0.12, 0);
       dome.rotation.y = Math.random() * Math.PI * 2;
-      const domeMat = deciduousMat.clone(`treeDeciduousMat_${id}_dome`);
-      domeMat.albedoColor = this.jitterColor(deciduousMat.albedoColor);
-      dome.material = domeMat;
+      dome.material = this.makeWindMat(`treeDeciduousMat_${id}_dome`, this.jitterColor(baseDeciduousColor), 0.6, scene);
       if (ps1) dome.convertToFlatShadedMesh();
       parts.push(dome);
 
@@ -255,9 +254,7 @@ export class ForestGenerator {
         );
         clump.position.set(ox, height - canopyWidth * 0.12 + oy, oz);
         clump.rotation.y = Math.random() * Math.PI * 2;
-        const clumpMat = deciduousMat.clone(`treeDeciduousMat_${id}_${c}`);
-        clumpMat.albedoColor = this.jitterColor(deciduousMat.albedoColor);
-        clump.material = clumpMat;
+        clump.material = this.makeWindMat(`treeDeciduousMat_${id}_${c}`, this.jitterColor(baseDeciduousColor), 0.6, scene);
         if (ps1) clump.convertToFlatShadedMesh();
         parts.push(clump);
       }
