@@ -2,7 +2,7 @@ services:
   - type: web
     name: dont-turn-around
     env: static
-    buildCommand: npm install -g pnpm && pnpm install && pnpm turbo build --filter=dont-turn-around
+    buildCommand: corepack enable && pnpm install && pnpm turbo build --filter=dont-turn-around
     staticPublishPath: ./apps/dont-turn-around/dist
     branch: main
     autoDeploy: true
