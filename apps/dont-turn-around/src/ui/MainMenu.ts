@@ -41,6 +41,7 @@ export class MainMenu {
           <div class="opts" id="mode-opts" style="display:flex;flex-direction:column;gap:0.5rem;">
             <button data-mode="radio" class="menu-btn">RADIO</button>
             <button data-mode="ps1" class="menu-btn">PS1</button>
+            <button data-mode="ps2" class="menu-btn">PS2</button>
           </div>
         </section>
 

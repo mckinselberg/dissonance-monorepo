@@ -1,6 +1,6 @@
 import {
   Engine, Scene, Vector3, MotionBlurPostProcess, DefaultRenderingPipeline,
-  AbstractMesh,
+  AbstractMesh, MeshBuilder, StandardMaterial, Color3, Mesh,
 } from '@babylonjs/core';
 import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dissonance/shared-types';
 import { SceneFactory, GameLoop } from '@dissonance/engine';
@@ -106,6 +106,7 @@ export class Game {
   private postFXPipeline: DefaultRenderingPipeline | null;
   private lowSpec: boolean;
   private savedShadowCasters: AbstractMesh[] | null = null;
+  private atmosphericParticles: Mesh[] = [];
 
   private expProfile: ExperienceProfile;
   private runProfile: RunProfile;
@@ -184,13 +185,14 @@ export class Game {
       this.motionBlur = null;
       this.postFXPipeline = null;
     } else {
-      const postFX = SceneFactory.createPostProcessing(scene, this.player.camera);
+      const postFX = SceneFactory.createPostProcessing(scene, this.player.camera, this.expProfile);
       this.motionBlur = postFX.motionBlur;
       this.postFXPipeline = postFX.pipeline;
     }
 
     this.weather = new WeatherSystem(scene);
     this.weather.setMode('clear');
+    if (this.expProfile.mode === 'ps2') this.createAtmosphericParticles(scene);
 
     this.destination = new DestinationSystem(DEST_POS);
     this.destination.setChirpCallback(() => this.forest.flashCarLights());
@@ -306,6 +308,7 @@ export class Game {
     this.ambientAudio.setNightLevel(this.daylight.getNightLevel());
 
     this.weather.update(dt, (v) => this.ambientAudio.setWeatherIntensity(v));
+    if (this.atmosphericParticles.length > 0) this.updateAtmosphericParticles(dt, playerPos);
 
     SceneFactory.updateFog(
       this.scene,
@@ -483,6 +486,54 @@ export class Game {
     }, durationMs);
   }
 
+  private createAtmosphericParticles(scene: Scene): void {
+    const mat = new StandardMaterial('ps2AirParticleMat', scene);
+    mat.disableLighting = true;
+    mat.emissiveColor = new Color3(0.55, 0.46, 0.34);
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.alpha = 0.28;
+    mat.backFaceCulling = false;
+
+    for (let i = 0; i < 120; i++) {
+      const mote = MeshBuilder.CreatePlane(`ps2AirMote_${i}`, {
+        width: 0.025 + Math.random() * 0.055,
+        height: 0.025 + Math.random() * 0.055,
+      }, scene);
+      mote.material = mat;
+      mote.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      mote.applyFog = false;
+      mote.isPickable = false;
+      mote.position.set(
+        this.spawnPos.x + (Math.random() - 0.5) * 90,
+        this.spawnPos.y - 0.6 + Math.random() * 4.0,
+        this.spawnPos.z + (Math.random() - 0.5) * 90,
+      );
+      this.atmosphericParticles.push(mote);
+    }
+  }
+
+  private updateAtmosphericParticles(dt: number, playerPos: Vector3): void {
+    for (let i = 0; i < this.atmosphericParticles.length; i++) {
+      const mote = this.atmosphericParticles[i];
+      mote.position.x += Math.sin(performance.now() * 0.0002 + i) * dt * 0.08;
+      mote.position.z += dt * (0.10 + (i % 5) * 0.015);
+      mote.rotation.z += dt * 0.25;
+
+      const dx = mote.position.x - playerPos.x;
+      const dz = mote.position.z - playerPos.z;
+      if (dx * dx + dz * dz > 55 * 55) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 12 + Math.random() * 38;
+        mote.position.set(
+          playerPos.x + Math.cos(angle) * radius,
+          playerPos.y - 0.8 + Math.random() * 4.2,
+          playerPos.z + Math.sin(angle) * radius,
+        );
+      }
+    }
+  }
+
   private static pickRandomSpawn(terrain: Terrain, colliders: Collider[]): Vector3 {
     const SAFETY_MARGIN = 1.5;
 
@@ -655,6 +706,8 @@ export class Game {
     this.heartbeat.dispose();
     this.proximity.dispose();
     this.breathOverlay.dispose();
+    this.atmosphericParticles.forEach(m => m.dispose());
+    this.atmosphericParticles = [];
     this.phoneProp?.dispose();
     this.playerHand?.dispose();
     this.inventoryUI.dispose();

@@ -82,7 +82,9 @@ export class MountainRing {
 
   constructor(scene: Scene, profile: ExperienceProfile) {
     // Near silhouette layer — the primary visible ridge
-    const nearEmissive = profile.mode === 'ps1'
+    const nearEmissive = profile.mode === 'ps2'
+      ? new Color3(0.045, 0.050, 0.075)
+      : profile.mode === 'ps1'
       ? new Color3(0.07, 0.08, 0.14)
       : new Color3(0.028, 0.022, 0.040);
     const nearMat = new StandardMaterial('mtnNearMat', scene);

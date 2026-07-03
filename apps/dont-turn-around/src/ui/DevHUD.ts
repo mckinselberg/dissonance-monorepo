@@ -157,8 +157,10 @@ export class DevHUD {
     const modeBtns = document.createElement('div');
     modeBtns.style.cssText = 'display:flex;gap:6px';
     const ps1Btn = modeBtn('PS1', currentMode === 'ps1', () => this.switchMode('ps1'));
+    const ps2Btn = modeBtn('PS2', currentMode === 'ps2', () => this.switchMode('ps2'));
     const radioBtn = modeBtn('RADIO', currentMode === 'radio', () => this.switchMode('radio'));
     modeBtns.appendChild(ps1Btn);
+    modeBtns.appendChild(ps2Btn);
     modeBtns.appendChild(radioBtn);
     modeRow.appendChild(modeBtns);
     panel.appendChild(modeRow);

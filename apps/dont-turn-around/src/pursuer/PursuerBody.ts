@@ -20,10 +20,11 @@ export class PursuerBody {
 
   constructor(scene: Scene, mode: ExperienceMode) {
     const ps1 = mode === 'ps1';
+    const ps2 = mode === 'ps2';
 
-    this.glowR = ps1 ? 1.0  : 0.20;
-    this.glowG = ps1 ? 0.18 : 0.55;
-    this.glowB = ps1 ? 0.02 : 1.0;
+    this.glowR = ps1 ? 1.0  : ps2 ? 1.0  : 0.20;
+    this.glowG = ps1 ? 0.18 : ps2 ? 0.08 : 0.55;
+    this.glowB = ps1 ? 0.02 : ps2 ? 0.02 : 1.0;
 
     const mat = new StandardMaterial('pursuerBodyMat', scene);
     mat.diffuseColor  = Color3.Black();
@@ -88,7 +89,7 @@ export class PursuerBody {
     if (ps1) this.body.convertToFlatShadedMesh();
 
     this.glowLayer = new GlowLayer('pursuerGlow', scene);
-    this.glowLayer.intensity = 0.4;
+    this.glowLayer.intensity = ps2 ? 0.7 : 0.4;
     this.heartbeat = new HeartbeatGlow(this.body, this.glowLayer);
   }
 

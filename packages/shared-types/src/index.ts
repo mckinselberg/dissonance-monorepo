@@ -1,6 +1,6 @@
 // ── Core game types ──────────────────────────────────────────────────────────
 
-export type ExperienceMode = 'radio' | 'ps1';
+export type ExperienceMode = 'radio' | 'ps1' | 'ps2';
 export type DepartureTime = 'afternoon' | 'dusk' | 'night';
 export type WeatherMode = 'clear' | 'windy';
 export type PursuerState = 'far' | 'near' | 'close' | 'caught';

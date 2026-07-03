@@ -28,4 +28,15 @@ export const EXPERIENCE_PROFILES: Record<ExperienceMode, ExperienceProfile> = {
     fogColor: { r: 0.32, g: 0.36, b: 0.30 },
     skyColor: { r: 0.18, g: 0.28, b: 0.44 },
   },
+  ps2: {
+    mode: 'ps2',
+    treeCount: 1450,
+    fogDensity: 0.024,
+    drawDistance: 115,
+    ambientIntensity: 0.24,
+    visualNoise: 0.0,
+    audioLoFiAmount: 0.05,
+    fogColor: { r: 0.18, g: 0.22, b: 0.20 },
+    skyColor: { r: 0.11, g: 0.16, b: 0.24 },
+  },
 };
