@@ -13,6 +13,7 @@ export class DestinationAudio {
   private running = false;
   private currentVolume = 0.0;
   private gainMultiplier = 1.0;
+  private onChirp: (() => void) | null = null;
 
   constructor() {
     // Sawtooth with 4 harmonics → buzzy electronic alarm character
@@ -37,12 +38,20 @@ export class DestinationAudio {
     this.masterGain.toDestination();
   }
 
+  setChirpCallback(cb: () => void): void {
+    this.onChirp = cb;
+  }
+
   start(): void {
     if (this.running) return;
-    // A5 → F#5 — descending minor third, classic two-tone alarm interval
+    // A5 → F#5 — descending minor third, classic two-tone alarm interval.
+    // getDraw().schedule fires the visual flash on the next animation frame
+    // at the exact audio time so lights sync to the chirps with no drift.
     this.loop = new Tone.Loop((time) => {
       this.synth.triggerAttackRelease('A5', 0.24, time);
+      if (this.onChirp) Tone.getDraw().schedule(this.onChirp, time);
       this.synth.triggerAttackRelease('F#5', 0.24, time + 0.38);
+      if (this.onChirp) Tone.getDraw().schedule(this.onChirp, time + 0.38);
     }, '3.5');
     this.loop.start(0);
     if (Tone.getTransport().state !== 'started') {

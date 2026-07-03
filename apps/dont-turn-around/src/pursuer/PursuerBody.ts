@@ -31,24 +31,57 @@ export class PursuerBody {
     mat.emissiveColor = new Color3(this.glowR, this.glowG, this.glowB);
     mat.alpha = 0;
 
-    // Build humanoid silhouette. Local origin = feet centre (y=0).
-    // Arms extend forward along +Z so the figure faces the player once
-    // rotation.y is set in update().
-    const box = (name: string, w: number, h: number, d: number, x: number, y: number, z: number): Mesh => {
+    // Bake position + rotation into vertex data so the merged mesh
+    // keeps world-y=0 as the feet origin. rx/ry/rz default to 0.
+    const bake = (
+      name: string,
+      w: number, h: number, d: number,
+      x: number, y: number, z: number,
+      rx = 0, ry = 0, rz = 0,
+    ): Mesh => {
       const m = MeshBuilder.CreateBox(name, { width: w, height: h, depth: d }, scene);
       m.position.set(x, y, z);
-      m.bakeCurrentTransformIntoVertices(); // fold position into vertices; origin stays at feet
+      m.rotation.set(rx, ry, rz);
+      m.bakeCurrentTransformIntoVertices();
       return m;
     };
 
+    //
+    // Demonic silhouette — inverted triangle (massive chest, narrow hips),
+    // elongated skull, splayed horns, long reaching arms.
+    //
+    // Heights (y):
+    //   0.00–0.92  legs
+    //   0.92–1.14  pelvis (narrow — the V starts here)
+    //   1.14–1.74  torso  (0.88 wide — the widest point)
+    //   1.74–2.10  head   (taller/narrower than a human skull)
+    //   2.10–2.36  horns  (splayed outward ~25°)
+    //
     const parts = [
-      box('legL',  0.18, 0.88, 0.18,  -0.12, 0.44, 0   ),
-      box('legR',  0.18, 0.88, 0.18,   0.12, 0.44, 0   ),
-      box('torso', 0.48, 0.60, 0.22,   0,    1.18, 0   ),
-      box('head',  0.26, 0.26, 0.22,   0,    1.65, 0   ),
-      // Arms: depth = reach length, centre at z=+0.26 (sticking forward)
-      box('armL',  0.14, 0.14, 0.52,  -0.30, 1.32, 0.26),
-      box('armR',  0.14, 0.14, 0.52,   0.30, 1.32, 0.26),
+      // Legs: slightly taller and narrower than a human
+      bake('legL', 0.14, 0.92, 0.14, -0.11, 0.46, 0),
+      bake('legR', 0.14, 0.92, 0.14,  0.11, 0.46, 0),
+
+      // Pelvis: narrow hips start the inverted-V
+      bake('pelvis', 0.38, 0.22, 0.20, 0, 1.03, 0),
+
+      // Chest/torso: nearly double the width of the hips — very imposing
+      bake('torso', 0.88, 0.60, 0.26, 0, 1.44, 0),
+
+      // Head: doubled in size — center at y=2.10 keeps bottom flush with torso top
+      // (0.22→0.44 wide, 0.36→0.72 tall, 0.20→0.40 deep; top now at y=2.46)
+      bake('head', 0.44, 0.72, 0.40, 0, 2.10, 0),
+
+      // Horns: doubled in size, straight up from the top corners of the skull.
+      // Placed at x=±0.16 (near head outer edges, head half-width=0.22).
+      // Base sits at head top (y=2.46); tips reach y=2.98.
+      bake('hornL', 0.16, 0.52, 0.16, -0.16, 2.72, 0),
+      bake('hornR', 0.16, 0.52, 0.16,  0.16, 2.72, 0),
+
+      // Arms: much longer than before (0.90 vs 0.52), positioned at shoulder
+      // height and extending forward along +Z toward the player.
+      bake('armL', 0.13, 0.13, 0.90, -0.56, 1.44, 0.32),
+      bake('armR', 0.13, 0.13, 0.90,  0.56, 1.44, 0.32),
     ];
 
     this.body = Mesh.MergeMeshes(parts, true, true)!;
@@ -71,9 +104,6 @@ export class PursuerBody {
     this.body.isVisible = visible;
   }
 
-  // When the flashlight catches the pursuer, swap from glow-halo to a solid
-  // black silhouette — emissive feeds the GlowLayer, so zeroing it kills the
-  // halo; alpha=1 makes the mesh itself visible as a flat black shape instead.
   setIlluminated(lit: boolean): void {
     const mat = this.body.material as StandardMaterial;
     mat.alpha = lit ? 1 : 0;
@@ -88,16 +118,12 @@ export class PursuerBody {
     groundY: number,
     playerPos: { x: number; z: number },
   ): void {
-    // Feet at groundY; humanoid extends upward from there.
     this.body.position.set(pos.x, groundY, pos.z);
-
-    // Rotate to face the player so the forward-reaching arms point toward them.
     const dx = playerPos.x - pos.x;
     const dz = playerPos.z - pos.z;
     if (dx * dx + dz * dz > 0.01) {
       this.body.rotation.y = Math.atan2(dx, dz);
     }
-
     this.heartbeat.update(dt);
   }
 

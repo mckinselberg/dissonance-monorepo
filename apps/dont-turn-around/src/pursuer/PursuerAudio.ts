@@ -38,7 +38,7 @@ export class PursuerAudio {
       this.footstepTimer = 0.85 + Math.random() * 0.55;
       if (Math.random() > mask * 0.5) {
         const vol = -22 + Math.random() * 3;
-        const crack = Math.random() < 0.28;
+        const crack = Math.random() < 0.10;
         AudioEngine.playPursuerStep(pan, vol, crack);
       }
     }
@@ -58,7 +58,7 @@ export class PursuerAudio {
       this.footstepTimer = 0.38 + Math.random() * 0.20;
       if (Math.random() > mask * 0.25) {
         const vol = -6 + Math.random() * 3;
-        const crack = Math.random() < 0.38;
+        const crack = Math.random() < 0.18;
         AudioEngine.playPursuerStep(pan, vol, crack);
       }
     }

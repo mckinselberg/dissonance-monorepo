@@ -99,31 +99,35 @@ export class AudioEngine {
     }, 1500);
   }
 
+  // Player footstep: soft forest-soil character.
+  // Main layer is a low squelch (250–430 Hz) rather than the old 900–1500 Hz
+  // crunch which read as pavement. Sub-bass thud stays but is tuned lower.
+  // Crack is rare and soft — a leaf, not a twig snap.
   static playForestStep(panValue: number = 0, volumeDb: number = -20, withCrack: boolean = false): void {
     const panner = new Tone.Panner(panValue);
     panner.toDestination();
 
-    const crunchFreq = 900 + Math.random() * 600;
-    const crunchNoise = new Tone.Noise('white');
-    const crunchFilter = new Tone.Filter(crunchFreq, 'bandpass');
-    (crunchFilter as unknown as { Q: { value: number } }).Q.value = 4;
-    const crunchEnv = new Tone.AmplitudeEnvelope({
-      attack: 0.001, decay: 0.05 + Math.random() * 0.025, sustain: 0, release: 0.018,
+    const squelchFreq = 260 + Math.random() * 170;
+    const squelchNoise = new Tone.Noise('pink');
+    const squelchFilter = new Tone.Filter(squelchFreq, 'bandpass');
+    (squelchFilter as unknown as { Q: { value: number } }).Q.value = 2;
+    const squelchEnv = new Tone.AmplitudeEnvelope({
+      attack: 0.001, decay: 0.07 + Math.random() * 0.04, sustain: 0.01, release: 0.04,
     });
-    const crunchGain = new Tone.Gain(Tone.dbToGain(volumeDb));
-    crunchNoise.connect(crunchFilter);
-    crunchFilter.connect(crunchEnv);
-    crunchEnv.connect(crunchGain);
-    crunchGain.connect(panner);
-    crunchNoise.start();
-    crunchEnv.triggerAttackRelease(0.07);
+    const squelchGain = new Tone.Gain(Tone.dbToGain(volumeDb + 1));
+    squelchNoise.connect(squelchFilter);
+    squelchFilter.connect(squelchEnv);
+    squelchEnv.connect(squelchGain);
+    squelchGain.connect(panner);
+    squelchNoise.start();
+    squelchEnv.triggerAttackRelease(0.11);
 
     const weightNoise = new Tone.Noise('brown');
-    const weightFilter = new Tone.Filter(260, 'lowpass');
+    const weightFilter = new Tone.Filter(150, 'lowpass');
     const weightEnv = new Tone.AmplitudeEnvelope({
-      attack: 0.001, decay: 0.035, sustain: 0, release: 0.01,
+      attack: 0.001, decay: 0.04, sustain: 0, release: 0.012,
     });
-    const weightGain = new Tone.Gain(Tone.dbToGain(volumeDb - 3));
+    const weightGain = new Tone.Gain(Tone.dbToGain(volumeDb - 2));
     weightNoise.connect(weightFilter);
     weightFilter.connect(weightEnv);
     weightEnv.connect(weightGain);
@@ -132,19 +136,19 @@ export class AudioEngine {
     weightEnv.triggerAttackRelease(0.04);
 
     if (withCrack) {
+      // Soft leaf snap — quiet and brief, not a sharp twig
       const crackNoise = new Tone.Noise('white');
-      const crackFilter = new Tone.Filter(3500 + Math.random() * 1200, 'highpass');
+      const crackFilter = new Tone.Filter(2000 + Math.random() * 700, 'highpass');
       const crackEnv = new Tone.AmplitudeEnvelope({
-        attack: 0.0005, decay: 0.016 + Math.random() * 0.012, sustain: 0, release: 0.008,
+        attack: 0.0005, decay: 0.011 + Math.random() * 0.007, sustain: 0, release: 0.006,
       });
-      const crackGain = new Tone.Gain(Tone.dbToGain(volumeDb + 2));
+      const crackGain = new Tone.Gain(Tone.dbToGain(volumeDb - 3));
       crackNoise.connect(crackFilter);
       crackFilter.connect(crackEnv);
       crackEnv.connect(crackGain);
       crackGain.connect(panner);
       crackNoise.start();
-      crackEnv.triggerAttackRelease(0.025);
-
+      crackEnv.triggerAttackRelease(0.018);
       setTimeout(() => {
         crackNoise.stop(); crackNoise.dispose();
         crackFilter.dispose(); crackEnv.dispose(); crackGain.dispose();
@@ -152,73 +156,103 @@ export class AudioEngine {
     }
 
     setTimeout(() => {
-      crunchNoise.stop(); crunchNoise.dispose();
-      crunchFilter.dispose(); crunchEnv.dispose(); crunchGain.dispose();
+      squelchNoise.stop(); squelchNoise.dispose();
+      squelchFilter.dispose(); squelchEnv.dispose(); squelchGain.dispose();
       weightNoise.stop(); weightNoise.dispose();
       weightFilter.dispose(); weightEnv.dispose(); weightGain.dispose();
       panner.dispose();
     }, 400);
   }
 
+  // Pursuer footstep: heavier and darker than the player's squelch.
+  // Sub-bass layer (~70–90 Hz) is the key differentiator — an unmistakably
+  // heavy entity. Player steps have no sub-bass at all.
   static playPursuerStep(panValue: number = 0, volumeDb: number = -20, withCrack: boolean = false): void {
     const panner = new Tone.Panner(panValue);
     panner.toDestination();
 
-    const crunchFreq = 380 + Math.random() * 420;
-    const crunchNoise = new Tone.Noise('pink');
-    const crunchFilter = new Tone.Filter(crunchFreq, 'bandpass');
-    (crunchFilter as unknown as { Q: { value: number } }).Q.value = 3;
-    const crunchEnv = new Tone.AmplitudeEnvelope({
-      attack: 0.002, decay: 0.07 + Math.random() * 0.03, sustain: 0, release: 0.025,
+    // Low-mid thud — brown noise, 180–330 Hz (darker/lower than player squelch)
+    const thudFreq = 180 + Math.random() * 150;
+    const thudNoise = new Tone.Noise('brown');
+    const thudFilter = new Tone.Filter(thudFreq, 'bandpass');
+    (thudFilter as unknown as { Q: { value: number } }).Q.value = 1.8;
+    const thudEnv = new Tone.AmplitudeEnvelope({
+      attack: 0.001, decay: 0.11 + Math.random() * 0.05, sustain: 0, release: 0.04,
     });
-    const crunchGain = new Tone.Gain(Tone.dbToGain(volumeDb));
-    crunchNoise.connect(crunchFilter);
-    crunchFilter.connect(crunchEnv);
-    crunchEnv.connect(crunchGain);
-    crunchGain.connect(panner);
-    crunchNoise.start();
-    crunchEnv.triggerAttackRelease(0.09);
+    const thudGain = new Tone.Gain(Tone.dbToGain(volumeDb + 2));
+    thudNoise.connect(thudFilter);
+    thudFilter.connect(thudEnv);
+    thudEnv.connect(thudGain);
+    thudGain.connect(panner);
+    thudNoise.start();
+    thudEnv.triggerAttackRelease(0.15);
 
-    const weightNoise = new Tone.Noise('brown');
-    const weightFilter = new Tone.Filter(160, 'lowpass');
-    const weightEnv = new Tone.AmplitudeEnvelope({
-      attack: 0.001, decay: 0.06, sustain: 0, release: 0.02,
+    // Sub-bass body impact — this layer distinguishes the pursuer from the player
+    const subNoise = new Tone.Noise('brown');
+    const subFilter = new Tone.Filter(80, 'lowpass');
+    const subEnv = new Tone.AmplitudeEnvelope({
+      attack: 0.001, decay: 0.09, sustain: 0, release: 0.018,
     });
-    const weightGain = new Tone.Gain(Tone.dbToGain(volumeDb + 1));
-    weightNoise.connect(weightFilter);
-    weightFilter.connect(weightEnv);
-    weightEnv.connect(weightGain);
-    weightGain.connect(panner);
-    weightNoise.start();
-    weightEnv.triggerAttackRelease(0.065);
+    const subGain = new Tone.Gain(Tone.dbToGain(volumeDb + 5));
+    subNoise.connect(subFilter);
+    subFilter.connect(subEnv);
+    subEnv.connect(subGain);
+    subGain.connect(panner);
+    subNoise.start();
+    subEnv.triggerAttackRelease(0.10);
 
     if (withCrack) {
+      // Dry branch snap — heavier than player's soft leaf, more percussive
       const crackNoise = new Tone.Noise('brown');
-      const crackFilter = new Tone.Filter(1800 + Math.random() * 800, 'highpass');
+      const crackFilter = new Tone.Filter(1600 + Math.random() * 700, 'highpass');
       const crackEnv = new Tone.AmplitudeEnvelope({
-        attack: 0.001, decay: 0.028 + Math.random() * 0.015, sustain: 0, release: 0.012,
+        attack: 0.001, decay: 0.032 + Math.random() * 0.018, sustain: 0, release: 0.014,
       });
-      const crackGain = new Tone.Gain(Tone.dbToGain(volumeDb + 4));
+      const crackGain = new Tone.Gain(Tone.dbToGain(volumeDb + 6));
       crackNoise.connect(crackFilter);
       crackFilter.connect(crackEnv);
       crackEnv.connect(crackGain);
       crackGain.connect(panner);
       crackNoise.start();
-      crackEnv.triggerAttackRelease(0.035);
-
+      crackEnv.triggerAttackRelease(0.04);
       setTimeout(() => {
         crackNoise.stop(); crackNoise.dispose();
         crackFilter.dispose(); crackEnv.dispose(); crackGain.dispose();
-      }, 350);
+      }, 400);
     }
 
     setTimeout(() => {
-      crunchNoise.stop(); crunchNoise.dispose();
-      crunchFilter.dispose(); crunchEnv.dispose(); crunchGain.dispose();
-      weightNoise.stop(); weightNoise.dispose();
-      weightFilter.dispose(); weightEnv.dispose(); weightGain.dispose();
+      thudNoise.stop(); thudNoise.dispose();
+      thudFilter.dispose(); thudEnv.dispose(); thudGain.dispose();
+      subNoise.stop(); subNoise.dispose();
+      subFilter.dispose(); subEnv.dispose(); subGain.dispose();
       panner.dispose();
-    }, 500);
+    }, 600);
+  }
+
+  // Short directional rustle for when the player brushes past a tree at jog/sprint.
+  // Crisper onset than playLeafRustle (which is slower and more ambient).
+  static playProximityRustle(panValue: number = 0): void {
+    const vol = -13 + (Math.random() - 0.5) * 4;
+    const panner = new Tone.Panner(panValue);
+    panner.toDestination();
+    const noise = new Tone.Noise('white');
+    const filter = new Tone.Filter(3200 + Math.random() * 1400, 'bandpass');
+    (filter as unknown as { Q: { value: number } }).Q.value = 1.8;
+    const env = new Tone.AmplitudeEnvelope({
+      attack: 0.008, decay: 0.14 + Math.random() * 0.10, sustain: 0, release: 0.16,
+    });
+    const gain = new Tone.Gain(Tone.dbToGain(vol));
+    noise.connect(filter);
+    filter.connect(env);
+    env.connect(gain);
+    gain.connect(panner);
+    noise.start();
+    env.triggerAttackRelease(0.26);
+    setTimeout(() => {
+      noise.stop(); noise.dispose();
+      filter.dispose(); env.dispose(); gain.dispose(); panner.dispose();
+    }, 800);
   }
 
   static createBreathLayer(): {

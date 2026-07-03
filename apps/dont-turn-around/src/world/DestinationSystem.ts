@@ -51,6 +51,10 @@ export class DestinationSystem {
     this.audio.setGainMultiplier(v);
   }
 
+  setChirpCallback(cb: () => void): void {
+    this.audio.setChirpCallback(cb);
+  }
+
   reset(): void {
     this.reached = false;
   }

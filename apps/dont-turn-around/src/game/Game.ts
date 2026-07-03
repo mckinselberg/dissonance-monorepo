@@ -124,6 +124,7 @@ export class Game {
   private catchFadeEl: HTMLElement | null = null;
   private hasWon = false;
   private runCount: number;
+  private proximityRustleCooldown = 0;
 
   constructor(canvas: HTMLCanvasElement, config: GameConfig) {
     this.lowSpec = readLowSpecMode();
@@ -198,6 +199,7 @@ export class Game {
     this.weather.setMode('clear');
 
     this.destination = new DestinationSystem(DEST_POS);
+    this.destination.setChirpCallback(() => this.forest.flashCarLights());
     this.pursuer = new PursuerSystem(buildPursuerConfig(this.runCount));
     this.pursuerAudio = new PursuerAudio();
     this.ambientAudio = new AmbientAudio();
@@ -331,6 +333,7 @@ export class Game {
     const adrenaline = this.player.adrenaline.getLevel();
     this.playerAudio.updateBreath(this.player.breath.getLoad());
     this.playerAudio.updateFootsteps(speed);
+    this.updateProximityRustle(dt, speed, playerPos2d, camYaw);
     this.heartbeat.setStressLevel(adrenaline);
     this.pursuerBody.setStress(adrenaline);
     this.proximity.update(dt, pursuerModel.state, adrenaline);
@@ -342,6 +345,30 @@ export class Game {
     }
 
     this.scene.render();
+  }
+
+  private updateProximityRustle(
+    dt: number,
+    speed: number,
+    playerPos: { x: number; z: number },
+    camYaw: number,
+  ): void {
+    this.proximityRustleCooldown -= dt;
+    if (speed < PLAYER_CONFIG.jogSpeed || this.proximityRustleCooldown > 0) return;
+
+    let nearestSurf = Infinity, nearestDx = 0, nearestDz = 0;
+    for (const c of this.colliders) {
+      const dx = c.x - playerPos.x;
+      const dz = c.z - playerPos.z;
+      const surf = Math.sqrt(dx * dx + dz * dz) - c.radius;
+      if (surf < nearestSurf) { nearestSurf = surf; nearestDx = dx; nearestDz = dz; }
+    }
+    if (nearestSurf < 2.0) {
+      const angleToTree = Math.atan2(nearestDx, nearestDz) - camYaw;
+      const pan = Math.max(-1, Math.min(1, Math.sin(angleToTree)));
+      AudioEngine.playProximityRustle(pan);
+      this.proximityRustleCooldown = 1.4 + Math.random() * 1.0;
+    }
   }
 
   private checkLineOfSight(

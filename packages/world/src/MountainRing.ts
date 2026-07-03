@@ -1,262 +1,128 @@
 import {
   Scene,
-  MeshBuilder,
-  StandardMaterial,
-  Color3,
   Mesh,
   VertexData,
-  VertexBuffer,
+  StandardMaterial,
+  Color3,
 } from '@babylonjs/core';
 import type { ExperienceProfile } from '@dissonance/shared-types';
-import { displaceRadial, noise3 } from './noise';
 
-const CLUSTER_COUNT = 16;
-// Must stay clearly outside the destination tower's distance from origin
-// (~236 units) — it used to sit at 210, i.e. *inside* that distance, which
-// is exactly why the mountains were rendering in front of/around the goal.
 const RING_RADIUS = 340;
+const CARD_COUNT = 20;
+const CARD_WIDTH = 210; // wider than ring slot (2π·340/20 ≈ 107) — ~2× overlap
+const CARD_BOTTOM_Y = -35;
+const PROFILE_POINTS = 9;
 
-interface RidgePeak {
-  angle: number;
-  height: number;
-  coreHalfWidth: number;
-  shoulderWidth: number;
+// Fast integer hash → [0, 1]
+function hash(n: number): number {
+  let h = n | 0;
+  h = ((h ^ (h << 13)) | 0) * 1000003;
+  h = (h ^ (h >> 17)) | 0;
+  return (h & 0x7fffffff) / 0x7fffffff;
 }
 
-// Smallest signed angular distance between two angles, accounting for the
-// 0/2π wraparound — without this, peaks near the seam would compare wrong.
-function angleDist(a: number, b: number): number {
-  let d = Math.abs(a - b) % (Math.PI * 2);
-  if (d > Math.PI) d = Math.PI * 2 - d;
-  return d;
-}
-
-// Builds a small number of discrete peaks around the circle and, for any
-// angle, returns the height of whichever peak's "footprint" reaches it —
-// flat-topped within coreHalfWidth, sloping linearly down to the shared
-// valley floor over shoulderWidth. This is what gives distinct ridges and
-// valleys (a bar-graph silhouette) instead of one continuously-undulating
-// curve, and shoulderWidth directly controls how steep each rise/fall is.
-function buildRidgePeaks(count: number, minH: number, maxH: number): RidgePeak[] {
-  const peaks: RidgePeak[] = [];
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI * 2 / count) * 0.4;
-    peaks.push({
-      angle,
-      height: minH + Math.random() * (maxH - minH),
-      coreHalfWidth: 0.05 + Math.random() * 0.07,
-      shoulderWidth: 0.22 + Math.random() * 0.16,
-    });
+// Jagged mountain silhouette as a series of (x, y) points along the top
+// edge of the card. Heights fade to minimum at the edges so overlapping
+// cards blend without visible seams.
+function buildSilhouette(width: number, seed: number): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  for (let i = 0; i < PROFILE_POINTS; i++) {
+    const t = i / (PROFILE_POINTS - 1);
+    const x = (t - 0.5) * width;
+    const edgeFade = Math.sin(t * Math.PI);        // 0 at edges → 1 at centre
+    const baseH = 18 + edgeFade * 52;              // 18 at edges, 70 at centre
+    const peakH = hash(i * 1619 + seed) * 90 * edgeFade;
+    pts.push({ x, y: Math.max(10, baseH + peakH) });
   }
-  return peaks;
+  return pts;
 }
 
-function ridgeHeightAt(angle: number, peaks: RidgePeak[], valleyH: number): number {
-  let h = valleyH;
-  for (const peak of peaks) {
-    const d = angleDist(angle, peak.angle);
-    let contribution: number;
-    if (d <= peak.coreHalfWidth) {
-      contribution = peak.height;
-    } else if (d <= peak.coreHalfWidth + peak.shoulderWidth) {
-      const t = (d - peak.coreHalfWidth) / peak.shoulderWidth;
-      contribution = peak.height + (valleyH - peak.height) * t;
-    } else {
-      contribution = valleyH;
-    }
-    h = Math.max(h, contribution);
-  }
-  return h;
+// Mountain-profile polygon card.
+// Vertices: v0 = bottom-left, v1..vN = top silhouette (left→right),
+// v_{N+1} = bottom-right. Fan-triangulated from v0.
+function buildCard(
+  scene: Scene,
+  name: string,
+  width: number,
+  bottomY: number,
+  topPts: { x: number; y: number }[],
+  mat: StandardMaterial,
+): Mesh {
+  const pos: number[] = [];
+  pos.push(-width / 2, bottomY, 0);
+  for (const p of topPts) pos.push(p.x, p.y, 0);
+  pos.push(width / 2, bottomY, 0);
+
+  const N = topPts.length;
+  const idx: number[] = [];
+  for (let i = 0; i < N; i++) idx.push(0, i + 1, i + 2);
+
+  const normals: number[] = [];
+  VertexData.ComputeNormals(pos, idx, normals);
+
+  const vd = new VertexData();
+  vd.positions = pos;
+  vd.indices = idx;
+  vd.normals = normals;
+
+  const mesh = new Mesh(name, scene);
+  vd.applyToMesh(mesh);
+  mesh.material = mat;
+  // Rotate around world Y to face the camera at all times.
+  // Player boundary (320) keeps the player far enough that individual
+  // planes never appear edge-on from within the playable area.
+  mesh.billboardMode = Mesh.BILLBOARDMODE_Y;
+  mesh.applyFog = false;
+  mesh.isPickable = false;
+  return mesh;
 }
 
 export class MountainRing {
   private meshes: Mesh[] = [];
 
   constructor(scene: Scene, profile: ExperienceProfile) {
-    const mat = new StandardMaterial('mountainMat', scene);
-    mat.diffuseColor = new Color3(1, 1, 1);
-    mat.specularColor = Color3.Black();
-    mat.backFaceCulling = false;
-    mat.emissiveColor = profile.mode === 'ps1'
-      ? new Color3(0.03, 0.04, 0.07)
-      : new Color3(0.01, 0.008, 0.015);
+    // Near silhouette layer — the primary visible ridge
+    const nearEmissive = profile.mode === 'ps1'
+      ? new Color3(0.07, 0.08, 0.14)
+      : new Color3(0.028, 0.022, 0.040);
+    const nearMat = new StandardMaterial('mtnNearMat', scene);
+    nearMat.emissiveColor = nearEmissive;
+    nearMat.diffuseColor = Color3.Black();
+    nearMat.specularColor = Color3.Black();
+    nearMat.backFaceCulling = false;
+    nearMat.disableLighting = true;
 
-    const rockColors: Color3[] = profile.mode === 'ps1'
-      ? [new Color3(0.16, 0.19, 0.30), new Color3(0.11, 0.14, 0.24)]
-      : [new Color3(0.06, 0.05, 0.09), new Color3(0.045, 0.04, 0.07)];
-    const snowColor = profile.mode === 'ps1'
-      ? new Color3(0.82, 0.84, 0.88)
-      : new Color3(0.22, 0.22, 0.26);
+    // Far backing layer — slightly darker, taller, staggered between the near
+    // cards. Creates the impression of a second mountain range receding behind.
+    const farEmissive = new Color3(nearEmissive.r * 0.5, nearEmissive.g * 0.5, nearEmissive.b * 0.5);
+    const farMat = new StandardMaterial('mtnFarMat', scene);
+    farMat.emissiveColor = farEmissive;
+    farMat.diffuseColor = Color3.Black();
+    farMat.specularColor = Color3.Black();
+    farMat.backFaceCulling = false;
+    farMat.disableLighting = true;
 
-    this.meshes.push(this.buildRidgeWall(scene, profile, mat, rockColors[0], snowColor));
-    this.buildForegroundClumps(scene, profile, mat, rockColors, snowColor);
-  }
+    for (let i = 0; i < CARD_COUNT; i++) {
+      const angle = (i / CARD_COUNT) * Math.PI * 2;
 
-  // One continuous mesh wrapping the whole horizon — height varies via
-  // periodic noise instead of being built from isolated cone peaks, so
-  // there's no gap of sky between mountains anywhere in the loop.
-  private buildRidgeWall(
-    scene: Scene, profile: ExperienceProfile,
-    mat: StandardMaterial, rockColor: Color3, snowColor: Color3,
-  ): Mesh {
-    const segments = 160;
-    const seed = 4200;
-    const VALLEY_H = 50, PEAK_MIN_H = 95, PEAK_MAX_H = 175;
-    const BOTTOM_Y = -45;
-    const RADIUS_JITTER = 14;
-    const BASE_FLARE = 16;
+      // Near card at RING_RADIUS
+      const nx = Math.cos(angle) * RING_RADIUS;
+      const nz = Math.sin(angle) * RING_RADIUS;
+      const nearPts = buildSilhouette(CARD_WIDTH, i * 7331 + 100);
+      const nearCard = buildCard(scene, `mtnNear_${i}`, CARD_WIDTH, CARD_BOTTOM_Y, nearPts, nearMat);
+      nearCard.position.set(nx, 0, nz);
+      this.meshes.push(nearCard);
 
-    const peaks = buildRidgePeaks(12, PEAK_MIN_H, PEAK_MAX_H);
-
-    const positions: number[] = [];
-    const heights: number[] = [];
-
-    for (let i = 0; i < segments; i++) {
-      const angle = (i / segments) * Math.PI * 2;
-      const height = ridgeHeightAt(angle, peaks, VALLEY_H);
-      const radiusJ = (noise3(Math.cos(angle) * 3 + seed, Math.sin(angle) * 3 + seed, seed, seed) - 0.5) * 2 * RADIUS_JITTER;
-      const r = RING_RADIUS + radiusJ;
-      const tx = Math.cos(angle) * r, tz = Math.sin(angle) * r;
-      // base flares outward a bit wider than the crest — a real mountainside
-      // widens as it descends, rather than being a sheer vertical curtain.
-      const br = r + BASE_FLARE;
-      const bx = Math.cos(angle) * br, bz = Math.sin(angle) * br;
-
-      positions.push(bx, BOTTOM_Y, bz);
-      positions.push(tx, height, tz);
-      heights.push(height);
-    }
-
-    const indices: number[] = [];
-    for (let i = 0; i < segments; i++) {
-      const next = (i + 1) % segments;
-      const b0 = i * 2, t0 = i * 2 + 1, b1 = next * 2, t1 = next * 2 + 1;
-      indices.push(b0, t0, t1, b0, t1, b1);
-    }
-
-    const wall = new Mesh('mountainRidge', scene);
-    const vertexData = new VertexData();
-    vertexData.positions = positions;
-    vertexData.indices = indices;
-
-    const normals: number[] = [];
-    VertexData.ComputeNormals(positions, indices, normals);
-    vertexData.normals = normals;
-    vertexData.applyToMesh(wall, true);
-
-    const minH = Math.min(...heights), maxH = Math.max(...heights);
-    const span = maxH - minH || 1;
-    const colors: number[] = [];
-    for (let i = 0; i < segments; i++) {
-      const t = Math.max(0, Math.min(1, ((heights[i] - minH) / span - 0.6) / 0.2));
-      // bottom vertex: always rock
-      colors.push(rockColor.r, rockColor.g, rockColor.b, 1);
-      // top vertex: rock -> snow blend by height
-      colors.push(
-        rockColor.r + (snowColor.r - rockColor.r) * t,
-        rockColor.g + (snowColor.g - rockColor.g) * t,
-        rockColor.b + (snowColor.b - rockColor.b) * t,
-        1,
+      // Far card: staggered by half a slot angle, set back 35 units, 40% wider
+      const fa = angle + Math.PI / CARD_COUNT;
+      const fr = RING_RADIUS + 35;
+      const farPts = buildSilhouette(CARD_WIDTH * 1.4, i * 13337 + 500);
+      const farCard = buildCard(
+        scene, `mtnFar_${i}`, CARD_WIDTH * 1.4, CARD_BOTTOM_Y - 10, farPts, farMat,
       );
+      farCard.position.set(Math.cos(fa) * fr, 8, Math.sin(fa) * fr);
+      this.meshes.push(farCard);
     }
-    wall.setVerticesData(VertexBuffer.ColorKind, colors);
-
-    wall.material = mat;
-    wall.applyFog = false;
-    wall.isPickable = false;
-    if (profile.mode === 'ps1') wall.convertToFlatShadedMesh();
-    return wall;
-  }
-
-  // Clusters of overlapping cone peaks layered in front of the ridge wall
-  // for foreground variety/depth — same look as before, just denser and
-  // tighter so they merge into one chunky mass instead of reading as
-  // separate isolated triangles.
-  private buildForegroundClumps(
-    scene: Scene, profile: ExperienceProfile,
-    mat: StandardMaterial, rockColors: Color3[], snowColor: Color3,
-  ): void {
-    for (let c = 0; c < CLUSTER_COUNT; c++) {
-      const baseAngle = (c / CLUSTER_COUNT) * Math.PI * 2;
-      const peakCount = 3 + Math.floor(Math.random() * 4);
-      const rockColor = rockColors[Math.floor(Math.random() * rockColors.length)];
-
-      for (let p = 0; p < peakCount; p++) {
-        const angle = baseAngle + (Math.random() - 0.5) * 0.45;
-        const dist  = RING_RADIUS + (Math.random() - 0.5) * 25;
-        const x = Math.cos(angle) * dist;
-        const z = Math.sin(angle) * dist;
-
-        const height    = 48 + Math.random() * 82;
-        const baseDiam  = height * (0.75 + Math.random() * 0.65);
-        const tess      = profile.mode === 'ps1' ? 10 : 14;
-        const seed      = Math.floor(Math.random() * 1000);
-
-        const coneBaseY = height / 2 - 10;
-
-        // A true point (diameterTop: 0) is what reads as a cartoon spike no
-        // matter how jagged the sides get — real peaks have a blunt, broken
-        // crown. Truncating the top and letting displaceRadial jitter that
-        // now-nonzero ring (rather than just nudging a single apex vertex)
-        // is what kills the "goofy" look.
-        const peak = MeshBuilder.CreateCylinder(`mtn_${c}_${p}`, {
-          height,
-          diameterTop:    baseDiam * (0.10 + Math.random() * 0.10),
-          diameterBottom: baseDiam,
-          tessellation:   tess,
-          subdivisions:   5,
-        }, scene);
-        displaceRadial(peak, 0.55, seed);
-
-        peak.scaling.set(
-          0.75 + Math.random() * 0.55,
-          1,
-          0.75 + Math.random() * 0.55,
-        );
-        peak.rotation.set(
-          (Math.random() - 0.5) * 0.16, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.16,
-        );
-
-        const hasSnow = height > 78;
-        const snowline = 0.55 + Math.random() * 0.15;
-        this.paintRockSnowGradient(peak, rockColor, snowColor, hasSnow ? snowline : 1.05, seed);
-
-        peak.position.set(x, coneBaseY, z);
-        peak.material = mat;
-        peak.applyFog = false;
-        peak.isPickable = false;
-        if (profile.mode === 'ps1') peak.convertToFlatShadedMesh();
-        this.meshes.push(peak);
-      }
-    }
-  }
-
-  private paintRockSnowGradient(
-    mesh: Mesh, rock: Color3, snow: Color3, snowline: number, seed: number,
-  ): void {
-    const positions = mesh.getVerticesData(VertexBuffer.PositionKind)!;
-    let minY = Infinity, maxY = -Infinity;
-    for (let i = 1; i < positions.length; i += 3) {
-      minY = Math.min(minY, positions[i]);
-      maxY = Math.max(maxY, positions[i]);
-    }
-    const span = maxY - minY || 1;
-
-    const colors: number[] = [];
-    for (let i = 0; i < positions.length; i += 3) {
-      const x = positions[i], y = positions[i + 1], z = positions[i + 2];
-      const heightFrac = (y - minY) / span;
-      const angle = Math.atan2(z, x);
-      const jitter = (noise3(Math.cos(angle) * 2 + seed, Math.sin(angle) * 2 + seed, y * 0.05 + seed, seed) - 0.5) * 0.18;
-      const t = Math.max(0, Math.min(1, (heightFrac - (snowline + jitter)) / 0.18));
-      colors.push(
-        rock.r + (snow.r - rock.r) * t,
-        rock.g + (snow.g - rock.g) * t,
-        rock.b + (snow.b - rock.b) * t,
-        1,
-      );
-    }
-    mesh.setVerticesData(VertexBuffer.ColorKind, colors);
   }
 
   dispose(): void {

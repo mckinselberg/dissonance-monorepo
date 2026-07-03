@@ -108,9 +108,19 @@ export class Terrain {
         const dStart = Math.sqrt(wx * wx + wz * wz);
         if (dStart < 20) bumps *= Math.pow(dStart / 20, 2);
 
+        // Spawn clearing — new spawn is at x≈0, z≈-262. No natural
+        // flattening was here before, so macro hills could land the player
+        // on a 30+ unit cliff looking toward the trail. Flatten a 40-unit
+        // bowl around the spawn centre so the opening view is unobstructed.
+        const dSpawn = Math.sqrt(wx * wx + (wz + 262) * (wz + 262));
+        if (dSpawn < 40) bumps *= Math.pow(dSpawn / 40, 2);
+
         const ddx = wx - 190, ddz = wz - 140;
         const dDest = Math.sqrt(ddx * ddx + ddz * ddz);
-        if (dDest < 16) bumps *= Math.pow(dDest / 16, 2);
+        // Extend flatten to radius 50 (was 16). The old 16-unit radius left
+        // full-amplitude macro hills at radius 17, which created a visible
+        // cliff face across the entire approach from the hiking trail.
+        if (dDest < 50) bumps *= Math.pow(dDest / 50, 2);
 
         grid[iz * n + ix] = bumps + wx * TILT_GRADE;
       }

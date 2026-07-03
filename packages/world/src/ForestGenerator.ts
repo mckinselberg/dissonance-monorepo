@@ -36,8 +36,25 @@ export class ForestGenerator {
   private terrain!: Terrain;
   private _colliders: Collider[] = [];
   private shadowGenerator: ShadowGenerator | undefined;
+  private taillightMat: StandardMaterial | null = null;
+  private headlightMat: StandardMaterial | null = null;
+  private lightFlashActive = false;
 
   getColliders(): Collider[] { return this._colliders; }
+
+  // Called by DestinationSystem on each alarm chirp — flashes car lights
+  // bright for 150 ms then returns them to their resting state.
+  flashCarLights(): void {
+    if (this.lightFlashActive) return;
+    this.lightFlashActive = true;
+    if (this.taillightMat) this.taillightMat.emissiveColor = new Color3(1.0, 0.30, 0.20);
+    if (this.headlightMat) this.headlightMat.emissiveColor = new Color3(1.0, 0.97, 0.82);
+    setTimeout(() => {
+      if (this.taillightMat) this.taillightMat.emissiveColor = new Color3(0.75, 0.04, 0.04);
+      if (this.headlightMat) this.headlightMat.emissiveColor = new Color3(0.85, 0.80, 0.60);
+      this.lightFlashActive = false;
+    }, 150);
+  }
 
   generate(
     scene: Scene,
@@ -574,15 +591,17 @@ export class ForestGenerator {
     rimMat.diffuseColor = new Color3(0.44, 0.44, 0.50);
     rimMat.specularColor = Color3.Black();
 
-    const headlightMat = new StandardMaterial('carHeadlightMat', scene);
-    headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.92);
-    headlightMat.emissiveColor = new Color3(0.85, 0.80, 0.60);
-    headlightMat.specularColor = Color3.Black();
+    this.headlightMat = new StandardMaterial('carHeadlightMat', scene);
+    this.headlightMat.diffuseColor = new Color3(0.9, 0.9, 0.92);
+    this.headlightMat.emissiveColor = new Color3(0.85, 0.80, 0.60);
+    this.headlightMat.specularColor = Color3.Black();
+    const headlightMat = this.headlightMat;
 
-    const taillightMat = new StandardMaterial('carTaillightMat', scene);
-    taillightMat.diffuseColor = new Color3(0.6, 0.05, 0.05);
-    taillightMat.emissiveColor = new Color3(0.75, 0.04, 0.04);
-    taillightMat.specularColor = Color3.Black();
+    this.taillightMat = new StandardMaterial('carTaillightMat', scene);
+    this.taillightMat.diffuseColor = new Color3(0.6, 0.05, 0.05);
+    this.taillightMat.emissiveColor = new Color3(0.75, 0.04, 0.04);
+    this.taillightMat.specularColor = Color3.Black();
+    const taillightMat = this.taillightMat;
 
     // ─── Car geometry — sedan proportions, car faces +Z ───────────────
     // Raw dimensions (× cs = actual world size).
