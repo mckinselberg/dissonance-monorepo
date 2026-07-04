@@ -12,12 +12,16 @@ export interface PursuerConfig {
   aggressionDecayRate: number;
   stunMin: number;
   stunRange: number;
+  orbitStrength: number;
+  reengageDelay: number;
 }
 
 export class PursuerSystem {
   private model: PursuerModel;
   private stunTimer = 0;
+  private reengageTimer = 0;
   private wasIlluminated = false;
+  private orbitDir = Math.random() < 0.5 ? -1 : 1;
 
   constructor(
     private readonly config: PursuerConfig,
@@ -45,6 +49,7 @@ export class PursuerSystem {
       // First frame caught in the beam → freeze briefly before fleeing.
       if (!this.wasIlluminated) this.stunTimer = cfg.stunMin + Math.random() * cfg.stunRange;
       this.wasIlluminated = true;
+      this.reengageTimer = cfg.reengageDelay;
 
       this.model.aggression = Math.max(0, this.model.aggression - cfg.stillAggressionLoss * 4 * dt);
 
@@ -58,6 +63,7 @@ export class PursuerSystem {
       }
     } else {
       this.wasIlluminated = false;
+      this.reengageTimer = Math.max(0, this.reengageTimer - dt);
       if (playerSpeed > 8.5) {
         this.model.aggression = Math.min(1, this.model.aggression + cfg.sprintAggressionGain * dt);
       } else if (!hasLoS && isCrouching) {
@@ -77,19 +83,35 @@ export class PursuerSystem {
       const closeScale = dist < STALK_THRESHOLD
         ? 0.35 + 0.65 * (dist / STALK_THRESHOLD)
         : 1.0;
-      const speed = (cfg.baseSpeed + this.model.aggression * (cfg.maxSpeed - cfg.baseSpeed)) * losScale * closeScale;
+      const reengageScale = this.reengageTimer > 0 ? 0.48 : 1.0;
+      const speed = (cfg.baseSpeed + this.model.aggression * (cfg.maxSpeed - cfg.baseSpeed))
+        * losScale * closeScale * reengageScale;
 
       if (dist > 0.01) {
         const move = Math.min(speed * dt, dist);
-        pursuerPos.x += (dx / dist) * move;
-        pursuerPos.z += (dz / dist) * move;
+        const closeT = Math.max(0, Math.min(1, (cfg.nearThreshold - dist) / cfg.nearThreshold));
+        const orbit = cfg.orbitStrength * closeT * (hasLoS ? 1.0 : 0.35);
+        if (closeT > 0.7 && Math.random() < dt * 0.25) this.orbitDir *= -1;
+
+        const nx = dx / dist;
+        const nz = dz / dist;
+        const tx = -nz * this.orbitDir;
+        const tz = nx * this.orbitDir;
+        const mx = nx * (1 - orbit) + tx * orbit;
+        const mz = nz * (1 - orbit) + tz * orbit;
+        const ml = Math.sqrt(mx * mx + mz * mz) || 1;
+        pursuerPos.x += (mx / ml) * move;
+        pursuerPos.z += (mz / ml) * move;
       }
     }
 
+    const finalDx = playerPos.x - pursuerPos.x;
+    const finalDz = playerPos.z - pursuerPos.z;
+    const finalDist = Math.sqrt(finalDx * finalDx + finalDz * finalDz);
     const detectionScale = isCrouching ? 0.55 : 1.0;
-    this.model.distance  = dist;
+    this.model.distance  = finalDist;
     this.model.isHidden  = !hasLoS;
-    this.model.state     = this.classifyState(dist, detectionScale);
+    this.model.state     = this.classifyState(finalDist, detectionScale);
   }
 
   private classifyState(dist: number, detectionScale: number): PursuerState {
@@ -104,6 +126,8 @@ export class PursuerSystem {
   reset(startDistance: number = this.config.startDistance): void {
     this.model = { distance: startDistance, state: 'far', aggression: 0, isHidden: false };
     this.stunTimer = 0;
+    this.reengageTimer = 0;
     this.wasIlluminated = false;
+    this.orbitDir = Math.random() < 0.5 ? -1 : 1;
   }
 }

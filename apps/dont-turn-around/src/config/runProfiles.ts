@@ -48,5 +48,7 @@ export function buildPursuerConfig(runCount: number): PursuerConfig {
     aggressionDecayRate:  0.002,
     stunMin:              lerp(1.8,  0.65, t),
     stunRange:            lerp(1.0,  0.35, t),
+    orbitStrength:        lerp(0.16, 0.34, t),
+    reengageDelay:        lerp(1.8,  0.8,  t),
   };
 }

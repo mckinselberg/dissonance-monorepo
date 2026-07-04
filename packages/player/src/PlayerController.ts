@@ -9,6 +9,14 @@ const STAND_HEIGHT = 1.7;
 const CROUCH_HEIGHT = 0.9;
 const PLAYER_RADIUS = 0.38;
 
+export type FlashlightTuning = {
+  intensity: number;
+  range: number;
+  angle: number;
+  exponent: number;
+  color: { r: number; g: number; b: number };
+};
+
 export class PlayerController {
   readonly camera: FreeCamera;
   readonly breath: BreathSystem;
@@ -21,6 +29,8 @@ export class PlayerController {
   private mouseDeltaX = 0;
   private mouseDeltaY = 0;
   private isPointerLocked = false;
+  private flashlightEnabled = false;
+  private flashlightIntensity = 2.8;
   private currentSpeed = 0;
   private shakeTime = 0;
   private eyeHeight = STAND_HEIGHT;
@@ -59,7 +69,17 @@ export class PlayerController {
 
   // Intensity-based toggle is more reliable than setEnabled() across BabylonJS versions.
   setFlashlightEnabled(enabled: boolean): void {
-    this.flashlight.intensity = enabled ? 2.8 : 0;
+    this.flashlightEnabled = enabled;
+    this.flashlight.intensity = enabled ? this.flashlightIntensity : 0;
+  }
+
+  setFlashlightTuning(tuning: FlashlightTuning): void {
+    this.flashlightIntensity = tuning.intensity;
+    this.flashlight.range = tuning.range;
+    this.flashlight.angle = tuning.angle;
+    this.flashlight.exponent = tuning.exponent;
+    this.flashlight.diffuse = new Color3(tuning.color.r, tuning.color.g, tuning.color.b);
+    if (this.flashlightEnabled) this.flashlight.intensity = this.flashlightIntensity;
   }
 
   // Cone + range test against the flashlight — same relative-angle math

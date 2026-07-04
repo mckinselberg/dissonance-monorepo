@@ -55,10 +55,10 @@ export class DaylightSystem {
       this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 0.7;
     } else if (expProfile.mode === 'ps2') {
       this.sun.diffuse = new Color3(1.0, 0.70, 0.38);
-      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 6.2;
-      this.ambient.diffuse = new Color3(0.28, 0.38, 0.58);
-      this.ambient.groundColor = new Color3(0.05, 0.08, 0.04);
-      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 0.9;
+      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 6.8;
+      this.ambient.diffuse = new Color3(0.20, 0.28, 0.44);
+      this.ambient.groundColor = new Color3(0.025, 0.045, 0.025);
+      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 0.58;
     } else if (expProfile.mode === 'ps1') {
       this.sun.diffuse = new Color3(1.0, 0.80, 0.32);
       this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 5.5;
@@ -95,8 +95,8 @@ export class DaylightSystem {
         0.55 + warmth * 0.30,
       );
     } else if (expProfile.mode === 'ps2') {
-      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 6.2;
-      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 0.9;
+      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 6.8;
+      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 0.58;
       this.sun.diffuse = new Color3(
         0.28 + warmth * 0.72,
         0.24 + warmth * 0.46,

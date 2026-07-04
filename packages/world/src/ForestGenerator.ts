@@ -29,6 +29,12 @@ const HIKING_WAYPOINTS: [number, number][] = [
   [152, 114],[168, 126],[180, 135],
 ];
 
+const SURVEY_TRAIL_WIDTH = 1.55;
+const SURVEY_TRAIL_WAYPOINTS: [number, number][] = [
+  [-18, 12], [-36, 30], [-58, 52], [-82, 66],
+  [-108, 70], [-132, 58], [-154, 38],
+];
+
 export interface Collider { x: number; z: number; radius: number; }
 
 export class ForestGenerator {
@@ -77,6 +83,7 @@ export class ForestGenerator {
     this.buildLowGroundcover(scene, profile);
     this.buildForestFloor(scene, profile);
     this.buildHikingTrail(scene, profile);
+    this.buildSurveyTrail(scene, profile);
   }
 
   // Registers shadow casters for substantial geometry only (trunks,
@@ -101,16 +108,20 @@ export class ForestGenerator {
   }
 
   private inHikingTrailCorridor(x: number, z: number): boolean {
-    const w = HIKING_TRAIL_WIDTH;
-    for (let i = 0; i < HIKING_WAYPOINTS.length - 1; i++) {
-      const [ax, az] = HIKING_WAYPOINTS[i];
-      const [bx, bz] = HIKING_WAYPOINTS[i + 1];
+    return this.nearPolyline(x, z, HIKING_WAYPOINTS, HIKING_TRAIL_WIDTH)
+      || this.nearPolyline(x, z, SURVEY_TRAIL_WAYPOINTS, SURVEY_TRAIL_WIDTH);
+  }
+
+  private nearPolyline(x: number, z: number, points: [number, number][], width: number): boolean {
+    for (let i = 0; i < points.length - 1; i++) {
+      const [ax, az] = points[i];
+      const [bx, bz] = points[i + 1];
       const ddx = bx - ax, ddz = bz - az;
       const len2 = ddx * ddx + ddz * ddz;
       const t = Math.max(0, Math.min(1, ((x - ax) * ddx + (z - az) * ddz) / len2));
       const px = ax + t * ddx - x;
       const pz = az + t * ddz - z;
-      if (px * px + pz * pz < w * w) return true;
+      if (px * px + pz * pz < width * width) return true;
     }
     return false;
   }
@@ -587,6 +598,14 @@ export class ForestGenerator {
     bumperMat.diffuseColor = new Color3(0.09, 0.09, 0.10);
     bumperMat.specularColor = Color3.Black();
 
+    const trimMat = new StandardMaterial('carTrimMat', scene);
+    trimMat.diffuseColor = new Color3(0.025, 0.025, 0.028);
+    trimMat.specularColor = Color3.Black();
+
+    const plateMat = new StandardMaterial('carPlateMat', scene);
+    plateMat.diffuseColor = new Color3(0.68, 0.64, 0.48);
+    plateMat.specularColor = Color3.Black();
+
     const wheelMat = new StandardMaterial('carWheelMat', scene);
     wheelMat.diffuseColor = new Color3(0.04, 0.04, 0.04);
     wheelMat.specularColor = Color3.Black();
@@ -613,7 +632,7 @@ export class ForestGenerator {
     const bodyBottom = groundY + 0.18 * cs;
     const bodyTopY = bodyBottom + bH * cs;
 
-    const addMesh = (m: ReturnType<typeof MeshBuilder.CreateBox>) => {
+    const addMesh = (m: Mesh) => {
       if (ps1) m.convertToFlatShadedMesh();
       this.treeMeshes.push(m);
     };
@@ -645,6 +664,34 @@ export class ForestGenerator {
     cabin.material = glassMat;
     addMesh(cabin);
 
+    // Roof cap and window breaks make the greenhouse read as glass panels
+    // instead of one dark block.
+    const roof = MeshBuilder.CreateBox('carRoof', { width: 1.36 * cs, height: 0.08 * cs, depth: 1.62 * cs }, scene);
+    roof.position.set(pos.x, bodyTopY + cH * cs + 0.04 * cs, pos.z - 0.26 * cs);
+    roof.material = bodyMat;
+    addMesh(roof);
+
+    const windshield = MeshBuilder.CreateBox('carWindshield', { width: 1.30 * cs, height: 0.42 * cs, depth: 0.05 * cs }, scene);
+    windshield.position.set(pos.x, bodyTopY + 0.44 * cs, pos.z + 0.80 * cs);
+    windshield.rotation.x = -0.22;
+    windshield.material = glassMat;
+    addMesh(windshield);
+
+    const rearWindow = MeshBuilder.CreateBox('carRearWindow', { width: 1.20 * cs, height: 0.38 * cs, depth: 0.05 * cs }, scene);
+    rearWindow.position.set(pos.x, bodyTopY + 0.42 * cs, pos.z - 1.38 * cs);
+    rearWindow.rotation.x = 0.20;
+    rearWindow.material = glassMat;
+    addMesh(rearWindow);
+
+    for (const sx of [-1, 1]) {
+      const sideWindow = MeshBuilder.CreateBox('carSideWindow', {
+        width: 0.05 * cs, height: 0.36 * cs, depth: 0.82 * cs,
+      }, scene);
+      sideWindow.position.set(pos.x + sx * (cW / 2 + 0.035) * cs, bodyTopY + 0.43 * cs, pos.z - 0.12 * cs);
+      sideWindow.material = glassMat;
+      addMesh(sideWindow);
+    }
+
     // Front bumper
     const fBumper = MeshBuilder.CreateBox('carFBumper', { width: (bW + 0.06) * cs, height: 0.28 * cs, depth: 0.20 * cs }, scene);
     fBumper.position.set(pos.x, bodyBottom + 0.14 * cs, pos.z + (bD / 2 + 0.10) * cs);
@@ -668,6 +715,16 @@ export class ForestGenerator {
       addMesh(hl);
     }
 
+    const grille = MeshBuilder.CreateBox('carGrille', { width: 0.58 * cs, height: 0.20 * cs, depth: 0.06 * cs }, scene);
+    grille.position.set(pos.x, bodyBottom + 0.42 * cs, pos.z + (bD / 2 + 0.02) * cs);
+    grille.material = trimMat;
+    addMesh(grille);
+
+    const frontPlate = MeshBuilder.CreateBox('carFrontPlate', { width: 0.46 * cs, height: 0.14 * cs, depth: 0.04 * cs }, scene);
+    frontPlate.position.set(pos.x, bodyBottom + 0.20 * cs, pos.z + (bD / 2 + 0.12) * cs);
+    frontPlate.material = plateMat;
+    addMesh(frontPlate);
+
     // Taillights (rear face)
     const tlXOff = (bW / 2 - 0.24) * cs;
     const tlY = bodyBottom + 0.48 * cs;
@@ -679,10 +736,42 @@ export class ForestGenerator {
       addMesh(tl);
     }
 
+    const rearPlate = MeshBuilder.CreateBox('carRearPlate', { width: 0.48 * cs, height: 0.15 * cs, depth: 0.04 * cs }, scene);
+    rearPlate.position.set(pos.x, bodyBottom + 0.34 * cs, pos.z - (bD / 2 + 0.12) * cs);
+    rearPlate.material = plateMat;
+    addMesh(rearPlate);
+
+    const seamSpecs: [number, number, number, number][] = [
+      [-0.02, -0.52, 0.024, 0.72],
+      [-0.02, 0.48, 0.024, 0.58],
+    ];
+    for (const sx of [-1, 1]) {
+      for (const [, zOff, width, height] of seamSpecs) {
+        const seam = MeshBuilder.CreateBox('carDoorSeam', { width: width * cs, height: height * cs, depth: 0.025 * cs }, scene);
+        seam.position.set(pos.x + sx * (bW / 2 + 0.01) * cs, bodyBottom + 0.48 * cs, pos.z + zOff * cs);
+        seam.rotation.y = Math.PI / 2;
+        seam.material = trimMat;
+        addMesh(seam);
+      }
+
+      const handle = MeshBuilder.CreateBox('carDoorHandle', { width: 0.025 * cs, height: 0.055 * cs, depth: 0.22 * cs }, scene);
+      handle.position.set(pos.x + sx * (bW / 2 + 0.035) * cs, bodyBottom + 0.62 * cs, pos.z + 0.28 * cs);
+      handle.rotation.y = Math.PI / 2;
+      handle.material = trimMat;
+      addMesh(handle);
+    }
+
     // Wheels + rims (4 corners)
     const wR = 0.36, wXOff = (bW / 2 + 0.05) * cs, wZOff = 1.28 * cs;
     const wheelAxes: [number, number][] = [[-1, 1], [1, 1], [-1, -1], [1, -1]];
     for (const [sx, sz] of wheelAxes) {
+      const arch = MeshBuilder.CreateBox('carWheelArch', {
+        width: 0.08 * cs, height: 0.38 * cs, depth: 0.88 * cs,
+      }, scene);
+      arch.position.set(pos.x + sx * (bW / 2 + 0.035) * cs, groundY + 0.58 * cs, pos.z + sz * wZOff);
+      arch.material = trimMat;
+      addMesh(arch);
+
       const tire = MeshBuilder.CreateCylinder('carWheel', {
         height: 0.30 * cs, diameter: wR * 2 * cs, tessellation: ps1 ? 8 : 14,
       }, scene);
@@ -698,6 +787,14 @@ export class ForestGenerator {
       rim.position.copyFrom(tire.position);
       rim.material = rimMat;
       addMesh(rim);
+
+      const hub = MeshBuilder.CreateCylinder('carHub', {
+        height: 0.34 * cs, diameter: wR * 0.42 * cs, tessellation: ps1 ? 6 : 10,
+      }, scene);
+      hub.rotation.z = Math.PI / 2;
+      hub.position.copyFrom(tire.position);
+      hub.material = trimMat;
+      addMesh(hub);
     }
 
     // Side mirrors
@@ -753,8 +850,8 @@ export class ForestGenerator {
       const light = new PointLight('lampLight', lampHeadPos, scene);
       light.diffuse = new Color3(1.0, 0.85, 0.55);
       light.specular = Color3.Black();
-      light.intensity = 1.0;
-      light.range = 22;
+      light.intensity = profile.mode === 'ps2' ? 1.45 : 1.0;
+      light.range = profile.mode === 'ps2' ? 28 : 22;
       this.lights.push(light);
     }
   }
@@ -1274,6 +1371,134 @@ export class ForestGenerator {
         }
       }
     }
+  }
+
+  private buildSurveyTrail(scene: Scene, profile: ExperienceProfile): void {
+    const ps1 = profile.mode === 'ps1';
+
+    const dirtMat = new StandardMaterial('surveyDirtMat', scene);
+    dirtMat.diffuseColor = profile.mode === 'ps2'
+      ? new Color3(0.16, 0.11, 0.07)
+      : ps1
+        ? new Color3(0.24, 0.15, 0.08)
+        : new Color3(0.055, 0.045, 0.035);
+    dirtMat.specularColor = Color3.Black();
+
+    const woodMat = new StandardMaterial('surveyPostMat', scene);
+    woodMat.diffuseColor = profile.mode === 'ps2'
+      ? new Color3(0.14, 0.085, 0.045)
+      : ps1
+        ? new Color3(0.24, 0.14, 0.07)
+        : new Color3(0.07, 0.055, 0.04);
+    woodMat.specularColor = Color3.Black();
+
+    const stoneMat = new StandardMaterial('surveyCairnMat', scene);
+    stoneMat.diffuseColor = profile.mode === 'radio'
+      ? new Color3(0.08, 0.08, 0.09)
+      : new Color3(0.25, 0.24, 0.22);
+    stoneMat.specularColor = Color3.Black();
+
+    const markerMat = new StandardMaterial('surveyMarkerMat', scene);
+    markerMat.diffuseColor = new Color3(0.52, 0.30, 0.10);
+    markerMat.emissiveColor = profile.mode === 'ps2'
+      ? new Color3(0.18, 0.08, 0.02)
+      : Color3.Black();
+    markerMat.specularColor = Color3.Black();
+
+    const pts = SURVEY_TRAIL_WAYPOINTS;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, az] = pts[i];
+      const [bx, bz] = pts[i + 1];
+      const ddx = bx - ax, ddz = bz - az;
+      const len = Math.sqrt(ddx * ddx + ddz * ddz);
+      const yaw = Math.atan2(ddx, ddz);
+      const subCount = Math.max(1, Math.ceil(len / 7));
+      const subLen = len / subCount;
+
+      for (let s = 0; s < subCount; s++) {
+        const t0 = s / subCount, t1 = (s + 1) / subCount;
+        const x0 = ax + t0 * ddx, z0 = az + t0 * ddz;
+        const x1 = ax + t1 * ddx, z1 = az + t1 * ddz;
+        const y0 = this.terrain.getHeightAt(x0, z0);
+        const y1 = this.terrain.getHeightAt(x1, z1);
+        const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
+        const slope = Math.atan2(y1 - y0, subLen);
+
+        const strip = MeshBuilder.CreateBox(`surveyTrailStrip_${i}_${s}`, {
+          width: SURVEY_TRAIL_WIDTH * 2,
+          height: 0.045,
+          depth: subLen + 0.28,
+        }, scene);
+        strip.position.set(mx, my + 0.025, mz);
+        strip.rotation.set(-slope, yaw, 0);
+        strip.material = dirtMat;
+        this.treeMeshes.push(strip);
+      }
+
+      if (i % 2 === 0) {
+        const px = -ddz / len, pz = ddx / len;
+        const side = i % 4 === 0 ? 1 : -1;
+        const wx = ax + px * (SURVEY_TRAIL_WIDTH + 0.7) * side;
+        const wz = az + pz * (SURVEY_TRAIL_WIDTH + 0.7) * side;
+        const wy = this.terrain.getHeightAt(wx, wz);
+
+        const post = MeshBuilder.CreateCylinder('surveyPost', {
+          height: 1.1, diameter: 0.10, tessellation: ps1 ? 5 : 7,
+        }, scene);
+        post.position.set(wx, wy + 0.55, wz);
+        post.rotation.z = (Math.random() - 0.5) * 0.18;
+        post.material = woodMat;
+        if (ps1) post.convertToFlatShadedMesh();
+        this.treeMeshes.push(post);
+
+        const tag = MeshBuilder.CreateBox('surveyTag', { width: 0.28, height: 0.18, depth: 0.035 }, scene);
+        tag.position.set(wx, wy + 1.0, wz);
+        tag.rotation.y = yaw + Math.PI / 2;
+        tag.material = markerMat;
+        this.treeMeshes.push(tag);
+      }
+    }
+
+    for (let i = 1; i < pts.length; i += 2) {
+      const [cx, cz] = pts[i];
+      const cy = this.terrain.getHeightAt(cx, cz);
+      for (let s = 0; s < 4; s++) {
+        const size = 0.42 - s * 0.06;
+        const stone = MeshBuilder.CreateBox(`surveyCairn_${i}_${s}`, { size }, scene);
+        stone.position.set(
+          cx + (Math.random() - 0.5) * 0.18,
+          cy + 0.10 + s * 0.18,
+          cz + (Math.random() - 0.5) * 0.18,
+        );
+        stone.rotation.set(Math.random() * 0.4, Math.random() * Math.PI, Math.random() * 0.4);
+        stone.scaling.y = 0.45;
+        stone.material = stoneMat;
+        if (ps1) stone.convertToFlatShadedMesh();
+        this.treeMeshes.push(stone);
+      }
+    }
+
+    const [ex, ez] = pts[pts.length - 1];
+    const ey = this.terrain.getHeightAt(ex, ez);
+    const signPost = MeshBuilder.CreateCylinder('surveyEndPost', {
+      height: 1.4, diameter: 0.12, tessellation: ps1 ? 5 : 7,
+    }, scene);
+    signPost.position.set(ex, ey + 0.7, ez);
+    signPost.material = woodMat;
+    this.treeMeshes.push(signPost);
+
+    const sign = MeshBuilder.CreateBox('surveyEndSign', { width: 1.1, height: 0.32, depth: 0.06 }, scene);
+    sign.position.set(ex, ey + 1.28, ez);
+    sign.rotation.set(0.08, -0.7, -0.08);
+    sign.material = woodMat;
+    this.treeMeshes.push(sign);
+
+    const cap = MeshBuilder.CreateCylinder('surveyMarkerCap', {
+      height: 0.08, diameter: 0.48, tessellation: ps1 ? 8 : 12,
+    }, scene);
+    cap.position.set(ex + 1.4, ey + 0.06, ez - 0.8);
+    cap.material = markerMat;
+    this.treeMeshes.push(cap);
   }
 
   dispose(): void {

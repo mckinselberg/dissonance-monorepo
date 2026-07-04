@@ -18,6 +18,7 @@ import { PursuerBody } from '../pursuer/PursuerBody';
 import { ProximityOverlay } from '../ui/ProximityOverlay';
 import { BreathOverlay } from '../ui/BreathOverlay';
 import { InventoryUI } from '../ui/InventoryUI';
+import { InstructionsOverlay } from '../ui/InstructionsOverlay';
 import { InventorySystem } from '../items/InventorySystem';
 import { PhoneProp } from '../items/PhoneProp';
 import { PlayerHand } from '../player/PlayerHand';
@@ -95,6 +96,7 @@ export class Game {
   private breathOverlay: BreathOverlay;
   private inventory: InventorySystem;
   private inventoryUI: InventoryUI;
+  private instructions: InstructionsOverlay;
   private phoneProp: PhoneProp | null = null;
   private playerHand: PlayerHand | null = null;
   private phoneFlashlightOn = false;
@@ -175,6 +177,15 @@ export class Game {
     this.pursuerPos = Game.pickPursuerStart(this.spawnPos);
 
     this.player = new PlayerController(scene, this.spawnPos.clone());
+    if (this.expProfile.mode === 'ps2') {
+      this.player.setFlashlightTuning({
+        intensity: 4.1,
+        range: 32,
+        angle: Math.PI / 4.7,
+        exponent: 3.4,
+        color: { r: 1.0, g: 0.78, b: 0.48 },
+      });
+    }
     this.player.setTerrain(this.terrain);
     this.player.setColliders(this.colliders);
     this.player.setWorldBoundaryRadius(WORLD_BOUNDARY_RADIUS);
@@ -208,6 +219,7 @@ export class Game {
     this.breathOverlay = new BreathOverlay();
     this.inventory = new InventorySystem();
     this.inventoryUI = new InventoryUI();
+    this.instructions = new InstructionsOverlay();
     this.catchFadeEl = this.createFadeOverlay();
 
     // Flashlight off until the phone prop is picked up
@@ -711,6 +723,7 @@ export class Game {
     this.phoneProp?.dispose();
     this.playerHand?.dispose();
     this.inventoryUI.dispose();
+    this.instructions.dispose();
     this.engine.dispose();
     this.catchFadeEl?.remove();
   }
