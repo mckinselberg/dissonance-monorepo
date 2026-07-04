@@ -1,6 +1,5 @@
 import type { Game, GameControls } from '../game/Game';
 import type { ExperienceMode } from '@dissonance/shared-types';
-import { RUN_COUNT_KEY } from '../config/runProfiles';
 
 const STORAGE_KEY = 'dta_config';
 const PERF_MODE_STORAGE_KEY = 'dta_perf_mode';
@@ -56,8 +55,7 @@ export class DevHUD {
       row('adrenaline', bar(s.adrenaline)) +
       row('dest', `${s.destDistance.toFixed(1)}m`) +
       row('light', bar(s.lightLevel)) +
-      row('wind', bar(s.windIntensity)) +
-      row('run', `#${s.runCount}  (diff ${Math.min(100, Math.round(s.runCount / 5 * 100))}%)`);
+      row('wind', bar(s.windIntensity));
   }
 
   private build(): HTMLElement {
@@ -134,16 +132,6 @@ export class DevHUD {
     panel.appendChild(toggleRow('pursuer body', true, (on) => {
       this.controls.setPursuerBodyVisible(on);
     }));
-    panel.appendChild(toggleRow('pursuer eyes', true, (on) => {
-      this.controls.setWatcherEnabled(on);
-    }));
-
-    const spawnBtn = document.createElement('button');
-    spawnBtn.className = 'dh-action';
-    spawnBtn.textContent = 'spawn eyes now';
-    spawnBtn.addEventListener('click', () => this.controls.forceSpawnEyes());
-    panel.appendChild(spawnBtn);
-
     panel.appendChild(sectionLabel('graphics'));
 
     const savedRaw = localStorage.getItem(STORAGE_KEY);
@@ -202,16 +190,6 @@ export class DevHUD {
       window.location.reload();
     });
     panel.appendChild(resetBtn);
-
-    const resetDiffBtn = document.createElement('button');
-    resetDiffBtn.className = 'dh-action';
-    resetDiffBtn.textContent = 'reset difficulty (run #0)';
-    resetDiffBtn.addEventListener('click', () => {
-      localStorage.removeItem(RUN_COUNT_KEY);
-      localStorage.removeItem(STORAGE_KEY);
-      window.location.reload();
-    });
-    panel.appendChild(resetDiffBtn);
 
     return panel;
   }

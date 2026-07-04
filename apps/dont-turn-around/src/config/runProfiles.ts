@@ -1,8 +1,6 @@
 import type { RunProfile, DepartureTime } from '@dissonance/shared-types';
 import type { PursuerConfig } from '@dissonance/pursuit';
 
-export const RUN_COUNT_KEY = 'dta_run_count';
-
 export const RUN_PROFILES: Record<DepartureTime, RunProfile> = {
   afternoon: {
     departureTime: 'afternoon',
@@ -31,11 +29,8 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * Math.min(1, Math.max(0, t));
 }
 
-// Builds a pursuer config scaled to the player's run count.
-// t=0 (run 0): learnable — slow pursuer, long stun window.
-// t=1 (run 5+): full difficulty — current tuned values.
-export function buildPursuerConfig(runCount: number): PursuerConfig {
-  const t = Math.min(1, runCount / 5);
+export function buildPursuerConfig(): PursuerConfig {
+  const t = 0.45;
   return {
     startDistance: 180,
     baseSpeed:            lerp(1.8,  3.2,  t),

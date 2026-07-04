@@ -15,25 +15,10 @@ export class WatcherEffect {
   private mode: ExperienceMode;
   private cooldown = 1.0;
   private activePairs: Mesh[][] = [];
-  private enabled = true;
 
   constructor(scene: Scene, mode: ExperienceMode) {
     this.scene = scene;
     this.mode = mode;
-  }
-
-  setEnabled(enabled: boolean): void {
-    this.enabled = enabled;
-    if (enabled) this.cooldown = 0.5;
-  }
-
-  forceSpawn(
-    pursuerPos: { x: number; z: number },
-    playerPos:  { x: number; z: number },
-    state: PursuerState = 'close',
-    groundY = 0,
-  ): void {
-    this.spawnEyes(pursuerPos, playerPos, state, groundY);
   }
 
   update(
@@ -45,7 +30,6 @@ export class WatcherEffect {
     pursuerGroundY: number,
     onAdrenalineSpike: () => void,
   ): void {
-    if (!this.enabled) return;
     this.cooldown -= dt;
     if (this.cooldown > 0) return;
     if (pursuerState === 'far' || pursuerState === 'caught') return;

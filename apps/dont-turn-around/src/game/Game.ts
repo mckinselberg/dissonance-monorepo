@@ -11,7 +11,7 @@ import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio } from '@dissona
 import { PursuerSystem } from '@dissonance/pursuit';
 
 import { EXPERIENCE_PROFILES } from '../config/experienceProfiles';
-import { RUN_PROFILES, RUN_COUNT_KEY, buildPursuerConfig } from '../config/runProfiles';
+import { RUN_PROFILES, buildPursuerConfig } from '../config/runProfiles';
 import { DestinationSystem } from '../world/DestinationSystem';
 import { PursuerAudio } from '../pursuer/PursuerAudio';
 import { PursuerBody } from '../pursuer/PursuerBody';
@@ -40,7 +40,6 @@ export interface GameDebugState {
   isIlluminated: boolean;
   flashlightOn: boolean;
   hasPhone: boolean;
-  runCount: number;
 }
 
 export interface GameControls {
@@ -48,8 +47,6 @@ export interface GameControls {
   setWindOverride: (v: number | null) => void;
   setPursuerAudioMuted: (muted: boolean) => void;
   setBreathAudioMuted: (muted: boolean) => void;
-  setWatcherEnabled: (enabled: boolean) => void;
-  forceSpawnEyes: () => void;
   setPursuerBodyVisible: (visible: boolean) => void;
   setSSAOEnabled: (enabled: boolean) => void;
   setPostFXEnabled: (enabled: boolean) => void;
@@ -120,12 +117,10 @@ export class Game {
   private isCaught = false;
   private catchFadeEl: HTMLElement | null = null;
   private hasWon = false;
-  private runCount: number;
   private proximityRustleCooldown = 0;
 
   constructor(canvas: HTMLCanvasElement, config: GameConfig) {
     this.lowSpec = readLowSpecMode();
-    this.runCount = parseInt(localStorage.getItem(RUN_COUNT_KEY) ?? '0', 10);
     this.expProfile = EXPERIENCE_PROFILES[config.experienceMode];
     if (this.lowSpec) {
       // Tree count and draw distance drive total scene complexity more
@@ -207,7 +202,7 @@ export class Game {
 
     this.destination = new DestinationSystem(DEST_POS);
     this.destination.setChirpCallback(() => this.forest.flashCarLights());
-    this.pursuer = new PursuerSystem(buildPursuerConfig(this.runCount));
+    this.pursuer = new PursuerSystem(buildPursuerConfig());
     this.pursuerAudio = new PursuerAudio();
     this.ambientAudio = new AmbientAudio();
     this.playerAudio = new PlayerAudio();
@@ -421,9 +416,7 @@ export class Game {
   }
 
   private restart(): void {
-    this.runCount++;
-    localStorage.setItem(RUN_COUNT_KEY, String(this.runCount));
-    this.pursuer = new PursuerSystem(buildPursuerConfig(this.runCount));
+    this.pursuer = new PursuerSystem(buildPursuerConfig());
 
     this.player.reset(this.spawnPos.clone());
 
@@ -647,7 +640,6 @@ export class Game {
       isIlluminated: this.lastIlluminated,
       flashlightOn: this.phoneFlashlightOn,
       hasPhone: this.inventory.hasItem('phone'),
-      runCount: this.runCount,
 
     };
   }
@@ -658,16 +650,6 @@ export class Game {
       setWindOverride: (v) => this.weather.setWindOverride(v),
       setPursuerAudioMuted: (muted) => this.pursuerAudio.setMuted(muted),
       setBreathAudioMuted: (muted) => this.playerAudio.setBreathMuted(muted),
-      setWatcherEnabled: (enabled) => this.watcher.setEnabled(enabled),
-      forceSpawnEyes: () => {
-        const pp = this.player.getPosition();
-        this.watcher.forceSpawn(
-          this.pursuerPos,
-          { x: pp.x, z: pp.z },
-          'close',
-          this.terrain.getHeightAt(this.pursuerPos.x, this.pursuerPos.z),
-        );
-      },
       setPursuerBodyVisible: (visible) => this.pursuerBody.setVisible(visible),
       setSSAOEnabled: (enabled) => {
         if (enabled) {
