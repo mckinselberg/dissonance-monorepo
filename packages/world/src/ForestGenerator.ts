@@ -40,9 +40,19 @@ const SURVEY_TRAIL_WAYPOINTS: [number, number][] = [
 export interface Collider { x: number; z: number; radius: number; }
 
 export type TrailWorldOptions = {
-  flavor?: 'pine' | 'rocky';
+  flavor?: 'pine' | 'rocky' | 'river';
   waypoints?: WorldPosition[];
 };
+
+const RIVER_POINTS: [number, number][] = [
+  [-220, -120],
+  [-126, -38],
+  [-48, 42],
+  [34, 112],
+  [128, 190],
+];
+
+const RIVER_WIDTH = 10.5;
 
 export class ForestGenerator {
   private treeMeshes: Mesh[] = [];
@@ -88,6 +98,7 @@ export class ForestGenerator {
     this.buildRocks(scene, profile);
     this.buildRockOutcrops(scene, profile);
     this.buildRockyTrailFeatures(scene, profile);
+    this.buildRiverTrailFeatures(scene, profile);
     this.buildUnderbrush(scene, profile);
     this.buildDeadEndTrail(scene, profile);
     this.buildGrass(scene, profile);
@@ -139,7 +150,12 @@ export class ForestGenerator {
   }
 
   private inEitherCorridor(x: number, z: number): boolean {
-    return this.inTrailCorridor(x, z) || this.inHikingTrailCorridor(x, z);
+    return this.inTrailCorridor(x, z) || this.inHikingTrailCorridor(x, z) || this.inRiverCorridor(x, z);
+  }
+
+  private inRiverCorridor(x: number, z: number): boolean {
+    return this.trailOptions.flavor === 'river'
+      && this.nearPolyline(x, z, RIVER_POINTS, RIVER_WIDTH * 0.85);
   }
 
   private inRockyVistaClearing(x: number, z: number): boolean {
@@ -375,7 +391,12 @@ export class ForestGenerator {
     const matricesByTemplate: Matrix[][] = templates.map(() => []);
     const maxRadius = profile.drawDistance * 1.15;
     const rocky = this.trailOptions.flavor === 'rocky';
-    const treeTarget = rocky ? Math.round(profile.treeCount * 0.68) : profile.treeCount;
+    const river = this.trailOptions.flavor === 'river';
+    const treeTarget = rocky
+      ? Math.round(profile.treeCount * 0.68)
+      : river
+      ? Math.round(profile.treeCount * 0.86)
+      : profile.treeCount;
 
     let placed = 0;
     let attempts = 0;
@@ -412,7 +433,11 @@ export class ForestGenerator {
     // just enough visible above/through it to not read as an abrupt edge).
     const outerRadius = 300;
     const outerCountBase = profile.mode === 'ps3' ? 420 : profile.mode === 'ps2' ? 280 : 200;
-    const outerCount = rocky ? Math.round(outerCountBase * 0.72) : outerCountBase;
+    const outerCount = rocky
+      ? Math.round(outerCountBase * 0.72)
+      : river
+      ? Math.round(outerCountBase * 0.9)
+      : outerCountBase;
     let outerPlaced = 0, outerAttempts = 0;
     while (outerPlaced < outerCount && outerAttempts < outerCount * 8) {
       outerAttempts++;
@@ -1275,6 +1300,135 @@ export class ForestGenerator {
       }
       this._colliders.push({ x: cairnX, z: cairnZ, radius: 0.55 });
     });
+  }
+
+  private buildRiverTrailFeatures(scene: Scene, profile: ExperienceProfile): void {
+    if (this.trailOptions.flavor !== 'river') return;
+
+    const waterMat = new StandardMaterial('blackwaterMat', scene);
+    waterMat.diffuseColor = profile.mode === 'radio'
+      ? new Color3(0.02, 0.025, 0.03)
+      : new Color3(0.035, 0.075, 0.080);
+    waterMat.emissiveColor = profile.mode === 'ps3'
+      ? new Color3(0.010, 0.026, 0.030)
+      : Color3.Black();
+    waterMat.specularColor = new Color3(0.10, 0.14, 0.12);
+    waterMat.alpha = profile.mode === 'ps3' ? 0.78 : 0.88;
+
+    const bankMat = new PBRMaterial('blackwaterBankRockMat', scene);
+    bankMat.albedoColor = new Color3(0.13, 0.12, 0.10);
+    bankMat.metallic = 0;
+    bankMat.roughness = 0.94;
+
+    for (let i = 0; i < RIVER_POINTS.length - 1; i++) {
+      const [ax, az] = RIVER_POINTS[i];
+      const [bx, bz] = RIVER_POINTS[i + 1];
+      const dx = bx - ax;
+      const dz = bz - az;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const mx = (ax + bx) * 0.5;
+      const mz = (az + bz) * 0.5;
+      const y = Math.min(this.terrain.getHeightAt(ax, az), this.terrain.getHeightAt(bx, bz)) + 0.16;
+
+      const water = MeshBuilder.CreateBox(`blackwaterSegment_${i}`, {
+        width: RIVER_WIDTH,
+        height: 0.045,
+        depth: len + 2.0,
+      }, scene);
+      water.position.set(mx, y, mz);
+      water.rotation.y = Math.atan2(dx, dz);
+      water.material = waterMat;
+      water.isPickable = false;
+      this.treeMeshes.push(water);
+    }
+
+    const stone = MeshBuilder.CreateBox('blackwaterStoneTemplate', { size: 1 }, scene);
+    stone.material = bankMat;
+    if (profile.mode === 'ps1') stone.convertToFlatShadedMesh();
+    this.treeMeshes.push(stone);
+
+    const stoneMatrices: Matrix[] = [];
+    for (let i = 0; i < RIVER_POINTS.length - 1; i++) {
+      const [ax, az] = RIVER_POINTS[i];
+      const [bx, bz] = RIVER_POINTS[i + 1];
+      const dx = bx - ax;
+      const dz = bz - az;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const nx = -dz / len;
+      const nz = dx / len;
+      const count = profile.mode === 'ps3' ? 22 : 14;
+      for (let r = 0; r < count; r++) {
+        const t = Math.random();
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const bankOffset = RIVER_WIDTH * (0.58 + Math.random() * 0.42) * side;
+        const x = ax + dx * t + nx * bankOffset + (Math.random() - 0.5) * 1.4;
+        const z = az + dz * t + nz * bankOffset + (Math.random() - 0.5) * 1.4;
+        const s = 0.35 + Math.random() * 0.9;
+        stoneMatrices.push(Matrix.Compose(
+          new Vector3(s * (1.2 + Math.random()), s * (0.22 + Math.random() * 0.28), s * (0.8 + Math.random())),
+          Quaternion.FromEulerAngles(Math.random() * 0.24, Math.random() * Math.PI * 2, Math.random() * 0.18),
+          new Vector3(x, this.terrain.getHeightAt(x, z) + s * 0.12, z),
+        ));
+      }
+    }
+
+    const [ca, cb] = [RIVER_POINTS[2], RIVER_POINTS[3]];
+    const cdx = cb[0] - ca[0];
+    const cdz = cb[1] - ca[1];
+    const clen = Math.sqrt(cdx * cdx + cdz * cdz) || 1;
+    const cnx = -cdz / clen;
+    const cnz = cdx / clen;
+    const crossing = { x: -24, z: 62 };
+    for (let s = -4; s <= 4; s++) {
+      const x = crossing.x + cnx * s * 1.55 + (Math.random() - 0.5) * 0.18;
+      const z = crossing.z + cnz * s * 1.55 + (Math.random() - 0.5) * 0.18;
+      stoneMatrices.push(Matrix.Compose(
+        new Vector3(1.55 + Math.random() * 0.42, 0.22 + Math.random() * 0.12, 1.08 + Math.random() * 0.34),
+        Quaternion.FromEulerAngles((Math.random() - 0.5) * 0.12, Math.atan2(cnx, cnz) + (Math.random() - 0.5) * 0.24, (Math.random() - 0.5) * 0.12),
+        new Vector3(x, this.terrain.getHeightAt(x, z) + 0.18, z),
+      ));
+    }
+    stone.thinInstanceAdd(stoneMatrices, true);
+    this.addCasters([stone]);
+
+    if (profile.mode !== 'ps3') return;
+
+    const reedMat = new StandardMaterial('blackwaterReedMat', scene);
+    reedMat.diffuseColor = new Color3(0.16, 0.20, 0.075);
+    reedMat.specularColor = Color3.Black();
+    const reed = MeshBuilder.CreateCylinder('blackwaterReedTemplate', {
+      height: 1,
+      diameterTop: 0.022,
+      diameterBottom: 0.045,
+      tessellation: 5,
+    }, scene);
+    reed.material = reedMat;
+    this.treeMeshes.push(reed);
+
+    const reedMatrices: Matrix[] = [];
+    for (let i = 0; i < RIVER_POINTS.length - 1; i++) {
+      const [ax, az] = RIVER_POINTS[i];
+      const [bx, bz] = RIVER_POINTS[i + 1];
+      const dx = bx - ax;
+      const dz = bz - az;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const nx = -dz / len;
+      const nz = dx / len;
+      for (let r = 0; r < 34; r++) {
+        const t = Math.random();
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const bankOffset = RIVER_WIDTH * (0.50 + Math.random() * 0.35) * side;
+        const x = ax + dx * t + nx * bankOffset + (Math.random() - 0.5) * 1.8;
+        const z = az + dz * t + nz * bankOffset + (Math.random() - 0.5) * 1.8;
+        const h = 0.65 + Math.random() * 1.05;
+        reedMatrices.push(Matrix.Compose(
+          new Vector3(1, h, 1),
+          Quaternion.FromEulerAngles((Math.random() - 0.5) * 0.35, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.35),
+          new Vector3(x, this.terrain.getHeightAt(x, z) + h * 0.5, z),
+        ));
+      }
+    }
+    reed.thinInstanceAdd(reedMatrices, true);
   }
 
   private buildGrass(scene: Scene, profile: ExperienceProfile): void {

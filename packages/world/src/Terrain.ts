@@ -35,8 +35,16 @@ const TILT_GRADE = Math.tan((6 * Math.PI) / 180); // ~6°, ~0.105 rise per unit
 
 export type TerrainOptions = {
   destinationPosition?: WorldPosition;
-  flavor?: 'pine' | 'rocky';
+  flavor?: 'pine' | 'rocky' | 'river';
 };
+
+const RIVER_POINTS: [number, number][] = [
+  [-220, -120],
+  [-126, -38],
+  [-48, 42],
+  [34, 112],
+  [128, 190],
+];
 
 function macro(x: number, y: number): number {
   return (
@@ -79,6 +87,22 @@ function fbm(x: number, y: number): number {
     vnoise(x * 16, y * 16, SEED + 400) * 0.07 +
     vnoise(x * 32, y * 32, SEED + 500) * 0.04
   );
+}
+
+function distanceToPolyline(x: number, z: number, points: [number, number][]): number {
+  let nearest = Infinity;
+  for (let i = 0; i < points.length - 1; i++) {
+    const [ax, az] = points[i];
+    const [bx, bz] = points[i + 1];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len2 = dx * dx + dz * dz || 1;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / len2));
+    const px = ax + dx * t - x;
+    const pz = az + dz * t - z;
+    nearest = Math.min(nearest, Math.sqrt(px * px + pz * pz));
+  }
+  return nearest;
 }
 
 export class Terrain {
@@ -147,6 +171,14 @@ export class Terrain {
             + Math.max(0, Math.min(1, Math.abs(dest.x) / 240)) * 12;
           const ridgeBlend = dDest < 50 ? Math.pow(dDest / 50, 2) : 1;
           tilt += destRidgeLift + (ridgeLift + sideBank - destRidgeLift) * ridgeBlend;
+        } else if (this.options.flavor === 'river') {
+          const riverDist = distanceToPolyline(wx, wz, RIVER_POINTS);
+          if (riverDist < 34) {
+            const t = 1 - Math.min(1, riverDist / 34);
+            const carved = Math.pow(t, 1.7);
+            bumps *= 1 - carved * 0.58;
+            tilt -= carved * 4.2;
+          }
         }
 
         grid[iz * n + ix] = bumps + tilt;
@@ -197,9 +229,13 @@ export class Terrain {
     } else if (profile.mode === 'ps3') {
       mat.albedoColor = this.options.flavor === 'rocky'
         ? new Color3(0.14, 0.12, 0.085)
+        : this.options.flavor === 'river'
+        ? new Color3(0.058, 0.105, 0.060)
         : new Color3(0.065, 0.125, 0.058);
       mat.ambientColor = this.options.flavor === 'rocky'
         ? new Color3(0.065, 0.055, 0.040)
+        : this.options.flavor === 'river'
+        ? new Color3(0.025, 0.050, 0.032)
         : new Color3(0.030, 0.065, 0.030);
     } else if (profile.mode === 'ps2') {
       mat.albedoColor = new Color3(0.08, 0.15, 0.06);

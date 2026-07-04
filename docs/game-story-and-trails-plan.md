@@ -79,6 +79,7 @@ Completed from notes:
 - Make the pursuer escalate with extra aggression and speed after the trail artifact is recovered.
 - Remove the `F5` restart prompt from the win screen because it conflicts with browser reload.
 - Add a first ambient wildlife pass for PS3 mode with birds, deer, and rare fox/turkey sightings.
+- Add `Blackwater Spur` as a first river-trail prototype with a carved creek bed, water channel, reeds, bank rocks, stepping-stone crossing, river charm artifact, and map selection.
 
 Next polish targets:
 
@@ -87,9 +88,9 @@ Next polish targets:
 - Tune ridge-specific values after playtest: tree density, scree/cairn spacing, artifact visibility, and ridge-stalker pressure.
 - Tune key-fob alarm distance, cooldown, and prompt timing after playtest.
 - Tune ambient wildlife frequency, visibility distance, and movement so sightings stay readable but not distracting.
+- Playtest `Blackwater Spur` for creek visibility, stepping-stone placement, river charm readability, and whether the manual alarm chirp is enough for navigation.
 
 Next expansion targets:
 
-- Add a river trail with a rock crossing as a new landscape/gameplay prototype.
 - Give each trail a clearer artifact, trailhead, route shape, landmark set, and forest-devil behavior profile.
 - Expand the regional map into progression: locked trailheads, story fragments, and eventually a drivable road scene.
