@@ -22,6 +22,7 @@ Example trail nodes:
 - `Blackwater Spur`: wetland trail, low fog, sound misdirection.
 - `Glass Ridge`: exposed rock trail, long sightlines, stronger flashlight tension.
 - `Old Survey Road`: abandoned maintenance route, car-centric clues.
+- `Stonejaw Ridge`: rocky mountain trail, loose stone markers, exposed switchbacks, sparse tree cover.
 - `Devil's Acre`: late-game site, multiple devils, artifact ritual payoff.
 
 ## Artifacts
@@ -39,8 +40,42 @@ Keep the pursuer as the base devil archetype: unseen pressure, proximity audio, 
 
 ## Near-Term Implementation Steps
 
-1. Add a second trail inside the current forest generator with distinct landmarks.
-2. Extract trail definitions into data: name, waypoints, artifact, destination, encounter tuning.
-3. Replace the single destination with trail objectives and return-to-car flow.
-4. Add a simple map screen for choosing trails.
-5. Introduce artifact inventory and story log entries.
+1. Playtest the current survey-tag objective loop.
+2. Add a simple map screen for choosing trails.
+3. Introduce artifact inventory and story log entries.
+4. Add a rocky mountain trail definition and landscape pass.
+5. Start replacing hard-coded trail geometry with trail-specific data.
+
+## Current Execution Plan
+
+Completed from notes:
+
+- Remove run-count difficulty from Dev HUD and game state.
+- Remove spawn-eyes controls from Dev HUD.
+- Add a second trail with distinct survey markers.
+- Add artifact pickup and return-to-car objective flow.
+- Improve pursuer readability with a more humanoid body.
+- Add car alarm as the destination audio identity.
+- Add mountain billboards with a world boundary.
+- Add PS3 visual mode with denser forest detail, richer ground cover, and stronger atmosphere.
+- Fix mountain anchoring so the backdrop reads as fixed world geometry.
+- Add pursuer growls for near and close proximity pressure.
+- Give the pursuer a first-pass humanoid gait with leaning, bobbing, and flashlight reactions.
+- Reduce player disorientation intensity.
+- Add a full-sprint stamina cap so the player must stop and catch breath.
+- Make the car sleeker with lower sedan proportions and tapered cabin geometry.
+- Add forest-ground player footsteps, heavier pursuer footsteps, proximity tree rustles, and clearer fatigue breathing.
+- Tune pursuer approach pacing so close encounters leave a short reaction window for flashlight use.
+- Add the phone as an immediate collectible inventory item that unlocks flashlight use.
+- Add selectable trails to the title flow, starting with `Morrow Pine Loop` and `Stonejaw Ridge`.
+- Add `Stonejaw Ridge` as a rocky trail variant with cairns, scree, a stone-marker artifact, and a separate car destination.
+
+Next polish targets:
+
+- Playtest the `Stonejaw Ridge` route for artifact readability, car-alarm guidance, and close-cover pacing.
+- Tune ridge-specific forest density, rock collision, and pursuer pacing after playtest.
+
+Next expansion targets:
+
+- Give each trail a clearer artifact, trailhead, route shape, landmark set, and forest-devil behavior profile.
+- Build the first version of the regional map with selectable trailheads.

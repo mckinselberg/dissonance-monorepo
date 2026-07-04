@@ -67,7 +67,9 @@ export class WatcherEffect {
     const halfSep = 0.13;
     const eyeY    = groundY + 1.45 + Math.random() * 0.12;
 
-    const coreColor = this.mode === 'ps2'
+    const coreColor = this.mode === 'ps3'
+      ? new Color3(1.0, 0.38 + Math.random() * 0.14, 0.12)
+      : this.mode === 'ps2'
       ? new Color3(1.0, 0.28 + Math.random() * 0.16, 0.08)
       : this.mode === 'ps1'
       ? new Color3(1.0, 0.72 + Math.random() * 0.14, 0.04)

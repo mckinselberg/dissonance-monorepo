@@ -11,6 +11,7 @@ export class PursuerAudio {
   private footstepTimer = 0;
   private rustleTimer = 0;
   private snapTimer = 0;
+  private growlTimer = 3.5;
   private muted = false;
 
   setMuted(muted: boolean): void { this.muted = muted; }
@@ -50,6 +51,14 @@ export class PursuerAudio {
         AudioEngine.playLeafRustle(pan, -22 + Math.random() * 4);
       }
     }
+
+    this.growlTimer -= dt;
+    if (this.growlTimer <= 0) {
+      this.growlTimer = 7.0 + Math.random() * 5.0;
+      if (Math.random() > mask * 0.35) {
+        AudioEngine.playPursuerGrowl(pan, -24 + Math.random() * 3, 0.35);
+      }
+    }
   }
 
   private updateClose(dt: number, pan: number, mask: number): void {
@@ -76,6 +85,14 @@ export class PursuerAudio {
       this.snapTimer = 1.4 + Math.random() * 1.8;
       if (Math.random() > mask * 0.2) {
         AudioEngine.playBranchSnap(pan, -5 + Math.random() * 3);
+      }
+    }
+
+    this.growlTimer -= dt;
+    if (this.growlTimer <= 0) {
+      this.growlTimer = 2.4 + Math.random() * 2.2;
+      if (Math.random() > mask * 0.15) {
+        AudioEngine.playPursuerGrowl(pan, -13 + Math.random() * 3, 0.8);
       }
     }
   }

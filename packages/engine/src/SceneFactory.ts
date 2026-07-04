@@ -106,34 +106,35 @@ export class SceneFactory {
     scene: Scene, camera: Camera, expProfile?: ExperienceProfile,
   ): { motionBlur: MotionBlurPostProcess; ssao: SSAO2RenderingPipeline; pipeline: DefaultRenderingPipeline } {
     const ps2 = expProfile?.mode === 'ps2';
+    const ps3 = expProfile?.mode === 'ps3';
     const ssao = new SSAO2RenderingPipeline('ssao', scene, {
-      ssaoRatio: ps2 ? 0.65 : 0.5,
-      blurRatio: 0.5,
+      ssaoRatio: ps3 ? 0.8 : ps2 ? 0.65 : 0.5,
+      blurRatio: ps3 ? 0.65 : 0.5,
     }, [camera]);
-    ssao.totalStrength = ps2 ? 0.55 : 0.35;
-    ssao.radius = ps2 ? 2.8 : 2;
+    ssao.totalStrength = ps3 ? 0.72 : ps2 ? 0.55 : 0.35;
+    ssao.radius = ps3 ? 3.6 : ps2 ? 2.8 : 2;
     ssao.base = 0.2;
-    ssao.samples = ps2 ? 12 : 8;
+    ssao.samples = ps3 ? 16 : ps2 ? 12 : 8;
 
     const pipeline = new DefaultRenderingPipeline('default', true, scene, [camera]);
 
     pipeline.bloomEnabled = true;
-    pipeline.bloomThreshold = ps2 ? 0.62 : 0.8;
-    pipeline.bloomWeight = ps2 ? 0.24 : 0.12;
-    pipeline.bloomKernel = ps2 ? 48 : 32;
-    pipeline.bloomScale = 0.5;
+    pipeline.bloomThreshold = ps3 ? 0.56 : ps2 ? 0.62 : 0.8;
+    pipeline.bloomWeight = ps3 ? 0.30 : ps2 ? 0.24 : 0.12;
+    pipeline.bloomKernel = ps3 ? 64 : ps2 ? 48 : 32;
+    pipeline.bloomScale = ps3 ? 0.65 : 0.5;
 
     pipeline.grainEnabled = true;
-    pipeline.grain.intensity = ps2 ? 9 : 6;
+    pipeline.grain.intensity = ps3 ? 5 : ps2 ? 9 : 6;
     pipeline.grain.animated = true;
 
     pipeline.imageProcessingEnabled = true;
-    pipeline.imageProcessing.contrast = ps2 ? 1.12 : 1.0;
-    pipeline.imageProcessing.exposure = ps2 ? 0.95 : 1.0;
+    pipeline.imageProcessing.contrast = ps3 ? 1.18 : ps2 ? 1.12 : 1.0;
+    pipeline.imageProcessing.exposure = ps3 ? 1.02 : ps2 ? 0.95 : 1.0;
     pipeline.imageProcessing.colorCurvesEnabled = true;
     const curves = new ColorCurves();
-    curves.globalSaturation = ps2 ? -14 : -8;
-    curves.globalDensity = ps2 ? 8 : 4;
+    curves.globalSaturation = ps3 ? -6 : ps2 ? -14 : -8;
+    curves.globalDensity = ps3 ? 5 : ps2 ? 8 : 4;
     pipeline.imageProcessing.colorCurves = curves;
 
     const motionBlur = new MotionBlurPostProcess('motionBlur', scene, 0, camera);

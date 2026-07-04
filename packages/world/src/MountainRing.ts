@@ -68,10 +68,6 @@ function buildCard(
   const mesh = new Mesh(name, scene);
   vd.applyToMesh(mesh);
   mesh.material = mat;
-  // Rotate around world Y to face the camera at all times.
-  // Player boundary (320) keeps the player far enough that individual
-  // planes never appear edge-on from within the playable area.
-  mesh.billboardMode = Mesh.BILLBOARDMODE_Y;
   mesh.applyFog = false;
   mesh.isPickable = false;
   return mesh;
@@ -82,7 +78,9 @@ export class MountainRing {
 
   constructor(scene: Scene, profile: ExperienceProfile) {
     // Near silhouette layer — the primary visible ridge
-    const nearEmissive = profile.mode === 'ps2'
+    const nearEmissive = profile.mode === 'ps3'
+      ? new Color3(0.060, 0.066, 0.095)
+      : profile.mode === 'ps2'
       ? new Color3(0.045, 0.050, 0.075)
       : profile.mode === 'ps1'
       ? new Color3(0.07, 0.08, 0.14)
@@ -113,6 +111,7 @@ export class MountainRing {
       const nearPts = buildSilhouette(CARD_WIDTH, i * 7331 + 100);
       const nearCard = buildCard(scene, `mtnNear_${i}`, CARD_WIDTH, CARD_BOTTOM_Y, nearPts, nearMat);
       nearCard.position.set(nx, 0, nz);
+      nearCard.rotation.y = Math.atan2(-nx, -nz);
       this.meshes.push(nearCard);
 
       // Far card: staggered by half a slot angle, set back 35 units, 40% wider
@@ -122,7 +121,10 @@ export class MountainRing {
       const farCard = buildCard(
         scene, `mtnFar_${i}`, CARD_WIDTH * 1.4, CARD_BOTTOM_Y - 10, farPts, farMat,
       );
-      farCard.position.set(Math.cos(fa) * fr, 8, Math.sin(fa) * fr);
+      const fx = Math.cos(fa) * fr;
+      const fz = Math.sin(fa) * fr;
+      farCard.position.set(fx, 8, fz);
+      farCard.rotation.y = Math.atan2(-fx, -fz);
       this.meshes.push(farCard);
     }
   }

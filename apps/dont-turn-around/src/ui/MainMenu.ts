@@ -1,4 +1,5 @@
 import type { GameConfig, ExperienceMode, DepartureTime } from '@dissonance/shared-types';
+import { DEFAULT_TRAIL_ID, TRAILS } from '../config/trails';
 
 export class MainMenu {
   private container: HTMLElement;
@@ -6,6 +7,7 @@ export class MainMenu {
 
   private selectedMode: ExperienceMode = 'ps1';
   private selectedDeparture: DepartureTime = 'afternoon';
+  private selectedTrailId = DEFAULT_TRAIL_ID;
 
   constructor(onStart: (config: GameConfig) => void) {
     this.onStart = onStart;
@@ -21,11 +23,11 @@ export class MainMenu {
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       font-family: monospace; color: #666;
-      z-index: 50; user-select: none;
+      z-index: 50; user-select: none; overflow-y: auto;
     `;
 
     root.innerHTML = `
-      <div id="menu-inner" style="max-width:340px;width:100%;padding:2rem 1rem;">
+      <div id="menu-inner" style="max-width:380px;width:100%;padding:2rem 1rem;">
         <h1 style="
           font-size: clamp(1.1rem, 3vw, 1.6rem);
           letter-spacing: 0.25em;
@@ -37,11 +39,24 @@ export class MainMenu {
         ">DON'T TURN AROUND</h1>
 
         <section style="margin-bottom:2.5rem;">
+          <p style="font-size:0.65rem;letter-spacing:0.2em;color:#444;margin:0 0 0.8rem 0;">TRAIL</p>
+          <div class="opts" id="trail-opts" style="display:flex;flex-direction:column;gap:0.5rem;">
+            ${Object.values(TRAILS).map((trail) => `
+              <button data-trail="${trail.id}" class="menu-btn">
+                ${trail.name.toUpperCase()}
+                <span class="trail-hint">${trail.artifact.name.toUpperCase()}</span>
+              </button>
+            `).join('')}
+          </div>
+        </section>
+
+        <section style="margin-bottom:2.5rem;">
           <p style="font-size:0.65rem;letter-spacing:0.2em;color:#444;margin:0 0 0.8rem 0;">PERCEPTION</p>
           <div class="opts" id="mode-opts" style="display:flex;flex-direction:column;gap:0.5rem;">
             <button data-mode="radio" class="menu-btn">RADIO</button>
             <button data-mode="ps1" class="menu-btn">PS1</button>
             <button data-mode="ps2" class="menu-btn">PS2</button>
+            <button data-mode="ps3" class="menu-btn">PS3</button>
           </div>
         </section>
 
@@ -73,9 +88,25 @@ export class MainMenu {
       }
       .menu-btn:hover { color: #999; border-color: #666; }
       .menu-btn.active { color: #ddd; border-color: #aaa; }
+      .trail-hint {
+        display:block; color:#333; font-size:0.52rem; letter-spacing:0.16em;
+        margin-top:0.28rem;
+      }
+      .menu-btn.active .trail-hint { color:#777; }
       #begin-btn:hover { color: #fff; border-color: #aaa; }
     `;
     root.appendChild(style);
+
+    root.querySelectorAll<HTMLButtonElement>('[data-trail]').forEach((btn) => {
+      const trailId = btn.dataset.trail ?? DEFAULT_TRAIL_ID;
+      if (trailId === this.selectedTrailId) btn.classList.add('active');
+
+      btn.addEventListener('click', () => {
+        this.selectedTrailId = trailId;
+        root.querySelectorAll('[data-trail]').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
 
     root.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
       const m = btn.dataset.mode as ExperienceMode;
@@ -103,6 +134,7 @@ export class MainMenu {
       const config = {
         experienceMode: this.selectedMode,
         departureTime: this.selectedDeparture,
+        trailId: this.selectedTrailId,
       };
       this.dismiss(() => this.onStart(config));
     });

@@ -21,7 +21,10 @@ export class CloudSystem {
     mat.disableLighting = true;
     mat.backFaceCulling = false;
 
-    if (profile.mode === 'ps2') {
+    if (profile.mode === 'ps3') {
+      mat.emissiveColor = new Color3(0.24, 0.23, 0.29);
+      mat.alpha = 0.78;
+    } else if (profile.mode === 'ps2') {
       mat.emissiveColor = new Color3(0.20, 0.19, 0.24);
       mat.alpha = 0.86;
     } else if (profile.mode === 'ps1') {
@@ -32,7 +35,7 @@ export class CloudSystem {
       mat.alpha = 0.70;
     }
 
-    const cloudCount = profile.mode === 'ps2' ? 22 : CLOUD_COUNT;
+    const cloudCount = profile.mode === 'ps3' ? 30 : profile.mode === 'ps2' ? 22 : CLOUD_COUNT;
     for (let c = 0; c < cloudCount; c++) {
       const cx = (Math.random() - 0.5) * WORLD_SPREAD;
       const cz = (Math.random() - 0.5) * WORLD_SPREAD;
@@ -50,7 +53,7 @@ export class CloudSystem {
       for (let b = 0; b < blobCount; b++) {
         const blob = MeshBuilder.CreateSphere(
           `cloud_${c}_${b}`,
-          { diameter: 12 + Math.random() * 22, segments: profile.mode === 'ps1' ? 3 : profile.mode === 'ps2' ? 6 : 5 },
+          { diameter: 12 + Math.random() * 22, segments: profile.mode === 'ps1' ? 3 : profile.mode === 'ps3' ? 8 : profile.mode === 'ps2' ? 6 : 5 },
           scene,
         );
         blob.parent = root;

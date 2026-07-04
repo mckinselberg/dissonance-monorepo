@@ -1,4 +1,4 @@
-export type ItemId = 'phone' | 'survey_tag';
+export type ItemId = 'phone' | 'survey_tag' | 'ridge_marker';
 
 export class InventorySystem {
   private items: ItemId[] = [];

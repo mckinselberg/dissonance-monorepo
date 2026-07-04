@@ -175,6 +175,9 @@ export class Terrain {
     if (profile.mode === 'radio') {
       mat.albedoColor = new Color3(0.04, 0.04, 0.04);
       mat.ambientColor = new Color3(0.02, 0.02, 0.03);
+    } else if (profile.mode === 'ps3') {
+      mat.albedoColor = new Color3(0.07, 0.14, 0.065);
+      mat.ambientColor = new Color3(0.035, 0.075, 0.035);
     } else if (profile.mode === 'ps2') {
       mat.albedoColor = new Color3(0.08, 0.15, 0.06);
       mat.ambientColor = new Color3(0.04, 0.08, 0.03);

@@ -20,7 +20,9 @@ export class PursuerSystem {
   private model: PursuerModel;
   private stunTimer = 0;
   private reengageTimer = 0;
+  private beamHesitationTimer = 0;
   private wasIlluminated = false;
+  private wasPressured = false;
   private orbitDir = Math.random() < 0.5 ? -1 : 1;
 
   constructor(
@@ -38,6 +40,7 @@ export class PursuerSystem {
     hasLoS: boolean,
     isCrouching: boolean,
     isIlluminated = false,
+    flashlightPressure = isIlluminated ? 1 : 0,
   ): void {
     const cfg = this.config;
 
@@ -64,10 +67,23 @@ export class PursuerSystem {
     } else {
       this.wasIlluminated = false;
       this.reengageTimer = Math.max(0, this.reengageTimer - dt);
+      this.beamHesitationTimer = Math.max(0, this.beamHesitationTimer - dt);
+
+      const pressureClose = hasLoS && dist < 20 && flashlightPressure > 0.32;
+      if (pressureClose && !this.wasPressured) {
+        this.beamHesitationTimer = Math.max(
+          this.beamHesitationTimer,
+          0.35 + flashlightPressure * 0.45,
+        );
+      }
+      this.wasPressured = pressureClose;
+
       if (playerSpeed > 8.5) {
         this.model.aggression = Math.min(1, this.model.aggression + cfg.sprintAggressionGain * dt);
       } else if (!hasLoS && isCrouching) {
         this.model.aggression = Math.max(0, this.model.aggression - cfg.stillAggressionLoss * 3.5 * dt);
+      } else if (pressureClose) {
+        this.model.aggression = Math.max(0, this.model.aggression - cfg.stillAggressionLoss * 2.0 * dt);
       } else if (!hasLoS) {
         this.model.aggression = Math.max(0, this.model.aggression - cfg.aggressionDecayRate * 2.5 * dt);
       } else if (playerSpeed < 0.5) {
@@ -84,8 +100,11 @@ export class PursuerSystem {
         ? 0.35 + 0.65 * (dist / STALK_THRESHOLD)
         : 1.0;
       const reengageScale = this.reengageTimer > 0 ? 0.48 : 1.0;
+      const beamScale = this.beamHesitationTimer > 0
+        ? 0.10
+        : 1.0 - Math.min(0.58, flashlightPressure * 0.58);
       const speed = (cfg.baseSpeed + this.model.aggression * (cfg.maxSpeed - cfg.baseSpeed))
-        * losScale * closeScale * reengageScale;
+        * losScale * closeScale * reengageScale * beamScale;
 
       if (dist > 0.01) {
         const move = Math.min(speed * dt, dist);
@@ -127,7 +146,9 @@ export class PursuerSystem {
     this.model = { distance: startDistance, state: 'far', aggression: 0, isHidden: false };
     this.stunTimer = 0;
     this.reengageTimer = 0;
+    this.beamHesitationTimer = 0;
     this.wasIlluminated = false;
+    this.wasPressured = false;
     this.orbitDir = Math.random() < 0.5 ? -1 : 1;
   }
 }

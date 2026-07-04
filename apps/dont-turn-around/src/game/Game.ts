@@ -125,7 +125,7 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement, config: GameConfig) {
     this.lowSpec = readLowSpecMode();
-    this.trail = TRAILS[DEFAULT_TRAIL_ID];
+    this.trail = TRAILS[config.trailId ?? DEFAULT_TRAIL_ID] ?? TRAILS[DEFAULT_TRAIL_ID];
     this.expProfile = EXPERIENCE_PROFILES[config.experienceMode];
     if (this.lowSpec) {
       // Tree count and draw distance drive total scene complexity more
@@ -175,6 +175,7 @@ export class Game {
     this.forest.generate(
       scene, this.expProfile, destinationPos, this.terrain,
       this.lowSpec ? undefined : this.daylight.getShadowGenerator(),
+      { flavor: this.trail.worldFlavor, waypoints: this.trail.waypoints },
     );
     this.colliders = this.forest.getColliders();
 
@@ -182,7 +183,15 @@ export class Game {
     this.pursuerPos = Game.pickPursuerStart(this.spawnPos);
 
     this.player = new PlayerController(scene, this.spawnPos.clone());
-    if (this.expProfile.mode === 'ps2') {
+    if (this.expProfile.mode === 'ps3') {
+      this.player.setFlashlightTuning({
+        intensity: 4.8,
+        range: 40,
+        angle: Math.PI / 4.5,
+        exponent: 3.1,
+        color: { r: 1.0, g: 0.82, b: 0.55 },
+      });
+    } else if (this.expProfile.mode === 'ps2') {
       this.player.setFlashlightTuning({
         intensity: 4.1,
         range: 32,
@@ -208,7 +217,7 @@ export class Game {
 
     this.weather = new WeatherSystem(scene);
     this.weather.setMode('clear');
-    if (this.expProfile.mode === 'ps2') this.createAtmosphericParticles(scene);
+    if (this.expProfile.mode === 'ps2' || this.expProfile.mode === 'ps3') this.createAtmosphericParticles(scene);
 
     this.destination = new DestinationSystem(destinationPos);
     this.destination.setChirpCallback(() => this.forest.flashCarLights());
@@ -291,11 +300,21 @@ export class Game {
     const preMoveGroundY = this.terrain.getHeightAt(this.pursuerPos.x, this.pursuerPos.z);
     const pursuerCenter = new Vector3(this.pursuerPos.x, preMoveGroundY + 0.9, this.pursuerPos.z);
     const isIlluminated = hasLoS && this.player.isPointIlluminated(pursuerCenter);
+    const flashlightPressure = hasLoS ? this.player.getFlashlightPressure(pursuerCenter) : 0;
     this.pursuerBody.setIlluminated(isIlluminated);
     this.lastHasLoS = hasLoS;
     this.lastIlluminated = isIlluminated;
 
-    this.pursuer.update(dt, speed, playerPos2d, this.pursuerPos, hasLoS, this.player.isCrouching, isIlluminated);
+    this.pursuer.update(
+      dt,
+      speed,
+      playerPos2d,
+      this.pursuerPos,
+      hasLoS,
+      this.player.isCrouching,
+      isIlluminated,
+      flashlightPressure,
+    );
     const pursuerModel = this.pursuer.getModel();
     this.player.adrenaline.update(dt, pursuerModel.state);
 
@@ -549,7 +568,9 @@ export class Game {
     mat.alpha = 0.28;
     mat.backFaceCulling = false;
 
-    for (let i = 0; i < 120; i++) {
+    const count = this.expProfile.mode === 'ps3' ? 240 : 120;
+    const spread = this.expProfile.mode === 'ps3' ? 130 : 90;
+    for (let i = 0; i < count; i++) {
       const mote = MeshBuilder.CreatePlane(`ps2AirMote_${i}`, {
         width: 0.025 + Math.random() * 0.055,
         height: 0.025 + Math.random() * 0.055,
@@ -559,9 +580,9 @@ export class Game {
       mote.applyFog = false;
       mote.isPickable = false;
       mote.position.set(
-        this.spawnPos.x + (Math.random() - 0.5) * 90,
+        this.spawnPos.x + (Math.random() - 0.5) * spread,
         this.spawnPos.y - 0.6 + Math.random() * 4.0,
-        this.spawnPos.z + (Math.random() - 0.5) * 90,
+        this.spawnPos.z + (Math.random() - 0.5) * spread,
       );
       this.atmosphericParticles.push(mote);
     }
@@ -576,7 +597,8 @@ export class Game {
 
       const dx = mote.position.x - playerPos.x;
       const dz = mote.position.z - playerPos.z;
-      if (dx * dx + dz * dz > 55 * 55) {
+      const wrapRadius = this.expProfile.mode === 'ps3' ? 72 : 55;
+      if (dx * dx + dz * dz > wrapRadius * wrapRadius) {
         const angle = Math.random() * Math.PI * 2;
         const radius = 12 + Math.random() * 38;
         mote.position.set(
