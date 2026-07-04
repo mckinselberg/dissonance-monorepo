@@ -12,6 +12,8 @@ import { PursuerSystem } from '@dissonance/pursuit';
 
 import { EXPERIENCE_PROFILES } from '../config/experienceProfiles';
 import { RUN_PROFILES, buildPursuerConfig } from '../config/runProfiles';
+import { DEFAULT_TRAIL_ID, TRAILS } from '../config/trails';
+import type { TrailDefinition } from '../config/trails';
 import { DestinationSystem } from '../world/DestinationSystem';
 import { PursuerAudio } from '../pursuer/PursuerAudio';
 import { PursuerBody } from '../pursuer/PursuerBody';
@@ -21,6 +23,7 @@ import { InventoryUI } from '../ui/InventoryUI';
 import { InstructionsOverlay } from '../ui/InstructionsOverlay';
 import { InventorySystem } from '../items/InventorySystem';
 import { PhoneProp } from '../items/PhoneProp';
+import { ArtifactProp } from '../items/ArtifactProp';
 import { PlayerHand } from '../player/PlayerHand';
 
 export interface GameDebugState {
@@ -54,8 +57,6 @@ export interface GameControls {
 }
 
 // ~235 units away — at jog speed ~35-40s in open air, ~3-4 min through the forest
-const DEST_POS = new Vector3(190, 0, 140);
-
 // Mountains are decorative geometry, not real colliders — this caps how far
 // the player can wander so they can't walk straight through them. Kept a
 // margin inside MountainRing's RING_RADIUS (340) so the boundary is never
@@ -94,7 +95,9 @@ export class Game {
   private inventory: InventorySystem;
   private inventoryUI: InventoryUI;
   private instructions: InstructionsOverlay;
+  private trail: TrailDefinition;
   private phoneProp: PhoneProp | null = null;
+  private artifactProp: ArtifactProp | null = null;
   private playerHand: PlayerHand | null = null;
   private phoneFlashlightOn = false;
   private mouseDownHandler: ((e: PointerEvent) => void) | null = null;
@@ -118,9 +121,11 @@ export class Game {
   private catchFadeEl: HTMLElement | null = null;
   private hasWon = false;
   private proximityRustleCooldown = 0;
+  private objectiveToastCooldown = 0;
 
   constructor(canvas: HTMLCanvasElement, config: GameConfig) {
     this.lowSpec = readLowSpecMode();
+    this.trail = TRAILS[DEFAULT_TRAIL_ID];
     this.expProfile = EXPERIENCE_PROFILES[config.experienceMode];
     if (this.lowSpec) {
       // Tree count and draw distance drive total scene complexity more
@@ -162,8 +167,13 @@ export class Game {
     // can land inside an obstacle collider with no way to confirm it's
     // clear, which is exactly what trapped the player permanently.
     this.forest = new ForestGenerator();
+    const destinationPos = new Vector3(
+      this.trail.destinationPosition.x,
+      this.trail.destinationPosition.y,
+      this.trail.destinationPosition.z,
+    );
     this.forest.generate(
-      scene, this.expProfile, DEST_POS, this.terrain,
+      scene, this.expProfile, destinationPos, this.terrain,
       this.lowSpec ? undefined : this.daylight.getShadowGenerator(),
     );
     this.colliders = this.forest.getColliders();
@@ -200,7 +210,7 @@ export class Game {
     this.weather.setMode('clear');
     if (this.expProfile.mode === 'ps2') this.createAtmosphericParticles(scene);
 
-    this.destination = new DestinationSystem(DEST_POS);
+    this.destination = new DestinationSystem(destinationPos);
     this.destination.setChirpCallback(() => this.forest.flashCarLights());
     this.pursuer = new PursuerSystem(buildPursuerConfig());
     this.pursuerAudio = new PursuerAudio();
@@ -220,6 +230,8 @@ export class Game {
     // Flashlight off until the phone prop is picked up
     this.player.setFlashlightEnabled(false);
     this.spawnPhoneProp();
+    this.spawnArtifactProp();
+    this.showToast(this.trail.startHint, 4200);
 
     this.playerHand = new PlayerHand(scene, this.player.camera);
 
@@ -252,6 +264,7 @@ export class Game {
 
   private tick(dt: number): void {
     if (this.isCaught || this.hasWon) return;
+    this.objectiveToastCooldown = Math.max(0, this.objectiveToastCooldown - dt);
 
     this.player.update(dt);
     const playerPos = this.player.getPosition();
@@ -328,9 +341,21 @@ export class Game {
       this.onPhonePickup();
     }
 
+    if (this.artifactProp?.update(dt, playerPos.x, playerPos.z)) {
+      this.onArtifactPickup();
+    }
+
     this.destination.update(playerPos);
     if (this.destination.isReached()) {
-      this.triggerWin();
+      if (this.inventory.hasItem(this.trail.artifact.id)) {
+        this.triggerWin();
+      } else {
+        this.destination.reset();
+        if (this.objectiveToastCooldown <= 0) {
+          this.showToast(`missing ${this.trail.artifact.name}`, 2600);
+          this.objectiveToastCooldown = 5;
+        }
+      }
       return;
     }
 
@@ -424,6 +449,7 @@ export class Game {
     this.pursuer.reset();
     this.destination.reset();
     this.destination.start();
+    if (!this.inventory.hasItem(this.trail.artifact.id)) this.spawnArtifactProp();
 
     // Reset phone/flashlight state so each run starts in darkness
     if (!this.inventory.hasItem('phone')) {
@@ -450,6 +476,20 @@ export class Game {
     this.phoneProp = new PhoneProp(this.scene, phoneX, phoneZ, this.terrain);
   }
 
+  private spawnArtifactProp(): void {
+    if (this.inventory.hasItem(this.trail.artifact.id)) return;
+    this.artifactProp?.dispose();
+    const artifact = this.trail.artifact;
+    this.artifactProp = new ArtifactProp(
+      this.scene,
+      artifact.id,
+      artifact.name,
+      artifact.position.x,
+      artifact.position.z,
+      this.terrain,
+    );
+  }
+
   private togglePhone(): void {
     this.phoneFlashlightOn = !this.phoneFlashlightOn;
     this.player.setFlashlightEnabled(this.phoneFlashlightOn);
@@ -462,6 +502,15 @@ export class Game {
     this.inventory.addItem('phone');
     this.inventoryUI.setItem('phone');
     this.showToast('found your phone — right-click to use flashlight', 3500);
+  }
+
+  private onArtifactPickup(): void {
+    const artifact = this.trail.artifact;
+    this.artifactProp?.dispose();
+    this.artifactProp = null;
+    this.inventory.addItem(artifact.id);
+    this.inventoryUI.setItem(artifact.name);
+    this.showToast(`${artifact.name} recovered - return to the car`, 3800);
   }
 
   private showToast(text: string, durationMs: number): void {
@@ -703,6 +752,7 @@ export class Game {
     this.atmosphericParticles.forEach(m => m.dispose());
     this.atmosphericParticles = [];
     this.phoneProp?.dispose();
+    this.artifactProp?.dispose();
     this.playerHand?.dispose();
     this.inventoryUI.dispose();
     this.instructions.dispose();
