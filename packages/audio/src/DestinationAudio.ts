@@ -12,6 +12,7 @@ export class DestinationAudio {
   private loop: Tone.Loop | null = null;
   private running = false;
   private currentVolume = 0.0;
+  private targetVolume = 0.0;
   private gainMultiplier = 1.0;
   private onChirp: (() => void) | null = null;
 
@@ -48,10 +49,7 @@ export class DestinationAudio {
     // getDraw().schedule fires the visual flash on the next animation frame
     // at the exact audio time so lights sync to the chirps with no drift.
     this.loop = new Tone.Loop((time) => {
-      this.synth.triggerAttackRelease('A5', 0.24, time);
-      if (this.onChirp) Tone.getDraw().schedule(this.onChirp, time);
-      this.synth.triggerAttackRelease('F#5', 0.24, time + 0.38);
-      if (this.onChirp) Tone.getDraw().schedule(this.onChirp, time + 0.38);
+      this.triggerChirpPair(time);
     }, '3.5');
     this.loop.start(0);
     if (Tone.getTransport().state !== 'started') {
@@ -68,9 +66,23 @@ export class DestinationAudio {
     this.running = false;
   }
 
+  chirpOnce(): void {
+    const now = Tone.now();
+    if (Tone.getTransport().state !== 'started') {
+      Tone.getTransport().start();
+    }
+    this.masterGain.gain.cancelScheduledValues(now);
+    this.masterGain.gain.setValueAtTime(Math.max(this.targetVolume, 0.04), now);
+    this.triggerChirpPair(now + 0.02);
+    if (!this.running) {
+      this.masterGain.gain.rampTo(0, 1.2);
+    }
+  }
+
   setDistance(normalizedDistance: number): void {
     const db = -2 - normalizedDistance * 20;
     const target = Tone.dbToGain(db) * this.gainMultiplier;
+    this.targetVolume = target;
     if (Math.abs(target - this.currentVolume) > 0.001) {
       this.masterGain.gain.rampTo(target, 1.0);
       this.currentVolume = target;
@@ -85,6 +97,13 @@ export class DestinationAudio {
   setGainMultiplier(v: number): void {
     this.gainMultiplier = v;
     this.currentVolume = -1;
+  }
+
+  private triggerChirpPair(time: number): void {
+    this.synth.triggerAttackRelease('A5', 0.24, time);
+    if (this.onChirp) Tone.getDraw().schedule(this.onChirp, time);
+    this.synth.triggerAttackRelease('F#5', 0.24, time + 0.38);
+    if (this.onChirp) Tone.getDraw().schedule(this.onChirp, time + 0.38);
   }
 
   dispose(): void {

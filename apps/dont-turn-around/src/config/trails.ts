@@ -2,10 +2,14 @@ import type { WorldPosition } from '@dissonance/shared-types';
 
 export type ArtifactId = 'survey_tag' | 'ridge_marker';
 export type TrailWorldFlavor = 'pine' | 'rocky';
+export type TrailPursuerProfile = 'stalker' | 'ridge_stalker';
+export type TrailAlarmMode = 'continuous_until_visible' | 'manual_chirp';
 
 export type TrailDefinition = {
   id: string;
   name: string;
+  menuSummary: string;
+  mapPosition: { x: number; y: number };
   startHint: string;
   destinationPosition: WorldPosition;
   artifact: {
@@ -14,15 +18,18 @@ export type TrailDefinition = {
     position: WorldPosition;
   };
   waypoints: WorldPosition[];
-  pursuerProfile: 'stalker';
+  pursuerProfile: TrailPursuerProfile;
   worldFlavor: TrailWorldFlavor;
+  alarmMode: TrailAlarmMode;
 };
 
 export const TRAILS: Record<string, TrailDefinition> = {
   morrow_pine_loop: {
     id: 'morrow_pine_loop',
     name: 'Morrow Pine Loop',
-    startHint: 'Follow the alarm. Find the survey tag. Get back to the car.',
+    menuSummary: 'dense pine loop / survey tag',
+    mapPosition: { x: 0.62, y: 0.48 },
+    startHint: 'Follow the alarm. Find the survey tag. When you can see the car, press F to silence it.',
     destinationPosition: { x: 190, y: 0, z: 140 },
     artifact: {
       id: 'survey_tag',
@@ -38,11 +45,14 @@ export const TRAILS: Record<string, TrailDefinition> = {
     ],
     pursuerProfile: 'stalker',
     worldFlavor: 'pine',
+    alarmMode: 'continuous_until_visible',
   },
   stonejaw_ridge: {
     id: 'stonejaw_ridge',
     name: 'Stonejaw Ridge',
-    startHint: 'Follow the alarm through the ridge trail. Find the stone marker. Get back to the car.',
+    menuSummary: 'rocky ridge trail / stone marker',
+    mapPosition: { x: 0.32, y: 0.28 },
+    startHint: 'Press F to chirp the car alarm. Use it to find the ridge lot after the stone marker.',
     destinationPosition: { x: -188, y: 0, z: -118 },
     artifact: {
       id: 'ridge_marker',
@@ -57,8 +67,9 @@ export const TRAILS: Record<string, TrailDefinition> = {
       { x: 152, y: 0, z: 114 },
       { x: 180, y: 0, z: 135 },
     ],
-    pursuerProfile: 'stalker',
+    pursuerProfile: 'ridge_stalker',
     worldFlavor: 'rocky',
+    alarmMode: 'manual_chirp',
   },
 };
 

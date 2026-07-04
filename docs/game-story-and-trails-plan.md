@@ -69,13 +69,27 @@ Completed from notes:
 - Add the phone as an immediate collectible inventory item that unlocks flashlight use.
 - Add selectable trails to the title flow, starting with `Morrow Pine Loop` and `Stonejaw Ridge`.
 - Add `Stonejaw Ridge` as a rocky trail variant with cairns, scree, a stone-marker artifact, and a separate car destination.
+- Give `Stonejaw Ridge` first-pass trail-specific tuning: sparser forest cover, less ground carpet, shoulder cairns, and a ridge-stalker pursuer profile.
+- Add a first regional-map trail picker to the title screen with selectable trailhead nodes.
+- Add a steeper `Stonejaw Ridge` terrain grade, selected-destination terrain flattening, and a wider ridge vista clearing.
+- Start a more realistic PS3 sky treatment with richer gradient, horizon haze, sun/moon glow, and high cloud wisps.
+- Add key-fob car alarm behavior: Morrow's constant alarm can be silenced once the car is in view, while later trails use manual alarm chirps for navigation.
+- Tune PS3 afternoon/dusk readability with warmer golden sky color, gentler fog growth, darker distant tree palettes, bark/branch detail, and extra Stonejaw ground texture.
+- Increase PS3 render distance while keeping low-spec mode available as the fallback.
+- Make the pursuer escalate with extra aggression and speed after the trail artifact is recovered.
+- Remove the `F5` restart prompt from the win screen because it conflicts with browser reload.
+- Add a first ambient wildlife pass for PS3 mode with birds, deer, and rare fox/turkey sightings.
 
 Next polish targets:
 
-- Playtest the `Stonejaw Ridge` route for artifact readability, car-alarm guidance, and close-cover pacing.
-- Tune ridge-specific forest density, rock collision, and pursuer pacing after playtest.
+- Playtest the `Stonejaw Ridge` climb for slope feel, artifact readability, car-alarm guidance, and vista framing.
+- Tune PS3 sky values after playtest: golden afternoon brightness, dusk contrast, sun/moon placement, haze strength, cloud-wisp density, and bloom response.
+- Tune ridge-specific values after playtest: tree density, scree/cairn spacing, artifact visibility, and ridge-stalker pressure.
+- Tune key-fob alarm distance, cooldown, and prompt timing after playtest.
+- Tune ambient wildlife frequency, visibility distance, and movement so sightings stay readable but not distracting.
 
 Next expansion targets:
 
+- Add a river trail with a rock crossing as a new landscape/gameplay prototype.
 - Give each trail a clearer artifact, trailhead, route shape, landmark set, and forest-devil behavior profile.
-- Build the first version of the regional map with selectable trailheads.
+- Expand the regional map into progression: locked trailheads, story fragments, and eventually a drivable road scene.

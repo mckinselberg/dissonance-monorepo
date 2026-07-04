@@ -1,5 +1,6 @@
 import type { RunProfile, DepartureTime } from '@dissonance/shared-types';
 import type { PursuerConfig } from '@dissonance/pursuit';
+import type { TrailPursuerProfile } from './trails';
 
 export const RUN_PROFILES: Record<DepartureTime, RunProfile> = {
   afternoon: {
@@ -29,9 +30,9 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * Math.min(1, Math.max(0, t));
 }
 
-export function buildPursuerConfig(): PursuerConfig {
+export function buildPursuerConfig(profile: TrailPursuerProfile = 'stalker'): PursuerConfig {
   const t = 0.45;
-  return {
+  const config: PursuerConfig = {
     startDistance: 180,
     baseSpeed:            lerp(1.8,  3.2,  t),
     maxSpeed:             lerp(4.5,  8.2,  t),
@@ -46,4 +47,21 @@ export function buildPursuerConfig(): PursuerConfig {
     orbitStrength:        lerp(0.16, 0.34, t),
     reengageDelay:        lerp(1.8,  0.8,  t),
   };
+
+  if (profile === 'ridge_stalker') {
+    return {
+      ...config,
+      startDistance: 205,
+      baseSpeed: config.baseSpeed * 0.90,
+      maxSpeed: config.maxSpeed * 0.92,
+      nearThreshold: 42,
+      closeThreshold: 14,
+      sprintAggressionGain: config.sprintAggressionGain * 1.12,
+      aggressionDecayRate: config.aggressionDecayRate * 0.82,
+      orbitStrength: config.orbitStrength * 1.22,
+      reengageDelay: config.reengageDelay * 1.16,
+    };
+  }
+
+  return config;
 }

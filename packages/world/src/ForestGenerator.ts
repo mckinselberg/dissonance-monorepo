@@ -142,6 +142,16 @@ export class ForestGenerator {
     return this.inTrailCorridor(x, z) || this.inHikingTrailCorridor(x, z);
   }
 
+  private inRockyVistaClearing(x: number, z: number): boolean {
+    if (this.trailOptions.flavor !== 'rocky') return false;
+    const pts = this.trailOptions.waypoints ?? [];
+    const overlook = pts[pts.length - 1];
+    if (!overlook) return false;
+    const dx = x - overlook.x;
+    const dz = z - overlook.z;
+    return dx * dx + dz * dz < 34 * 34;
+  }
+
   // Per-tree/per-blob color jitter — a shared material means every canopy
   // piece is the *exact* same shade, which alone makes a forest read as
   // copy-pasted. Green swings further than red/blue since that's the
@@ -180,7 +190,7 @@ export class ForestGenerator {
     const parts: Mesh[] = [];
 
     const trunkMat = new PBRMaterial(`treeTrunkMat_${id}`, scene);
-    trunkMat.albedoColor = this.jitterColor(new Color3(0.06, 0.03, 0.01));
+    trunkMat.albedoColor = this.jitterColor(ps3 ? new Color3(0.12, 0.065, 0.028) : new Color3(0.06, 0.03, 0.01));
     trunkMat.metallic = 0;
     trunkMat.roughness = 0.95;
 
@@ -196,16 +206,57 @@ export class ForestGenerator {
     if (ps1) trunk.convertToFlatShadedMesh();
     parts.push(trunk);
 
+    if (ps3) {
+      const barkCount = 4 + Math.floor(Math.random() * 4);
+      for (let b = 0; b < barkCount; b++) {
+        const a = Math.random() * Math.PI * 2;
+        const y = height * (0.18 + Math.random() * 0.62);
+        const stripH = height * (0.10 + Math.random() * 0.18);
+        const strip = MeshBuilder.CreateBox(`tree_${id}_bark_${b}`, {
+          width: 0.025 + Math.random() * 0.018,
+          height: stripH,
+          depth: 0.018,
+        }, scene);
+        strip.position.set(Math.cos(a) * baseRad * 1.06, y, Math.sin(a) * baseRad * 1.06);
+        strip.rotation.y = -a;
+        strip.material = trunkMat;
+        strip.bakeCurrentTransformIntoVertices();
+        parts.push(strip);
+      }
+
+      const branchCount = 2 + Math.floor(Math.random() * 3);
+      for (let b = 0; b < branchCount; b++) {
+        const a = Math.random() * Math.PI * 2;
+        const branch = MeshBuilder.CreateCylinder(`tree_${id}_branch_${b}`, {
+          height: 0.55 + Math.random() * 0.65,
+          diameterTop: 0.035,
+          diameterBottom: 0.06,
+          tessellation: 6,
+        }, scene);
+        branch.position.set(
+          Math.cos(a) * (baseRad + 0.20),
+          height * (0.42 + Math.random() * 0.30),
+          Math.sin(a) * (baseRad + 0.20),
+        );
+        branch.rotation.set(Math.PI / 2 - 0.18, 0, -a + Math.PI / 2);
+        branch.material = trunkMat;
+        branch.bakeCurrentTransformIntoVertices();
+        parts.push(branch);
+      }
+    }
+
     // Per-template shade factor — spreads 30 templates across 0.35-1.0 of
     // the base canopy brightness so adjacent trees have clearly different values.
     // Darkest templates (0.35) read as shadowed/dead; brightest (1.0) as vivid
     // green. The 3:1 ratio stays perceptible even at night's low ambient.
-    const shadeFactor = 0.35 + Math.random() * 0.65;
+    const shadeFactor = ps3 ? 0.45 + Math.random() * 0.45 : 0.35 + Math.random() * 0.65;
     const isConifer = Math.random() < 0.5;
     const apexY = height;
 
     if (isConifer) {
-      const baseConiferColor = new Color3(0.06, 0.75 * shadeFactor, 0.16 * shadeFactor);
+      const baseConiferColor = ps3
+        ? new Color3(0.035, 0.36 * shadeFactor, 0.075 * shadeFactor)
+        : new Color3(0.06, 0.75 * shadeFactor, 0.16 * shadeFactor);
 
       const angleSeed = Math.random();
       const coneBaseWidth = baseRad * 4 + height * (0.22 + angleSeed * 0.28);
@@ -239,7 +290,9 @@ export class ForestGenerator {
         cursorY -= tierHeight * (1 + gapFrac);
       }
     } else {
-      const baseDeciduousColor = new Color3(0.08, 0.72 * shadeFactor, 0.14 * shadeFactor);
+      const baseDeciduousColor = ps3
+        ? new Color3(0.055, 0.40 * shadeFactor, 0.085 * shadeFactor)
+        : new Color3(0.08, 0.72 * shadeFactor, 0.14 * shadeFactor);
 
       // Superlinear in height (not just a flat fraction) — taller trees
       // get a disproportionately bigger canopy, not just a scaled-up copy
@@ -321,12 +374,14 @@ export class ForestGenerator {
     const templates = this.buildTreeTemplates(scene, profile, profile.mode === 'ps3' ? 52 : profile.mode === 'ps2' ? 40 : 30);
     const matricesByTemplate: Matrix[][] = templates.map(() => []);
     const maxRadius = profile.drawDistance * 1.15;
+    const rocky = this.trailOptions.flavor === 'rocky';
+    const treeTarget = rocky ? Math.round(profile.treeCount * 0.68) : profile.treeCount;
 
     let placed = 0;
     let attempts = 0;
-    const maxAttempts = profile.treeCount * 8;
+    const maxAttempts = treeTarget * 8;
 
-    while (placed < profile.treeCount && attempts < maxAttempts) {
+    while (placed < treeTarget && attempts < maxAttempts) {
       attempts++;
       const angle = Math.random() * Math.PI * 2;
       const radius = 8 + Math.random() * (maxRadius - 8);
@@ -356,7 +411,8 @@ export class ForestGenerator {
     // paying dense-forest cost that far out (mostly fog-hidden anyway,
     // just enough visible above/through it to not read as an abrupt edge).
     const outerRadius = 300;
-    const outerCount = profile.mode === 'ps3' ? 420 : profile.mode === 'ps2' ? 280 : 200;
+    const outerCountBase = profile.mode === 'ps3' ? 420 : profile.mode === 'ps2' ? 280 : 200;
+    const outerCount = rocky ? Math.round(outerCountBase * 0.72) : outerCountBase;
     let outerPlaced = 0, outerAttempts = 0;
     while (outerPlaced < outerCount && outerAttempts < outerCount * 8) {
       outerAttempts++;
@@ -388,7 +444,8 @@ export class ForestGenerator {
     // corners, ~sqrt(15²+11²)) and spread outward 20 units for a thick
     // treeline that makes the clearing feel intentional rather than random.
     const lotRingMin = 18, lotRingMax = 38;
-    const lotRingCount = profile.mode === 'ps3' ? 88 : profile.mode === 'ps2' ? 68 : 48;
+    const lotRingCountBase = profile.mode === 'ps3' ? 88 : profile.mode === 'ps2' ? 68 : 48;
+    const lotRingCount = rocky ? Math.round(lotRingCountBase * 0.78) : lotRingCountBase;
     for (let r = 0; r < lotRingCount; r++) {
       const angle = (r / lotRingCount) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI / lotRingCount) * 2;
       const dist = lotRingMin + Math.random() * (lotRingMax - lotRingMin);
@@ -419,7 +476,10 @@ export class ForestGenerator {
     templates: { mesh: Mesh; radius: number }[],
     matricesByTemplate: Matrix[][],
   ): void {
-    const wallTreeCount = profile.mode === 'ps3' ? 56 : profile.mode === 'ps2' ? 40 : 28;
+    const wallTreeCountBase = profile.mode === 'ps3' ? 56 : profile.mode === 'ps2' ? 40 : 28;
+    const wallTreeCount = this.trailOptions.flavor === 'rocky'
+      ? Math.round(wallTreeCountBase * 0.55)
+      : wallTreeCountBase;
     const perp = new Vector3(-TRAIL_DIR.z, 0, TRAIL_DIR.x);
 
     for (let i = 0; i < wallTreeCount; i++) {
@@ -1106,13 +1166,88 @@ export class ForestGenerator {
     scree.thinInstanceAdd(screeMatrices, true);
     this.addCasters([scree]);
 
+    if (profile.mode === 'ps3') {
+      const shaleMat = new PBRMaterial('ridgeShaleChipMat', scene);
+      shaleMat.albedoColor = new Color3(0.18, 0.17, 0.15);
+      shaleMat.metallic = 0;
+      shaleMat.roughness = 0.96;
+      const shale = MeshBuilder.CreateBox('ridgeShaleChipTemplate', { size: 1 }, scene);
+      shale.material = shaleMat;
+      this.treeMeshes.push(shale);
+
+      const rootMat = new PBRMaterial('ridgeRootMat', scene);
+      rootMat.albedoColor = new Color3(0.13, 0.075, 0.035);
+      rootMat.metallic = 0;
+      rootMat.roughness = 0.9;
+      const root = MeshBuilder.CreateCylinder('ridgeRootTemplate', {
+        height: 1,
+        diameterTop: 0.045,
+        diameterBottom: 0.07,
+        tessellation: 6,
+      }, scene);
+      root.material = rootMat;
+      this.treeMeshes.push(root);
+
+      const shaleMatrices: Matrix[] = [];
+      const rootMatrices: Matrix[] = [];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const len = Math.sqrt(dx * dx + dz * dz) || 1;
+        const nx = -dz / len;
+        const nz = dx / len;
+
+        for (let s = 0; s < 42; s++) {
+          const t = Math.random();
+          const side = Math.random() < 0.5 ? -1 : 1;
+          const shoulder = 0.9 + Math.random() * 5.6;
+          const x = a.x + dx * t + nx * shoulder * side + (Math.random() - 0.5) * 1.4;
+          const z = a.z + dz * t + nz * shoulder * side + (Math.random() - 0.5) * 1.4;
+          const groundY = this.terrain.getHeightAt(x, z);
+          const size = 0.14 + Math.random() * 0.32;
+          shaleMatrices.push(Matrix.Compose(
+            new Vector3(size * (1.4 + Math.random() * 1.6), 0.018 + Math.random() * 0.025, size * (0.7 + Math.random())),
+            Quaternion.FromEulerAngles((Math.random() - 0.5) * 0.12, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.12),
+            new Vector3(x, groundY + 0.018, z),
+          ));
+        }
+
+        for (let r = 0; r < 8; r++) {
+          const t = Math.random();
+          const side = Math.random() < 0.5 ? -1 : 1;
+          const shoulder = 1.6 + Math.random() * 4.4;
+          const x = a.x + dx * t + nx * shoulder * side;
+          const z = a.z + dz * t + nz * shoulder * side;
+          const groundY = this.terrain.getHeightAt(x, z);
+          rootMatrices.push(Matrix.Compose(
+            new Vector3(1, 0.65 + Math.random() * 1.0, 1),
+            Quaternion.FromEulerAngles(Math.PI / 2 + (Math.random() - 0.5) * 0.16, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.22),
+            new Vector3(x, groundY + 0.055, z),
+          ));
+        }
+      }
+      shale.thinInstanceAdd(shaleMatrices, true);
+      root.thinInstanceAdd(rootMatrices, true);
+      this.addCasters([root]);
+    }
+
     const cairnMat = new PBRMaterial('ridgeCairnMat', scene);
     cairnMat.albedoColor = new Color3(0.36, 0.34, 0.30);
     cairnMat.metallic = 0;
     cairnMat.roughness = 0.92;
 
     pts.slice(1).forEach((p, i) => {
-      const groundY = this.terrain.getHeightAt(p.x, p.z);
+      const prev = pts[i];
+      const next = pts[Math.min(pts.length - 1, i + 2)];
+      const dx = next.x - prev.x;
+      const dz = next.z - prev.z;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const side = i % 2 === 0 ? 1 : -1;
+      const cairnX = p.x + (-dz / len) * 2.45 * side;
+      const cairnZ = p.z + (dx / len) * 2.45 * side;
+      const groundY = this.terrain.getHeightAt(cairnX, cairnZ);
       const levels = i === pts.length - 2 ? 5 : 3 + Math.floor(Math.random() * 2);
       for (let l = 0; l < levels; l++) {
         const w = (0.86 - l * 0.11) * (0.82 + Math.random() * 0.22);
@@ -1124,9 +1259,9 @@ export class ForestGenerator {
           depth: d,
         }, scene);
         stone.position.set(
-          p.x + (Math.random() - 0.5) * 0.14,
+          cairnX + (Math.random() - 0.5) * 0.14,
           groundY + 0.08 + l * 0.14,
-          p.z + (Math.random() - 0.5) * 0.14,
+          cairnZ + (Math.random() - 0.5) * 0.14,
         );
         stone.rotation.set(
           (Math.random() - 0.5) * 0.18,
@@ -1138,7 +1273,7 @@ export class ForestGenerator {
         this.treeMeshes.push(stone);
         this.addCasters([stone]);
       }
-      this._colliders.push({ x: p.x, z: p.z, radius: 0.55 });
+      this._colliders.push({ x: cairnX, z: cairnZ, radius: 0.55 });
     });
   }
 
@@ -1180,7 +1315,8 @@ export class ForestGenerator {
       this.treeMeshes.push(base);
     }
 
-    const perBase = profile.mode === 'ps1' ? 1100 : profile.mode === 'ps3' ? 1700 : profile.mode === 'ps2' ? 1250 : 640;
+    const perBaseRaw = profile.mode === 'ps1' ? 1100 : profile.mode === 'ps3' ? 1700 : profile.mode === 'ps2' ? 1250 : 640;
+    const perBase = this.trailOptions.flavor === 'rocky' ? Math.round(perBaseRaw * 0.56) : perBaseRaw;
     const maxRadius = profile.drawDistance * 1.15;
     for (let bi = 0; bi < bases.length; bi++) {
       const matrices: Matrix[] = [];
@@ -1241,7 +1377,8 @@ export class ForestGenerator {
     });
     const matricesByTemplate: Matrix[][] = bladeTemplates.map(() => []);
 
-    const clumpCount = ps1 ? 950 : ps3 ? 1800 : ps2 ? 1250 : 650;
+    const clumpCountRaw = ps1 ? 950 : ps3 ? 1800 : ps2 ? 1250 : 650;
+    const clumpCount = this.trailOptions.flavor === 'rocky' ? Math.round(clumpCountRaw * 0.55) : clumpCountRaw;
     const maxRadius = profile.drawDistance * 1.15;
     let placed = 0, attempts = 0;
     while (placed < clumpCount && attempts < clumpCount * 5) {
@@ -1298,7 +1435,8 @@ export class ForestGenerator {
     });
     const fernMatrices: Matrix[][] = fernTemplates.map(() => []);
 
-    const fernClumps = 1050;
+    const rocky = this.trailOptions.flavor === 'rocky';
+    const fernClumps = rocky ? 430 : 1050;
     let fernPlaced = 0, fernAttempts = 0;
     while (fernPlaced < fernClumps && fernAttempts < fernClumps * 5) {
       fernAttempts++;
@@ -1338,7 +1476,7 @@ export class ForestGenerator {
     });
     const broadleafMatrices: Matrix[][] = broadleafTemplates.map(() => []);
 
-    const broadleafCount = 1500;
+    const broadleafCount = rocky ? 620 : 1500;
     let leafPlaced = 0, leafAttempts = 0;
     while (leafPlaced < broadleafCount && leafAttempts < broadleafCount * 5) {
       leafAttempts++;
@@ -1346,7 +1484,7 @@ export class ForestGenerator {
       const radius = 4 + Math.random() * (maxRadius - 4);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
-      if (this.inEitherCorridor(x, z)) continue;
+      if (this.inEitherCorridor(x, z) || this.inRockyVistaClearing(x, z)) continue;
 
       const ti = Math.floor(Math.random() * broadleafTemplates.length);
       const h = 0.16 + Math.random() * 0.36;
@@ -1382,7 +1520,7 @@ export class ForestGenerator {
 
     const stemMatrices: Matrix[] = [];
     const crownMatrices: Matrix[] = [];
-    const saplingCount = 260;
+    const saplingCount = rocky ? 95 : 260;
     let saplings = 0, saplingAttempts = 0;
     while (saplings < saplingCount && saplingAttempts < saplingCount * 6) {
       saplingAttempts++;
@@ -1390,7 +1528,7 @@ export class ForestGenerator {
       const radius = 8 + Math.random() * (maxRadius - 8);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
-      if (this.inEitherCorridor(x, z)) continue;
+      if (this.inEitherCorridor(x, z) || this.inRockyVistaClearing(x, z)) continue;
 
       const h = 0.7 + Math.random() * 1.0;
       const groundY = this.terrain.getHeightAt(x, z);
@@ -1437,7 +1575,7 @@ export class ForestGenerator {
 
     const mushroomStemMatrices: Matrix[] = [];
     const mushroomCapMatrices: Matrix[] = [];
-    const mushroomCount = 340;
+    const mushroomCount = rocky ? 120 : 340;
     let mushrooms = 0, mushroomAttempts = 0;
     while (mushrooms < mushroomCount && mushroomAttempts < mushroomCount * 5) {
       mushroomAttempts++;

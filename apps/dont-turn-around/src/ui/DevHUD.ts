@@ -50,6 +50,7 @@ export class DevHUD {
       row('fps', s.fps.toFixed(0)) +
       row('pursuer', `${s.pursuerState}  ${s.pursuerDistance.toFixed(1)}m  aggr ${s.pursuerAggression.toFixed(2)}  ${s.isHidden ? 'HIDDEN' : 'los'}`) +
       row('phone', `${s.hasPhone ? 'found' : 'not found'}  flashlight:${s.flashlightOn ? 'ON' : 'off'}  pursuer lit:${s.isIlluminated ? 'YES' : 'no'}`) +
+      row('fob', `${s.carFobUnlocked ? 'ready' : 'locked'}  alarm:${s.carAlarmSilenced ? 'off' : 'active'}`) +
       row('speed', `${s.playerSpeed.toFixed(1)} m/s  ${s.isCrouching ? 'crouch' : ''}`) +
       row('breath', bar(s.breathLoad)) +
       row('adrenaline', bar(s.adrenaline)) +

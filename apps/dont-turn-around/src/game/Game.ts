@@ -4,7 +4,7 @@ import {
 } from '@babylonjs/core';
 import type { GameConfig, ExperienceProfile, RunProfile, PursuerState } from '@dissonance/shared-types';
 import { SceneFactory, GameLoop } from '@dissonance/engine';
-import { ForestGenerator, DaylightSystem, WeatherSystem, WatcherEffect, Terrain, CloudSystem, MountainRing } from '@dissonance/world';
+import { ForestGenerator, DaylightSystem, WeatherSystem, WatcherEffect, Terrain, CloudSystem, MountainRing, WildlifeSystem } from '@dissonance/world';
 import type { Collider } from '@dissonance/world';
 import { PlayerController, PLAYER_CONFIG } from '@dissonance/player';
 import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio } from '@dissonance/audio';
@@ -43,6 +43,8 @@ export interface GameDebugState {
   isIlluminated: boolean;
   flashlightOn: boolean;
   hasPhone: boolean;
+  carFobUnlocked: boolean;
+  carAlarmSilenced: boolean;
 }
 
 export interface GameControls {
@@ -89,6 +91,7 @@ export class Game {
   private terrain: Terrain;
   private clouds: CloudSystem;
   private mountains: MountainRing;
+  private wildlife: WildlifeSystem;
   private heartbeat: HeartbeatAudio;
   private proximity: ProximityOverlay;
   private breathOverlay: BreathOverlay;
@@ -101,6 +104,10 @@ export class Game {
   private playerHand: PlayerHand | null = null;
   private phoneFlashlightOn = false;
   private mouseDownHandler: ((e: PointerEvent) => void) | null = null;
+  private keyDownHandler: ((e: KeyboardEvent) => void) | null = null;
+  private carFobUnlocked = false;
+  private carAlarmSilenced = false;
+  private fobCooldown = 0;
   private colliders: Collider[] = [];
   private lastHasLoS = false;
   private lastIlluminated = false;
@@ -109,6 +116,9 @@ export class Game {
   private lowSpec: boolean;
   private savedShadowCasters: AbstractMesh[] | null = null;
   private atmosphericParticles: Mesh[] = [];
+  private toastEl: HTMLElement | null = null;
+  private toastHideTimer: number | null = null;
+  private toastRemoveTimer: number | null = null;
 
   private expProfile: ExperienceProfile;
   private runProfile: RunProfile;
@@ -122,6 +132,7 @@ export class Game {
   private hasWon = false;
   private proximityRustleCooldown = 0;
   private objectiveToastCooldown = 0;
+  private fobToastShown = false;
 
   constructor(canvas: HTMLCanvasElement, config: GameConfig) {
     this.lowSpec = readLowSpecMode();
@@ -140,6 +151,11 @@ export class Game {
       };
     }
     this.runProfile = RUN_PROFILES[config.departureTime];
+    const destinationPos = new Vector3(
+      this.trail.destinationPosition.x,
+      this.trail.destinationPosition.y,
+      this.trail.destinationPosition.z,
+    );
 
     const { engine, scene } = SceneFactory.create(canvas, this.expProfile, this.runProfile);
     this.engine = engine;
@@ -153,7 +169,10 @@ export class Game {
       if ('maxSimultaneousLights' in m) (m as any).maxSimultaneousLights = 6;
     });
 
-    this.terrain = new Terrain(scene, this.expProfile);
+    this.terrain = new Terrain(scene, this.expProfile, {
+      destinationPosition: this.trail.destinationPosition,
+      flavor: this.trail.worldFlavor,
+    });
     this.clouds = new CloudSystem(scene, this.expProfile);
     this.mountains = new MountainRing(scene, this.expProfile);
 
@@ -167,11 +186,6 @@ export class Game {
     // can land inside an obstacle collider with no way to confirm it's
     // clear, which is exactly what trapped the player permanently.
     this.forest = new ForestGenerator();
-    const destinationPos = new Vector3(
-      this.trail.destinationPosition.x,
-      this.trail.destinationPosition.y,
-      this.trail.destinationPosition.z,
-    );
     this.forest.generate(
       scene, this.expProfile, destinationPos, this.terrain,
       this.lowSpec ? undefined : this.daylight.getShadowGenerator(),
@@ -181,6 +195,7 @@ export class Game {
 
     this.spawnPos = Game.pickRandomSpawn(this.terrain, this.colliders);
     this.pursuerPos = Game.pickPursuerStart(this.spawnPos);
+    this.wildlife = new WildlifeSystem(scene, this.expProfile, this.terrain, this.spawnPos);
 
     this.player = new PlayerController(scene, this.spawnPos.clone());
     if (this.expProfile.mode === 'ps3') {
@@ -221,7 +236,7 @@ export class Game {
 
     this.destination = new DestinationSystem(destinationPos);
     this.destination.setChirpCallback(() => this.forest.flashCarLights());
-    this.pursuer = new PursuerSystem(buildPursuerConfig());
+    this.pursuer = new PursuerSystem(buildPursuerConfig(this.trail.pursuerProfile));
     this.pursuerAudio = new PursuerAudio();
     this.ambientAudio = new AmbientAudio();
     this.playerAudio = new PlayerAudio();
@@ -254,6 +269,14 @@ export class Game {
     // capture phase fires before BabylonJS canvas handlers, reliable during pointer lock
     window.addEventListener('pointerdown', this.mouseDownHandler, true);
 
+    this.keyDownHandler = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyF') return;
+      if (!this.player.isLocked) return;
+      e.preventDefault();
+      this.useKeyFob();
+    };
+    window.addEventListener('keydown', this.keyDownHandler, true);
+
     this.loop = new GameLoop(engine, (dt) => this.tick(dt));
   }
 
@@ -261,7 +284,9 @@ export class Game {
     await AudioEngine.start();
     this.ambientAudio.start();
     this.playerAudio.start();
-    this.destination.start();
+    if (this.trail.alarmMode === 'continuous_until_visible') {
+      this.destination.start();
+    }
 
     setTimeout(() => {
       this.weather.setMode('windy');
@@ -274,6 +299,7 @@ export class Game {
   private tick(dt: number): void {
     if (this.isCaught || this.hasWon) return;
     this.objectiveToastCooldown = Math.max(0, this.objectiveToastCooldown - dt);
+    this.fobCooldown = Math.max(0, this.fobCooldown - dt);
 
     this.player.update(dt);
     const playerPos = this.player.getPosition();
@@ -301,6 +327,7 @@ export class Game {
     const pursuerCenter = new Vector3(this.pursuerPos.x, preMoveGroundY + 0.9, this.pursuerPos.z);
     const isIlluminated = hasLoS && this.player.isPointIlluminated(pursuerCenter);
     const flashlightPressure = hasLoS ? this.player.getFlashlightPressure(pursuerCenter) : 0;
+    const artifactRecovered = this.inventory.hasItem(this.trail.artifact.id);
     this.pursuerBody.setIlluminated(isIlluminated);
     this.lastHasLoS = hasLoS;
     this.lastIlluminated = isIlluminated;
@@ -314,6 +341,7 @@ export class Game {
       this.player.isCrouching,
       isIlluminated,
       flashlightPressure,
+      artifactRecovered,
     );
     const pursuerModel = this.pursuer.getModel();
     this.player.adrenaline.update(dt, pursuerModel.state);
@@ -342,6 +370,7 @@ export class Game {
     this.pursuerBody.update(dt, this.pursuerPos, pursuerGroundY, playerPos2d);
 
     this.clouds.update(dt);
+    this.wildlife.update(dt, playerPos);
 
     this.daylight.update(dt, this.runProfile, this.expProfile);
     this.ambientAudio.setNightLevel(this.daylight.getNightLevel());
@@ -354,6 +383,8 @@ export class Game {
       this.expProfile.fogDensity,
       this.daylight.getLightLevel(),
       weatherMask,
+      this.expProfile,
+      this.runProfile,
     );
 
     if (this.phoneProp?.update(dt, playerPos.x, playerPos.z)) {
@@ -365,6 +396,7 @@ export class Game {
     }
 
     this.destination.update(playerPos);
+    this.updateKeyFobUnlock(playerPos);
     if (this.destination.isReached()) {
       if (this.inventory.hasItem(this.trail.artifact.id)) {
         this.triggerWin();
@@ -460,14 +492,16 @@ export class Game {
   }
 
   private restart(): void {
-    this.pursuer = new PursuerSystem(buildPursuerConfig());
+    this.pursuer = new PursuerSystem(buildPursuerConfig(this.trail.pursuerProfile));
 
     this.player.reset(this.spawnPos.clone());
 
     this.pursuerPos = Game.pickPursuerStart(this.spawnPos);
     this.pursuer.reset();
     this.destination.reset();
-    this.destination.start();
+    if (this.trail.alarmMode === 'continuous_until_visible' && !this.carAlarmSilenced) {
+      this.destination.start();
+    }
     if (!this.inventory.hasItem(this.trail.artifact.id)) this.spawnArtifactProp();
 
     // Reset phone/flashlight state so each run starts in darkness
@@ -515,6 +549,32 @@ export class Game {
     this.playerHand?.setVisible(this.phoneFlashlightOn);
   }
 
+  private updateKeyFobUnlock(playerPos: Vector3): void {
+    if (this.carFobUnlocked) return;
+    if (this.trail.alarmMode === 'manual_chirp' || this.destination.isVisibleFrom(playerPos)) {
+      this.carFobUnlocked = true;
+      if (!this.fobToastShown) {
+        this.showToast('key fob ready - press F for car alarm', 3000);
+        this.fobToastShown = true;
+      }
+    }
+  }
+
+  private useKeyFob(): void {
+    if (!this.carFobUnlocked || this.fobCooldown > 0) return;
+    this.fobCooldown = 2.2;
+
+    if (this.trail.alarmMode === 'continuous_until_visible' && !this.carAlarmSilenced) {
+      this.carAlarmSilenced = true;
+      this.destination.stop();
+      this.forest.flashCarLights();
+      this.showToast('alarm silenced', 2200);
+      return;
+    }
+
+    this.destination.chirpOnce();
+  }
+
   private onPhonePickup(): void {
     this.phoneProp?.dispose();
     this.phoneProp = null;
@@ -533,29 +593,49 @@ export class Game {
   }
 
   private showToast(text: string, durationMs: number): void {
-    const el = document.createElement('div');
-    el.style.cssText = [
-      'position:fixed',
-      'bottom:60px',
-      'left:50%',
-      'transform:translateX(-50%)',
-      'pointer-events:none',
-      'z-index:90',
-      'padding:8px 20px',
-      'background:rgba(0,0,0,0.70)',
-      'border:1px solid rgba(255,255,255,0.07)',
-      'border-radius:4px',
-      'color:rgba(200,210,220,0.80)',
-      'font-family:monospace',
-      'font-size:0.72rem',
-      'letter-spacing:0.09em',
-      'transition:opacity 600ms ease',
-    ].join(';');
-    el.textContent = text;
-    document.body.appendChild(el);
-    setTimeout(() => {
-      el.style.opacity = '0';
-      setTimeout(() => el.remove(), 650);
+    if (this.toastHideTimer !== null) window.clearTimeout(this.toastHideTimer);
+    if (this.toastRemoveTimer !== null) window.clearTimeout(this.toastRemoveTimer);
+
+    if (!this.toastEl) {
+      this.toastEl = document.createElement('div');
+      this.toastEl.style.cssText = [
+        'position:fixed',
+        'bottom:60px',
+        'left:50%',
+        'transform:translateX(-50%)',
+        'pointer-events:none',
+        'z-index:90',
+        'box-sizing:border-box',
+        'max-width:min(620px, calc(100vw - 32px))',
+        'padding:8px 20px',
+        'background:rgba(0,0,0,0.78)',
+        'border:1px solid rgba(255,255,255,0.08)',
+        'border-radius:4px',
+        'color:rgba(200,210,220,0.84)',
+        'font-family:monospace',
+        'font-size:0.72rem',
+        'line-height:1.45',
+        'letter-spacing:0.09em',
+        'text-align:center',
+        'transition:opacity 220ms ease, transform 220ms ease',
+      ].join(';');
+      document.body.appendChild(this.toastEl);
+    }
+
+    this.toastEl.textContent = text;
+    this.toastEl.style.opacity = '1';
+    this.toastEl.style.transform = 'translateX(-50%) translateY(0)';
+
+    this.toastHideTimer = window.setTimeout(() => {
+      if (!this.toastEl) return;
+      this.toastEl.style.opacity = '0';
+      this.toastEl.style.transform = 'translateX(-50%) translateY(6px)';
+      this.toastRemoveTimer = window.setTimeout(() => {
+        this.toastEl?.remove();
+        this.toastEl = null;
+        this.toastRemoveTimer = null;
+      }, 260);
+      this.toastHideTimer = null;
     }, durationMs);
   }
 
@@ -686,7 +766,7 @@ export class Game {
     `;
     winEl.innerHTML = `<p style="color:#888;font-family:monospace;font-size:1.1rem;letter-spacing:0.2em;text-align:center;line-height:2em">
       you made it<br><br>
-      <span style="font-size:0.7rem;color:#444">press F5 to go again</span>
+      <span style="font-size:0.7rem;color:#444">return to title to choose another trail</span>
     </p>`;
     document.body.appendChild(winEl);
   }
@@ -711,7 +791,8 @@ export class Game {
       isIlluminated: this.lastIlluminated,
       flashlightOn: this.phoneFlashlightOn,
       hasPhone: this.inventory.hasItem('phone'),
-
+      carFobUnlocked: this.carFobUnlocked,
+      carAlarmSilenced: this.carAlarmSilenced,
     };
   }
 
@@ -759,6 +840,9 @@ export class Game {
     if (this.mouseDownHandler) {
       window.removeEventListener('pointerdown', this.mouseDownHandler, true);
     }
+    if (this.keyDownHandler) {
+      window.removeEventListener('keydown', this.keyDownHandler, true);
+    }
     this.destination.dispose();
     this.ambientAudio.stop();
     this.playerAudio.dispose();
@@ -768,6 +852,7 @@ export class Game {
     this.terrain.dispose();
     this.clouds.dispose();
     this.mountains.dispose();
+    this.wildlife.dispose();
     this.heartbeat.dispose();
     this.proximity.dispose();
     this.breathOverlay.dispose();
@@ -778,6 +863,9 @@ export class Game {
     this.playerHand?.dispose();
     this.inventoryUI.dispose();
     this.instructions.dispose();
+    if (this.toastHideTimer !== null) window.clearTimeout(this.toastHideTimer);
+    if (this.toastRemoveTimer !== null) window.clearTimeout(this.toastRemoveTimer);
+    this.toastEl?.remove();
     this.engine.dispose();
     this.catchFadeEl?.remove();
   }

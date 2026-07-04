@@ -5,4 +5,5 @@ export { DaylightSystem } from './DaylightSystem';
 export { WeatherSystem } from './WeatherSystem';
 export { CloudSystem } from './CloudSystem';
 export { MountainRing } from './MountainRing';
+export { WildlifeSystem } from './WildlifeSystem';
 export { WatcherEffect } from './WatcherEffect';

@@ -41,6 +41,7 @@ export class PursuerSystem {
     isCrouching: boolean,
     isIlluminated = false,
     flashlightPressure = isIlluminated ? 1 : 0,
+    artifactRecovered = false,
   ): void {
     const cfg = this.config;
 
@@ -91,6 +92,9 @@ export class PursuerSystem {
       } else {
         this.model.aggression = Math.max(0, this.model.aggression - cfg.aggressionDecayRate * dt);
       }
+      if (artifactRecovered) {
+        this.model.aggression = Math.min(1, this.model.aggression + 0.012 * dt);
+      }
 
       const losScale = hasLoS ? 1.0 : 0.55;
       // Slow to ~35% when very close — gives the player time to pivot and
@@ -103,8 +107,9 @@ export class PursuerSystem {
       const beamScale = this.beamHesitationTimer > 0
         ? 0.10
         : 1.0 - Math.min(0.58, flashlightPressure * 0.58);
+      const artifactSpeedScale = artifactRecovered ? 1.16 : 1.0;
       const speed = (cfg.baseSpeed + this.model.aggression * (cfg.maxSpeed - cfg.baseSpeed))
-        * losScale * closeScale * reengageScale * beamScale;
+        * losScale * closeScale * reengageScale * beamScale * artifactSpeedScale;
 
       if (dist > 0.01) {
         const move = Math.min(speed * dt, dist);

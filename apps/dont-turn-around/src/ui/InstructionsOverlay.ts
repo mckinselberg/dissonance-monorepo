@@ -46,6 +46,7 @@ export class InstructionsOverlay {
         <div class="inst-row"><span>RUN</span><b>SHIFT</b></div>
         <div class="inst-row"><span>CROUCH</span><b>CTRL</b></div>
         <div class="inst-row"><span>PHONE LIGHT</span><b>RIGHT CLICK</b></div>
+        <div class="inst-row"><span>KEY FOB</span><b>F</b></div>
         <div class="inst-row"><span>DEV HUD</span><b>\`</b></div>
         <div class="inst-rule"></div>
         <p style="margin:0;color:rgba(180,190,190,0.68);font-size:0.72rem;line-height:1.8">

@@ -42,12 +42,12 @@ export const EXPERIENCE_PROFILES: Record<ExperienceMode, ExperienceProfile> = {
   ps3: {
     mode: 'ps3',
     treeCount: 2200,
-    fogDensity: 0.017,
-    drawDistance: 155,
+    fogDensity: 0.013,
+    drawDistance: 178,
     ambientIntensity: 0.26,
     visualNoise: 0.0,
     audioLoFiAmount: 0.02,
-    fogColor: { r: 0.13, g: 0.17, b: 0.17 },
-    skyColor: { r: 0.09, g: 0.13, b: 0.20 },
+    fogColor: { r: 0.15, g: 0.16, b: 0.14 },
+    skyColor: { r: 0.16, g: 0.18, b: 0.24 },
   },
 };
