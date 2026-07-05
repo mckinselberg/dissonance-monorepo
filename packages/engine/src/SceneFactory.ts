@@ -120,15 +120,17 @@ export class SceneFactory {
     const night = runProfile.departureTime === 'night';
     const dusk = runProfile.departureTime === 'dusk';
 
+    // A flat single-color band read as an obvious hard-edged rectangle cut
+    // into the sky dome's own smooth gradient. Using the dome's own
+    // vertex-color-gradient trick here too — fading from the golden haze
+    // tone at the bottom rim to fully transparent at the top rim — lets it
+    // blend into the dome instead of showing a seam.
     const hazeMat = new StandardMaterial('ps3HorizonHazeMat', scene);
     hazeMat.disableLighting = true;
     hazeMat.backFaceCulling = false;
-    hazeMat.alpha = night ? 0.16 : dusk ? 0.24 : 0.28;
-    hazeMat.emissiveColor = night
-      ? new Color3(0.10, 0.12, 0.18)
-      : dusk
-        ? new Color3(0.62, 0.30, 0.17)
-        : new Color3(0.92, 0.62, 0.28);
+    // Just under 1 so the per-vertex alpha below actually drives blending
+    // instead of being ignored as fully opaque.
+    hazeMat.alpha = 0.999;
 
     const haze = MeshBuilder.CreateCylinder('ps3HorizonHaze', {
       diameter: 780,
@@ -141,6 +143,22 @@ export class SceneFactory {
     haze.applyFog = false;
     haze.isPickable = false;
     haze.infiniteDistance = true;
+    haze.hasVertexAlpha = true;
+
+    const hazeGold = night
+      ? new Color3(0.10, 0.12, 0.18)
+      : dusk
+        ? new Color3(0.62, 0.30, 0.17)
+        : new Color3(0.92, 0.62, 0.28);
+    const hazePeakAlpha = night ? 0.16 : dusk ? 0.24 : 0.28;
+    const hazePositions = haze.getVerticesData(VertexBuffer.PositionKind)!;
+    const hazeColors: number[] = [];
+    for (let i = 0; i < hazePositions.length; i += 3) {
+      const y = hazePositions[i + 1];
+      const t = Math.max(0, Math.min(1, (y + 28) / 56)); // 0 at bottom rim, 1 at top rim
+      hazeColors.push(hazeGold.r, hazeGold.g, hazeGold.b, hazePeakAlpha * (1 - t));
+    }
+    haze.setVerticesData(VertexBuffer.ColorKind, hazeColors);
 
     const sunMat = new StandardMaterial('ps3SunDiscMat', scene);
     sunMat.disableLighting = true;

@@ -38,7 +38,7 @@ export type TerrainOptions = {
   flavor?: 'pine' | 'rocky' | 'river';
 };
 
-const RIVER_POINTS: [number, number][] = [
+export const RIVER_POINTS: [number, number][] = [
   [-220, -120],
   [-126, -38],
   [-48, 42],
@@ -176,7 +176,13 @@ export class Terrain {
           if (riverDist < 34) {
             const t = 1 - Math.min(1, riverDist / 34);
             const carved = Math.pow(t, 1.7);
-            bumps *= 1 - carved * 0.58;
+            // Damping bumps by only 58% left enough residual noise along the
+            // channel bed that it rose above the (near-flat) water mesh
+            // between sample points, breaking the water surface into
+            // disconnected patches. Right at the centerline (carved≈1) the
+            // bed needs to be almost fully flat for continuous water to sit
+            // on top of it cleanly.
+            bumps *= 1 - carved * 0.92;
             tilt -= carved * 4.2;
           }
         }
@@ -185,6 +191,14 @@ export class Terrain {
       }
     }
     return grid;
+  }
+
+  // Distance from (wx, wz) to the river centerline, or null when this
+  // terrain has no river feature — lets audio/other systems drive a
+  // proximity beacon without duplicating RIVER_POINTS.
+  getRiverDistance(wx: number, wz: number): number | null {
+    if (this.options.flavor !== 'river') return null;
+    return distanceToPolyline(wx, wz, RIVER_POINTS);
   }
 
   getHeightAt(wx: number, wz: number): number {

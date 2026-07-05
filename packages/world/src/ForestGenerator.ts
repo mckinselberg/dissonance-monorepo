@@ -12,11 +12,13 @@ import {
   Quaternion,
   Mesh,
   VertexData,
+  Observer,
 } from '@babylonjs/core';
 
 import type { ExperienceProfile } from '@dissonance/shared-types';
 import type { WorldPosition } from '@dissonance/shared-types';
 import type { Terrain } from './Terrain';
+import { RIVER_POINTS } from './Terrain';
 import { displaceToBlob, displaceRadial } from './noise';
 
 const TRAIL_DIR = new Vector3(-0.65, 0, -0.76).normalize();
@@ -44,15 +46,15 @@ export type TrailWorldOptions = {
   waypoints?: WorldPosition[];
 };
 
-const RIVER_POINTS: [number, number][] = [
-  [-220, -120],
-  [-126, -38],
-  [-48, 42],
-  [34, 112],
-  [128, 190],
-];
-
 const RIVER_WIDTH = 10.5;
+// How far back from the water's edge trees are kept clear. Wider than the
+// water itself so the river reads visually from further away instead of
+// only being visible once you're standing right on top of it.
+const RIVER_CLEAR_WIDTH = 22;
+// Width of the thinned approach corridor along the trail's own waypoints
+// (the route to the artifact) — a soft bushwhacked-path clearing, not a
+// groomed trail, just enough to open sightlines toward the crossing.
+const RIVER_APPROACH_WIDTH = 4.5;
 
 export class ForestGenerator {
   private treeMeshes: Mesh[] = [];
@@ -64,6 +66,9 @@ export class ForestGenerator {
   private headlightMat: StandardMaterial | null = null;
   private lightFlashActive = false;
   private trailOptions: TrailWorldOptions = {};
+  private riverWaterSegments: { mesh: Mesh; baseY: number; phase: number }[] = [];
+  private riverFlowObserver: Observer<Scene> | null = null;
+  private riverScene: Scene | null = null;
 
   getColliders(): Collider[] { return this._colliders; }
 
@@ -150,12 +155,25 @@ export class ForestGenerator {
   }
 
   private inEitherCorridor(x: number, z: number): boolean {
-    return this.inTrailCorridor(x, z) || this.inHikingTrailCorridor(x, z) || this.inRiverCorridor(x, z);
+    return this.inTrailCorridor(x, z)
+      || this.inHikingTrailCorridor(x, z)
+      || this.inRiverCorridor(x, z)
+      || this.inRiverApproachCorridor(x, z);
   }
 
   private inRiverCorridor(x: number, z: number): boolean {
     return this.trailOptions.flavor === 'river'
-      && this.nearPolyline(x, z, RIVER_POINTS, RIVER_WIDTH * 0.85);
+      && this.nearPolyline(x, z, RIVER_POINTS, RIVER_CLEAR_WIDTH);
+  }
+
+  // Thins trees along the route to the river artifact so the crossing has
+  // an open sightline leading into it, rather than only the water's own
+  // narrow clearing.
+  private inRiverApproachCorridor(x: number, z: number): boolean {
+    if (this.trailOptions.flavor !== 'river') return false;
+    const pts = this.trailOptions.waypoints;
+    if (!pts || pts.length < 2) return false;
+    return this.nearPolyline(x, z, pts.map((p): [number, number] => [p.x, p.z]), RIVER_APPROACH_WIDTH);
   }
 
   private inRockyVistaClearing(x: number, z: number): boolean {
@@ -1306,40 +1324,121 @@ export class ForestGenerator {
     if (this.trailOptions.flavor !== 'river') return;
 
     const waterMat = new StandardMaterial('blackwaterMat', scene);
+    // Deliberately cool and saturated blue — every other surface in this
+    // scene (ground, bark, fog, the ps3 golden-hour sky) sits in warm
+    // tan/green territory, so a near-black warm teal was blending straight
+    // into the terrain instead of reading as water. Blue is the one hue
+    // nothing else here uses.
     waterMat.diffuseColor = profile.mode === 'radio'
-      ? new Color3(0.02, 0.025, 0.03)
-      : new Color3(0.035, 0.075, 0.080);
-    waterMat.emissiveColor = profile.mode === 'ps3'
-      ? new Color3(0.010, 0.026, 0.030)
-      : Color3.Black();
-    waterMat.specularColor = new Color3(0.10, 0.14, 0.12);
-    waterMat.alpha = profile.mode === 'ps3' ? 0.78 : 0.88;
+      ? new Color3(0.015, 0.02, 0.035)
+      : new Color3(0.03, 0.06, 0.16);
+    waterMat.emissiveColor = profile.mode === 'radio'
+      ? Color3.Black()
+      : profile.mode === 'ps3'
+      ? new Color3(0.020, 0.048, 0.11)
+      : new Color3(0.012, 0.030, 0.075);
+    waterMat.specularColor = new Color3(0.35, 0.45, 0.6);
+    waterMat.specularPower = 32;
+    // Fully opaque — alpha < 1 was letting the pale terrain directly beneath
+    // the water box show through and wash the color out. The bank/stone
+    // ring around it already reads as "edge," so the water itself doesn't
+    // need transparency to look wet.
+    waterMat.alpha = 1.0;
 
     const bankMat = new PBRMaterial('blackwaterBankRockMat', scene);
     bankMat.albedoColor = new Color3(0.13, 0.12, 0.10);
     bankMat.metallic = 0;
     bankMat.roughness = 0.94;
 
+    // The one deliberate crossing point — a gap in the bank colliders below
+    // lines up with this so the rock ford is the only place the river can
+    // actually be crossed.
+    const crossing = { x: -24, z: 62 };
+    const BANK_COLLIDER_RADIUS = 3.0;
+    const BANK_OFFSET = RIVER_WIDTH * 0.5 - 0.3;
+    // The ford stones themselves span up to ~6.2 units either side of the
+    // centerline (see the crossing-stone loop below), and the guided
+    // approach path actually reaches the river ~5 units off from this
+    // constant — a 5-unit gap radius left colliders clipping the ford on
+    // both counts. Wide enough to clear both with margin.
+    const CROSSING_GAP_RADIUS = 14;
+
+    // One flat box per RIVER_POINTS segment (each up to ~125 units long) let
+    // the terrain's carved-channel noise — only damped 58%, not flattened —
+    // rise well above the box's flat elevation partway along its length,
+    // poking through and breaking the water into disconnected patches.
+    // Sampling every ~6 units and hugging local terrain height per short
+    // sub-segment keeps the water surface within the noise's short-range
+    // variation instead of averaging over the whole span.
+    const WATER_STEP = 6;
+    const samples: { x: number; z: number }[] = [];
     for (let i = 0; i < RIVER_POINTS.length - 1; i++) {
       const [ax, az] = RIVER_POINTS[i];
       const [bx, bz] = RIVER_POINTS[i + 1];
-      const dx = bx - ax;
-      const dz = bz - az;
+      const segLen = Math.sqrt((bx - ax) ** 2 + (bz - az) ** 2);
+      const stepsInSeg = Math.max(1, Math.round(segLen / WATER_STEP));
+      for (let s = 0; s < stepsInSeg; s++) {
+        const t = s / stepsInSeg;
+        samples.push({ x: ax + (bx - ax) * t, z: az + (bz - az) * t });
+      }
+    }
+    const [lastX, lastZ] = RIVER_POINTS[RIVER_POINTS.length - 1];
+    samples.push({ x: lastX, z: lastZ });
+
+    // Sampling per-box from only its own two endpoints meant neighbouring
+    // boxes each picked elevation independently and disagreed at the shared
+    // joint, showing up as a visible stair-step (bare ground peeking through
+    // at every seam) instead of one continuous surface. Precomputing a
+    // windowed-max height per sample first means adjacent boxes agree on
+    // the shared point's height, and a thicker box absorbs whatever small
+    // mismatch remains as an underwater ledge instead of exposed ground.
+    const rawHeights = samples.map(p => this.terrain.getHeightAt(p.x, p.z));
+    const surfaceHeights = rawHeights.map((_, i) => {
+      const lo = Math.max(0, i - 1);
+      const hi = Math.min(rawHeights.length - 1, i + 1);
+      let m = rawHeights[i];
+      for (let k = lo; k <= hi; k++) m = Math.max(m, rawHeights[k]);
+      return m;
+    });
+
+    const WATER_CLEARANCE = 0.16;
+    const WATER_THICKNESS = 0.6;
+
+    let arcLen = 0;
+    for (let i = 0; i < samples.length - 1; i++) {
+      const a = samples[i];
+      const b = samples[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
       const len = Math.sqrt(dx * dx + dz * dz) || 1;
-      const mx = (ax + bx) * 0.5;
-      const mz = (az + bz) * 0.5;
-      const y = Math.min(this.terrain.getHeightAt(ax, az), this.terrain.getHeightAt(bx, bz)) + 0.16;
+      const nx = -dz / len;
+      const nz = dx / len;
+      const mx = (a.x + b.x) * 0.5;
+      const mz = (a.z + b.z) * 0.5;
+      const yTop = Math.max(surfaceHeights[i], surfaceHeights[i + 1]) + WATER_CLEARANCE;
+      const y = yTop - WATER_THICKNESS * 0.5;
 
       const water = MeshBuilder.CreateBox(`blackwaterSegment_${i}`, {
         width: RIVER_WIDTH,
-        height: 0.045,
-        depth: len + 2.0,
+        height: WATER_THICKNESS,
+        depth: len + 0.8,
       }, scene);
       water.position.set(mx, y, mz);
       water.rotation.y = Math.atan2(dx, dz);
       water.material = waterMat;
       water.isPickable = false;
       this.treeMeshes.push(water);
+      this.riverWaterSegments.push({ mesh: water, baseY: y, phase: arcLen + len * 0.5 });
+      arcLen += len;
+
+      // Bank colliders block entry into the water everywhere except a gap
+      // around the rock-ford crossing, so the river reads as an obstacle
+      // you have to route around rather than open ground you can wade
+      // straight through.
+      if (Math.sqrt((mx - crossing.x) ** 2 + (mz - crossing.z) ** 2) > CROSSING_GAP_RADIUS) {
+        this._colliders.push({ x: mx + nx * BANK_OFFSET, z: mz + nz * BANK_OFFSET, radius: BANK_COLLIDER_RADIUS });
+        this._colliders.push({ x: mx - nx * BANK_OFFSET, z: mz - nz * BANK_OFFSET, radius: BANK_COLLIDER_RADIUS });
+      }
     }
 
     const stone = MeshBuilder.CreateBox('blackwaterStoneTemplate', { size: 1 }, scene);
@@ -1370,6 +1469,24 @@ export class ForestGenerator {
           new Vector3(x, this.terrain.getHeightAt(x, z) + s * 0.12, z),
         ));
       }
+
+      // Streambed rocks scattered within the water itself (not just the
+      // banks) so the river has some texture/character instead of reading
+      // as a flat blue slab — poking up just above the surface like rocks
+      // breaking a real creek.
+      const bedCount = profile.mode === 'ps3' ? 16 : 9;
+      for (let r = 0; r < bedCount; r++) {
+        const t = Math.random();
+        const bedOffset = (Math.random() - 0.5) * RIVER_WIDTH * 0.7;
+        const x = ax + dx * t + nx * bedOffset;
+        const z = az + dz * t + nz * bedOffset;
+        const s = 0.28 + Math.random() * 0.5;
+        stoneMatrices.push(Matrix.Compose(
+          new Vector3(s * (0.9 + Math.random() * 0.6), s * (0.5 + Math.random() * 0.5), s * (0.7 + Math.random() * 0.5)),
+          Quaternion.FromEulerAngles(Math.random() * 0.3, Math.random() * Math.PI * 2, Math.random() * 0.3),
+          new Vector3(x, this.terrain.getHeightAt(x, z) + WATER_CLEARANCE + s * 0.22, z),
+        ));
+      }
     }
 
     const [ca, cb] = [RIVER_POINTS[2], RIVER_POINTS[3]];
@@ -1378,7 +1495,6 @@ export class ForestGenerator {
     const clen = Math.sqrt(cdx * cdx + cdz * cdz) || 1;
     const cnx = -cdz / clen;
     const cnz = cdx / clen;
-    const crossing = { x: -24, z: 62 };
     for (let s = -4; s <= 4; s++) {
       const x = crossing.x + cnx * s * 1.55 + (Math.random() - 0.5) * 0.18;
       const z = crossing.z + cnz * s * 1.55 + (Math.random() - 0.5) * 0.18;
@@ -1390,6 +1506,21 @@ export class ForestGenerator {
     }
     stone.thinInstanceAdd(stoneMatrices, true);
     this.addCasters([stone]);
+
+    // Gives the river visible motion without any texture/shader asset: each
+    // short water segment bobs on a sine wave keyed by its own arc-length
+    // position, so the crests travel steadily downstream rather than the
+    // whole surface pulsing in place.
+    this.riverScene = scene;
+    const RIPPLE_AMPLITUDE = 0.05;
+    const RIPPLE_SPEED = 1.6;
+    const RIPPLE_WAVELENGTH_K = 0.28;
+    this.riverFlowObserver = scene.onBeforeRenderObservable.add(() => {
+      const t = performance.now() / 1000;
+      for (const seg of this.riverWaterSegments) {
+        seg.mesh.position.y = seg.baseY + Math.sin(seg.phase * RIPPLE_WAVELENGTH_K - t * RIPPLE_SPEED) * RIPPLE_AMPLITUDE;
+      }
+    });
 
     if (profile.mode !== 'ps3') return;
 
@@ -2176,5 +2307,10 @@ export class ForestGenerator {
     this.treeMeshes = [];
     this.lights.forEach(l => l.dispose());
     this.lights = [];
+    if (this.riverFlowObserver && this.riverScene) {
+      this.riverScene.onBeforeRenderObservable.remove(this.riverFlowObserver);
+    }
+    this.riverFlowObserver = null;
+    this.riverWaterSegments = [];
   }
 }
