@@ -415,14 +415,17 @@ export class Game {
     if (this.destination.isReached()) {
       if (this.inventory.hasItem(this.trail.artifact.id)) {
         this.triggerWin();
-      } else {
-        this.destination.reset();
-        if (this.objectiveToastCooldown <= 0) {
-          this.showToast(`missing ${this.trail.artifact.name}`, 2600);
-          this.objectiveToastCooldown = 5;
-        }
+        return;
       }
-      return;
+      // Missing-artifact case falls through instead of returning — this used
+      // to skip the rest of tick() (including scene.render()) for as long as
+      // the player stood within the reach radius, which looked like the game
+      // had completely frozen rather than just showing a toast.
+      this.destination.reset();
+      if (this.objectiveToastCooldown <= 0) {
+        this.showToast(`missing ${this.trail.artifact.name}`, 2600);
+        this.objectiveToastCooldown = 5;
+      }
     }
 
     const adrenaline = this.player.adrenaline.getLevel();
