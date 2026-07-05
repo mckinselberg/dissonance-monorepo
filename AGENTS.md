@@ -4,7 +4,7 @@
 
 This is a pnpm/Turbo TypeScript monorepo for the BabylonJS/Tone.js game "Don't Turn Around." Active app work lives in `apps/dont-turn-around/`; shared systems live in `packages/*`. Key packages include `engine`, `world`, `player`, `audio`, `pursuit`, `glow`, `input`, `navigation`, `persistence`, and `shared-types`.
 
-The root-level `src/`, `index.html`, `vite.config.ts`, and root app files are legacy prototype reference material from the pre-monorepo migration. Do not edit them for new features unless the migration plan explicitly requires it. Add package exports through each package's `src/index.ts` barrel.
+The pre-monorepo prototype (root-level `src/`, `index.html`, `vite.config.ts`, `tsconfig.json`) has been removed now that extraction is complete; it's still recoverable from git history if a parity check is ever needed. Add package exports through each package's `src/index.ts` barrel.
 
 ## Build, Test, and Development Commands
 

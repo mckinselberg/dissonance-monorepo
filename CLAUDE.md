@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The repo is a **pnpm/turborepo monorepo in progress**. It is being converted from a single-app prototype into a shared foundation for four planned games (Don't Turn Around, Dissonance, Cultural Runner, Make a Movie With Your Friends) — see `docs/monorepo-docs/260615 Monorepo Prompt.md` for the full long-term architecture vision and `docs/monorepo-docs/pursuer-extraction-prompt.md` for the extraction methodology used so far.
 
-**Important: the root-level `src/`, `index.html`, `vite.config.ts`, `tsconfig.json`, and `package-lock.json` are the old pre-monorepo prototype, left in place during migration.** They are not wired into the turbo pipeline and should not be edited — active development happens in `apps/dont-turn-around/` and `packages/*`. When extracting/checking behavior parity, the root `src/` is the reference for "what the prototype did before extraction," not a place to make changes.
+The old pre-monorepo prototype (root-level `src/`, `index.html`, `vite.config.ts`, `tsconfig.json`) has been removed now that extraction is complete — active development happens in `apps/dont-turn-around/` and `packages/*`. If a behavior-parity question ever comes up about "what the prototype did before extraction," those files are still recoverable from git history (they were never wired into the turbo pipeline, so no build config references them).
 
 ## Commands
 
