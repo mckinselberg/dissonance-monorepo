@@ -18,6 +18,7 @@ import { PursuerBody } from '../pursuer/PursuerBody';
 import { ProximityOverlay } from '../ui/ProximityOverlay';
 import { BreathOverlay } from '../ui/BreathOverlay';
 import { InventoryUI } from '../ui/InventoryUI';
+import { InstructionsScreen } from '../ui/InstructionsScreen';
 import { InventorySystem } from '../items/InventorySystem';
 import { PhoneProp } from '../items/PhoneProp';
 import { PlayerHand } from '../player/PlayerHand';
@@ -93,6 +94,7 @@ export class Game {
   private heartbeat: HeartbeatAudio;
   private proximity: ProximityOverlay;
   private breathOverlay: BreathOverlay;
+  private instructions: InstructionsScreen;
   private inventory: InventorySystem;
   private inventoryUI: InventoryUI;
   private phoneProp: PhoneProp | null = null;
@@ -224,6 +226,11 @@ export class Game {
     // capture phase fires before BabylonJS canvas handlers, reliable during pointer lock
     window.addEventListener('pointerdown', this.mouseDownHandler, true);
 
+    this.instructions = new InstructionsScreen();
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyI') this.instructions.toggle();
+    });
+
     this.loop = new GameLoop(engine, (dt) => this.tick(dt));
   }
 
@@ -242,7 +249,7 @@ export class Game {
   }
 
   private tick(dt: number): void {
-    if (this.isCaught || this.hasWon) return;
+    if (this.isCaught || this.hasWon || this.instructions.isOpen()) return;
 
     this.player.update(dt);
     const playerPos = this.player.getPosition();
