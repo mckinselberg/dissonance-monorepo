@@ -80,6 +80,11 @@ Completed from notes:
 - Remove the `F5` restart prompt from the win screen because it conflicts with browser reload.
 - Add a first ambient wildlife pass for PS3 mode with birds, deer, and rare fox/turkey sightings.
 - Add `Blackwater Spur` as a first river-trail prototype with a carved creek bed, water channel, reeds, bank rocks, stepping-stone crossing, river charm artifact, and map selection.
+- Fix `Blackwater Spur` river findability: add a distance-driven running-water audio beacon (`RiverAudio`), widen the tree-free clearing around the water so it reads from further away, thin trees along the artifact-route waypoints as an approach corridor, and brighten the water material's glint so it doesn't blend into dark forest floor.
+- Fix the river reading as flat/disconnected patches and the PS3 horizon haze reading as a hard-edged rectangle — both were single flat-colored segments with no gradient; rebuilt the river as many short terrain-hugging segments and gave the haze a vertex-color fade into the sky dome.
+- Make the river an actual obstacle: bank colliders block entry everywhere except a gap at the rock-ford crossing, added streambed rocks for texture, and gave the water surface a traveling ripple animation (no texture assets — just per-segment sine-wave bobbing keyed to arc-length position).
+- Add a trail-intro card shown once at run start: artifact name + icon preview (distinct per artifact — tag/stone/charm) plus a trail-specific teaching note (Morrow: phone + watcher warning; Stonejaw: starts at the car, explains the key fob immediately).
+- Give `Stonejaw Ridge` its own spawn point at the car instead of the shared southern-mountain spawn.
 
 Next polish targets:
 
@@ -88,7 +93,7 @@ Next polish targets:
 - Tune ridge-specific values after playtest: tree density, scree/cairn spacing, artifact visibility, and ridge-stalker pressure.
 - Tune key-fob alarm distance, cooldown, and prompt timing after playtest.
 - Tune ambient wildlife frequency, visibility distance, and movement so sightings stay readable but not distracting.
-- Playtest `Blackwater Spur` for creek visibility, stepping-stone placement, river charm readability, and whether the manual alarm chirp is enough for navigation.
+- Playtest `Blackwater Spur` again after the findability fix: confirm the water audio beacon range/volume feels right, the widened clearing and approach corridor actually surface the river during normal play, stepping-stone placement and river charm readability, and whether the manual alarm chirp is enough for navigation.
 
 Next expansion targets:
 

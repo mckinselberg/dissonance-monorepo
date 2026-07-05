@@ -7,7 +7,7 @@ import { SceneFactory, GameLoop } from '@dissonance/engine';
 import { ForestGenerator, DaylightSystem, WeatherSystem, WatcherEffect, Terrain, CloudSystem, MountainRing, WildlifeSystem } from '@dissonance/world';
 import type { Collider } from '@dissonance/world';
 import { PlayerController, PLAYER_CONFIG } from '@dissonance/player';
-import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio } from '@dissonance/audio';
+import { AmbientAudio, PlayerAudio, AudioEngine, HeartbeatAudio, RiverAudio } from '@dissonance/audio';
 import { PursuerSystem } from '@dissonance/pursuit';
 
 import { EXPERIENCE_PROFILES } from '../config/experienceProfiles';
@@ -21,6 +21,7 @@ import { ProximityOverlay } from '../ui/ProximityOverlay';
 import { BreathOverlay } from '../ui/BreathOverlay';
 import { InventoryUI } from '../ui/InventoryUI';
 import { InstructionsOverlay } from '../ui/InstructionsOverlay';
+import { TrailIntroOverlay } from '../ui/TrailIntroOverlay';
 import { InventorySystem } from '../items/InventorySystem';
 import { PhoneProp } from '../items/PhoneProp';
 import { ArtifactProp } from '../items/ArtifactProp';
@@ -65,6 +66,11 @@ export interface GameControls {
 // visible/felt before the mountain's own base is already in view.
 const WORLD_BOUNDARY_RADIUS = 320;
 
+// Distance at which the river ambience fades to silent — wide enough that
+// it's audible well before the water is in sightline, so it can act as a
+// beacon through dense forest.
+const RIVER_AUDIBLE_RANGE = 70;
+
 // Tree count/draw distance are baked into world generation, so toggling
 // this requires a reload — same pattern as the PS1/RADIO mode switch.
 const PERF_MODE_STORAGE_KEY = 'dta_perf_mode';
@@ -86,6 +92,7 @@ export class Game {
   private pursuerAudio: PursuerAudio;
   private ambientAudio: AmbientAudio;
   private playerAudio: PlayerAudio;
+  private riverAudio: RiverAudio | null = null;
   private watcher: WatcherEffect;
   private pursuerBody: PursuerBody;
   private terrain: Terrain;
@@ -98,6 +105,7 @@ export class Game {
   private inventory: InventorySystem;
   private inventoryUI: InventoryUI;
   private instructions: InstructionsOverlay;
+  private trailIntro: TrailIntroOverlay;
   private trail: TrailDefinition;
   private phoneProp: PhoneProp | null = null;
   private artifactProp: ArtifactProp | null = null;
@@ -193,7 +201,7 @@ export class Game {
     );
     this.colliders = this.forest.getColliders();
 
-    this.spawnPos = Game.pickRandomSpawn(this.terrain, this.colliders);
+    this.spawnPos = Game.pickRandomSpawn(this.terrain, this.colliders, this.trail.spawnPosition);
     this.pursuerPos = Game.pickPursuerStart(this.spawnPos);
     this.wildlife = new WildlifeSystem(scene, this.expProfile, this.terrain, this.spawnPos);
 
@@ -240,6 +248,7 @@ export class Game {
     this.pursuerAudio = new PursuerAudio();
     this.ambientAudio = new AmbientAudio();
     this.playerAudio = new PlayerAudio();
+    this.riverAudio = this.trail.worldFlavor === 'river' ? new RiverAudio() : null;
     this.watcher = new WatcherEffect(scene, config.experienceMode);
     this.pursuerBody = new PursuerBody(scene, config.experienceMode);
 
@@ -249,13 +258,14 @@ export class Game {
     this.inventory = new InventorySystem();
     this.inventoryUI = new InventoryUI();
     this.instructions = new InstructionsOverlay();
+    this.trailIntro = new TrailIntroOverlay();
     this.catchFadeEl = this.createFadeOverlay();
 
     // Flashlight off until the phone prop is picked up
     this.player.setFlashlightEnabled(false);
     this.spawnPhoneProp();
     this.spawnArtifactProp();
-    this.showToast(this.trail.startHint, 4200);
+    this.trailIntro.show(this.trail);
 
     this.playerHand = new PlayerHand(scene, this.player.camera);
 
@@ -284,6 +294,7 @@ export class Game {
     await AudioEngine.start();
     this.ambientAudio.start();
     this.playerAudio.start();
+    this.riverAudio?.start();
     if (this.trail.alarmMode === 'continuous_until_visible') {
       this.destination.start();
     }
@@ -397,6 +408,10 @@ export class Game {
 
     this.destination.update(playerPos);
     this.updateKeyFobUnlock(playerPos);
+    if (this.riverAudio) {
+      const riverDist = this.terrain.getRiverDistance(playerPos.x, playerPos.z) ?? RIVER_AUDIBLE_RANGE;
+      this.riverAudio.setDistance(Math.min(1, riverDist / RIVER_AUDIBLE_RANGE));
+    }
     if (this.destination.isReached()) {
       if (this.inventory.hasItem(this.trail.artifact.id)) {
         this.triggerWin();
@@ -690,7 +705,9 @@ export class Game {
     }
   }
 
-  private static pickRandomSpawn(terrain: Terrain, colliders: Collider[]): Vector3 {
+  private static pickRandomSpawn(
+    terrain: Terrain, colliders: Collider[], spawnOverride?: { x: number; z: number },
+  ): Vector3 {
     const SAFETY_MARGIN = 1.5;
 
     const isClear = (x: number, z: number): boolean => {
@@ -701,6 +718,24 @@ export class Game {
       }
       return true;
     };
+
+    // Some trails (e.g. Stonejaw Ridge) start the player at their own car
+    // instead of the shared southern-mountain spawn — small jitter so
+    // repeated runs don't all land on the exact same spot, but the car has
+    // no collider of its own so this never needs to search far.
+    if (spawnOverride) {
+      for (let i = 0; i < 60; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const r = Math.random() * 4;
+        const x = spawnOverride.x + Math.cos(angle) * r;
+        const z = spawnOverride.z + Math.sin(angle) * r;
+        if (!isClear(x, z)) continue;
+        return new Vector3(x, terrain.getHeightAt(x, z) + 1.7, z);
+      }
+      return new Vector3(
+        spawnOverride.x, terrain.getHeightAt(spawnOverride.x, spawnOverride.z) + 1.7, spawnOverride.z,
+      );
+    }
 
     // Spawn at the base of the southern mountains — player faces north (+Z)
     // through the forest toward the car alarm. Narrow x-band so they always
@@ -844,6 +879,7 @@ export class Game {
       window.removeEventListener('keydown', this.keyDownHandler, true);
     }
     this.destination.dispose();
+    this.riverAudio?.dispose();
     this.ambientAudio.stop();
     this.playerAudio.dispose();
     this.watcher.dispose();
@@ -863,6 +899,7 @@ export class Game {
     this.playerHand?.dispose();
     this.inventoryUI.dispose();
     this.instructions.dispose();
+    this.trailIntro.dispose();
     if (this.toastHideTimer !== null) window.clearTimeout(this.toastHideTimer);
     if (this.toastRemoveTimer !== null) window.clearTimeout(this.toastRemoveTimer);
     this.toastEl?.remove();
