@@ -119,7 +119,6 @@ export class Game {
   private heartbeat: HeartbeatAudio;
   private proximity: ProximityOverlay;
   private breathOverlay: BreathOverlay;
-  private instructions: InstructionsScreen;
   private inventory: InventorySystem;
   private inventoryUI: InventoryUI;
   private instructions: InstructionsOverlay;
