@@ -11,10 +11,14 @@ import {
   Matrix,
   Quaternion,
   Mesh,
+  VertexData,
+  Observer,
 } from '@babylonjs/core';
 
 import type { ExperienceProfile } from '@dissonance/shared-types';
+import type { WorldPosition } from '@dissonance/shared-types';
 import type { Terrain } from './Terrain';
+import { RIVER_POINTS } from './Terrain';
 import { displaceToBlob, displaceRadial } from './noise';
 
 const TRAIL_DIR = new Vector3(-0.65, 0, -0.76).normalize();
@@ -29,7 +33,28 @@ const HIKING_WAYPOINTS: [number, number][] = [
   [152, 114],[168, 126],[180, 135],
 ];
 
+const SURVEY_TRAIL_WIDTH = 1.55;
+const SURVEY_TRAIL_WAYPOINTS: [number, number][] = [
+  [-18, 12], [-36, 30], [-58, 52], [-82, 66],
+  [-108, 70], [-132, 58], [-154, 38],
+];
+
 export interface Collider { x: number; z: number; radius: number; }
+
+export type TrailWorldOptions = {
+  flavor?: 'pine' | 'rocky' | 'river';
+  waypoints?: WorldPosition[];
+};
+
+const RIVER_WIDTH = 10.5;
+// How far back from the water's edge trees are kept clear. Wider than the
+// water itself so the river reads visually from further away instead of
+// only being visible once you're standing right on top of it.
+const RIVER_CLEAR_WIDTH = 22;
+// Width of the thinned approach corridor along the trail's own waypoints
+// (the route to the artifact) — a soft bushwhacked-path clearing, not a
+// groomed trail, just enough to open sightlines toward the crossing.
+const RIVER_APPROACH_WIDTH = 4.5;
 
 export class ForestGenerator {
   private treeMeshes: Mesh[] = [];
@@ -40,6 +65,10 @@ export class ForestGenerator {
   private taillightMat: StandardMaterial | null = null;
   private headlightMat: StandardMaterial | null = null;
   private lightFlashActive = false;
+  private trailOptions: TrailWorldOptions = {};
+  private riverWaterSegments: { mesh: Mesh; baseY: number; phase: number }[] = [];
+  private riverFlowObserver: Observer<Scene> | null = null;
+  private riverScene: Scene | null = null;
 
   getColliders(): Collider[] { return this._colliders; }
 
@@ -63,20 +92,26 @@ export class ForestGenerator {
     destinationPos: Vector3,
     terrain: Terrain,
     shadowGenerator?: ShadowGenerator,
+    trailOptions: TrailWorldOptions = {},
   ): void {
     this.terrain = terrain;
     this._colliders = [];
     this.shadowGenerator = shadowGenerator;
+    this.trailOptions = trailOptions;
     this.buildForest(scene, profile, destinationPos);
     this.buildCarGoal(scene, profile, destinationPos);
     this.buildRocks(scene, profile);
     this.buildRockOutcrops(scene, profile);
+    this.buildRockyTrailFeatures(scene, profile);
+    this.buildRiverTrailFeatures(scene, profile);
     this.buildUnderbrush(scene, profile);
     this.buildDeadEndTrail(scene, profile);
     this.buildGrass(scene, profile);
     this.buildLowGroundcover(scene, profile);
+    this.buildPs3PlantVariety(scene, profile);
     this.buildForestFloor(scene, profile);
     this.buildHikingTrail(scene, profile);
+    this.buildSurveyTrail(scene, profile);
   }
 
   // Registers shadow casters for substantial geometry only (trunks,
@@ -101,22 +136,54 @@ export class ForestGenerator {
   }
 
   private inHikingTrailCorridor(x: number, z: number): boolean {
-    const w = HIKING_TRAIL_WIDTH;
-    for (let i = 0; i < HIKING_WAYPOINTS.length - 1; i++) {
-      const [ax, az] = HIKING_WAYPOINTS[i];
-      const [bx, bz] = HIKING_WAYPOINTS[i + 1];
+    return this.nearPolyline(x, z, HIKING_WAYPOINTS, HIKING_TRAIL_WIDTH)
+      || this.nearPolyline(x, z, SURVEY_TRAIL_WAYPOINTS, SURVEY_TRAIL_WIDTH);
+  }
+
+  private nearPolyline(x: number, z: number, points: [number, number][], width: number): boolean {
+    for (let i = 0; i < points.length - 1; i++) {
+      const [ax, az] = points[i];
+      const [bx, bz] = points[i + 1];
       const ddx = bx - ax, ddz = bz - az;
       const len2 = ddx * ddx + ddz * ddz;
       const t = Math.max(0, Math.min(1, ((x - ax) * ddx + (z - az) * ddz) / len2));
       const px = ax + t * ddx - x;
       const pz = az + t * ddz - z;
-      if (px * px + pz * pz < w * w) return true;
+      if (px * px + pz * pz < width * width) return true;
     }
     return false;
   }
 
   private inEitherCorridor(x: number, z: number): boolean {
-    return this.inTrailCorridor(x, z) || this.inHikingTrailCorridor(x, z);
+    return this.inTrailCorridor(x, z)
+      || this.inHikingTrailCorridor(x, z)
+      || this.inRiverCorridor(x, z)
+      || this.inRiverApproachCorridor(x, z);
+  }
+
+  private inRiverCorridor(x: number, z: number): boolean {
+    return this.trailOptions.flavor === 'river'
+      && this.nearPolyline(x, z, RIVER_POINTS, RIVER_CLEAR_WIDTH);
+  }
+
+  // Thins trees along the route to the river artifact so the crossing has
+  // an open sightline leading into it, rather than only the water's own
+  // narrow clearing.
+  private inRiverApproachCorridor(x: number, z: number): boolean {
+    if (this.trailOptions.flavor !== 'river') return false;
+    const pts = this.trailOptions.waypoints;
+    if (!pts || pts.length < 2) return false;
+    return this.nearPolyline(x, z, pts.map((p): [number, number] => [p.x, p.z]), RIVER_APPROACH_WIDTH);
+  }
+
+  private inRockyVistaClearing(x: number, z: number): boolean {
+    if (this.trailOptions.flavor !== 'rocky') return false;
+    const pts = this.trailOptions.waypoints ?? [];
+    const overlook = pts[pts.length - 1];
+    if (!overlook) return false;
+    const dx = x - overlook.x;
+    const dz = z - overlook.z;
+    return dx * dx + dz * dz < 34 * 34;
   }
 
   // Per-tree/per-blob color jitter — a shared material means every canopy
@@ -147,6 +214,8 @@ export class ForestGenerator {
   // rebuilt fresh per scattered tree.
   private buildOneTreeTemplate(scene: Scene, profile: ExperienceProfile, id: number): { mesh: Mesh; radius: number } {
     const ps1 = profile.mode === 'ps1';
+    const ps2 = profile.mode === 'ps2';
+    const ps3 = profile.mode === 'ps3';
     const height = 4 + Math.random() * 18;
     const baseRad = 0.12 + Math.random() * 0.22;
     const topRad = baseRad * 0.75;
@@ -155,7 +224,7 @@ export class ForestGenerator {
     const parts: Mesh[] = [];
 
     const trunkMat = new PBRMaterial(`treeTrunkMat_${id}`, scene);
-    trunkMat.albedoColor = this.jitterColor(new Color3(0.06, 0.03, 0.01));
+    trunkMat.albedoColor = this.jitterColor(ps3 ? new Color3(0.12, 0.065, 0.028) : new Color3(0.06, 0.03, 0.01));
     trunkMat.metallic = 0;
     trunkMat.roughness = 0.95;
 
@@ -163,7 +232,7 @@ export class ForestGenerator {
       height,
       diameterBottom: baseRad * 2,
       diameterTop: topRad * 2,
-      tessellation: ps1 ? 6 : 8,
+      tessellation: ps1 ? 6 : ps3 ? 12 : ps2 ? 10 : 8,
     }, scene);
     trunk.position.set(0, height / 2, 0);
     trunk.rotation.set(lean, Math.random() * Math.PI * 2, lean * 0.6);
@@ -171,16 +240,57 @@ export class ForestGenerator {
     if (ps1) trunk.convertToFlatShadedMesh();
     parts.push(trunk);
 
+    if (ps3) {
+      const barkCount = 4 + Math.floor(Math.random() * 4);
+      for (let b = 0; b < barkCount; b++) {
+        const a = Math.random() * Math.PI * 2;
+        const y = height * (0.18 + Math.random() * 0.62);
+        const stripH = height * (0.10 + Math.random() * 0.18);
+        const strip = MeshBuilder.CreateBox(`tree_${id}_bark_${b}`, {
+          width: 0.025 + Math.random() * 0.018,
+          height: stripH,
+          depth: 0.018,
+        }, scene);
+        strip.position.set(Math.cos(a) * baseRad * 1.06, y, Math.sin(a) * baseRad * 1.06);
+        strip.rotation.y = -a;
+        strip.material = trunkMat;
+        strip.bakeCurrentTransformIntoVertices();
+        parts.push(strip);
+      }
+
+      const branchCount = 2 + Math.floor(Math.random() * 3);
+      for (let b = 0; b < branchCount; b++) {
+        const a = Math.random() * Math.PI * 2;
+        const branch = MeshBuilder.CreateCylinder(`tree_${id}_branch_${b}`, {
+          height: 0.55 + Math.random() * 0.65,
+          diameterTop: 0.035,
+          diameterBottom: 0.06,
+          tessellation: 6,
+        }, scene);
+        branch.position.set(
+          Math.cos(a) * (baseRad + 0.20),
+          height * (0.42 + Math.random() * 0.30),
+          Math.sin(a) * (baseRad + 0.20),
+        );
+        branch.rotation.set(Math.PI / 2 - 0.18, 0, -a + Math.PI / 2);
+        branch.material = trunkMat;
+        branch.bakeCurrentTransformIntoVertices();
+        parts.push(branch);
+      }
+    }
+
     // Per-template shade factor — spreads 30 templates across 0.35-1.0 of
     // the base canopy brightness so adjacent trees have clearly different values.
     // Darkest templates (0.35) read as shadowed/dead; brightest (1.0) as vivid
     // green. The 3:1 ratio stays perceptible even at night's low ambient.
-    const shadeFactor = 0.35 + Math.random() * 0.65;
+    const shadeFactor = ps3 ? 0.45 + Math.random() * 0.45 : 0.35 + Math.random() * 0.65;
     const isConifer = Math.random() < 0.5;
     const apexY = height;
 
     if (isConifer) {
-      const baseConiferColor = new Color3(0.06, 0.75 * shadeFactor, 0.16 * shadeFactor);
+      const baseConiferColor = ps3
+        ? new Color3(0.035, 0.36 * shadeFactor, 0.075 * shadeFactor)
+        : new Color3(0.06, 0.75 * shadeFactor, 0.16 * shadeFactor);
 
       const angleSeed = Math.random();
       const coneBaseWidth = baseRad * 4 + height * (0.22 + angleSeed * 0.28);
@@ -199,7 +309,7 @@ export class ForestGenerator {
           height: tierHeight,
           diameterTop: tierTopDiam,
           diameterBottom: tierBottomDiam,
-          tessellation: ps1 ? 6 : 9,
+          tessellation: ps1 ? 6 : ps3 ? 13 : ps2 ? 11 : 9,
           subdivisions: 2,
         }, scene);
         displaceRadial(tier, 0.28, seed + t * 53 + 11);
@@ -214,7 +324,9 @@ export class ForestGenerator {
         cursorY -= tierHeight * (1 + gapFrac);
       }
     } else {
-      const baseDeciduousColor = new Color3(0.08, 0.72 * shadeFactor, 0.14 * shadeFactor);
+      const baseDeciduousColor = ps3
+        ? new Color3(0.055, 0.40 * shadeFactor, 0.085 * shadeFactor)
+        : new Color3(0.08, 0.72 * shadeFactor, 0.14 * shadeFactor);
 
       // Superlinear in height (not just a flat fraction) — taller trees
       // get a disproportionately bigger canopy, not just a scaled-up copy
@@ -222,7 +334,7 @@ export class ForestGenerator {
       const canopyWidth = Math.pow(height, 1.12) * 0.38;
 
       const dome = MeshBuilder.CreateSphere(`tree_${id}_canopy`, {
-        diameter: canopyWidth, segments: ps1 ? 6 : 10,
+        diameter: canopyWidth, segments: ps1 ? 6 : ps3 ? 14 : ps2 ? 12 : 10,
       }, scene);
       displaceToBlob(dome, 0.4, 2.2, seed);
       dome.scaling.set(
@@ -236,7 +348,7 @@ export class ForestGenerator {
       if (ps1) dome.convertToFlatShadedMesh();
       parts.push(dome);
 
-      const clumpCount = 3 + Math.floor(Math.random() * 3);
+      const clumpCount = ps3 ? 7 + Math.floor(Math.random() * 5) : ps2 ? 5 + Math.floor(Math.random() * 4) : 3 + Math.floor(Math.random() * 3);
       for (let c = 0; c < clumpCount; c++) {
         const ox = (Math.random() - 0.5) * (canopyWidth * 0.6 + baseRad * 2);
         const oz = (Math.random() - 0.5) * (canopyWidth * 0.6 + baseRad * 2);
@@ -244,7 +356,7 @@ export class ForestGenerator {
         const clumpDiam = canopyWidth * (0.4 + Math.random() * 0.35);
 
         const clump = MeshBuilder.CreateSphere(`tree_${id}_clump_${c}`, {
-          diameter: clumpDiam, segments: ps1 ? 5 : 8,
+          diameter: clumpDiam, segments: ps1 ? 5 : ps3 ? 12 : ps2 ? 10 : 8,
         }, scene);
         displaceToBlob(clump, 0.45, 2.4, seed + c * 31 + 7);
         clump.scaling.set(
@@ -293,15 +405,22 @@ export class ForestGenerator {
   // both this scatter pass and buildTrailWalls, then commit once per
   // template at the end so bounding-info refresh only happens once.
   private buildForest(scene: Scene, profile: ExperienceProfile, destinationPos: Vector3): void {
-    const templates = this.buildTreeTemplates(scene, profile, 30);
+    const templates = this.buildTreeTemplates(scene, profile, profile.mode === 'ps3' ? 52 : profile.mode === 'ps2' ? 40 : 30);
     const matricesByTemplate: Matrix[][] = templates.map(() => []);
     const maxRadius = profile.drawDistance * 1.15;
+    const rocky = this.trailOptions.flavor === 'rocky';
+    const river = this.trailOptions.flavor === 'river';
+    const treeTarget = rocky
+      ? Math.round(profile.treeCount * 0.68)
+      : river
+      ? Math.round(profile.treeCount * 0.86)
+      : profile.treeCount;
 
     let placed = 0;
     let attempts = 0;
-    const maxAttempts = profile.treeCount * 8;
+    const maxAttempts = treeTarget * 8;
 
-    while (placed < profile.treeCount && attempts < maxAttempts) {
+    while (placed < treeTarget && attempts < maxAttempts) {
       attempts++;
       const angle = Math.random() * Math.PI * 2;
       const radius = 8 + Math.random() * (maxRadius - 8);
@@ -331,7 +450,12 @@ export class ForestGenerator {
     // paying dense-forest cost that far out (mostly fog-hidden anyway,
     // just enough visible above/through it to not read as an abrupt edge).
     const outerRadius = 300;
-    const outerCount = 200;
+    const outerCountBase = profile.mode === 'ps3' ? 420 : profile.mode === 'ps2' ? 280 : 200;
+    const outerCount = rocky
+      ? Math.round(outerCountBase * 0.72)
+      : river
+      ? Math.round(outerCountBase * 0.9)
+      : outerCountBase;
     let outerPlaced = 0, outerAttempts = 0;
     while (outerPlaced < outerCount && outerAttempts < outerCount * 8) {
       outerAttempts++;
@@ -363,7 +487,8 @@ export class ForestGenerator {
     // corners, ~sqrt(15²+11²)) and spread outward 20 units for a thick
     // treeline that makes the clearing feel intentional rather than random.
     const lotRingMin = 18, lotRingMax = 38;
-    const lotRingCount = 48;
+    const lotRingCountBase = profile.mode === 'ps3' ? 88 : profile.mode === 'ps2' ? 68 : 48;
+    const lotRingCount = rocky ? Math.round(lotRingCountBase * 0.78) : lotRingCountBase;
     for (let r = 0; r < lotRingCount; r++) {
       const angle = (r / lotRingCount) * Math.PI * 2 + (Math.random() - 0.5) * (Math.PI / lotRingCount) * 2;
       const dist = lotRingMin + Math.random() * (lotRingMax - lotRingMin);
@@ -381,7 +506,7 @@ export class ForestGenerator {
       this._colliders.push({ x, z, radius: rad * scale });
     }
 
-    this.buildTrailWalls(templates, matricesByTemplate);
+    this.buildTrailWalls(profile, templates, matricesByTemplate);
 
     templates.forEach((t, i) => {
       t.mesh.thinInstanceAdd(matricesByTemplate[i], true);
@@ -390,10 +515,14 @@ export class ForestGenerator {
   }
 
   private buildTrailWalls(
+    profile: ExperienceProfile,
     templates: { mesh: Mesh; radius: number }[],
     matricesByTemplate: Matrix[][],
   ): void {
-    const wallTreeCount = 28;
+    const wallTreeCountBase = profile.mode === 'ps3' ? 56 : profile.mode === 'ps2' ? 40 : 28;
+    const wallTreeCount = this.trailOptions.flavor === 'rocky'
+      ? Math.round(wallTreeCountBase * 0.55)
+      : wallTreeCountBase;
     const perp = new Vector3(-TRAIL_DIR.z, 0, TRAIL_DIR.x);
 
     for (let i = 0; i < wallTreeCount; i++) {
@@ -428,6 +557,10 @@ export class ForestGenerator {
     const mat = new StandardMaterial('underbrushMat', scene);
     if (profile.mode === 'radio') {
       mat.diffuseColor = new Color3(0.05, 0.06, 0.06);
+    } else if (profile.mode === 'ps3') {
+      mat.diffuseColor = new Color3(0.09, 0.20, 0.075);
+    } else if (profile.mode === 'ps2') {
+      mat.diffuseColor = new Color3(0.08, 0.18, 0.06);
     } else {
       mat.diffuseColor = new Color3(0.06, 0.14, 0.05);
     }
@@ -435,13 +568,19 @@ export class ForestGenerator {
     mat.backFaceCulling = false;
 
     const ps1 = profile.mode === 'ps1';
+    const ps2 = profile.mode === 'ps2';
+    const ps3 = profile.mode === 'ps3';
     const template = ps1
       ? MeshBuilder.CreateCylinder('shrubBase', { height: 1, diameterTop: 0, diameterBottom: 1, tessellation: 4 }, scene)
-      : MeshBuilder.CreateSphere('shrubBase', { diameter: 1, segments: 3 }, scene);
+      : ps3
+        ? MeshBuilder.CreateSphere('shrubBase', { diameter: 1, segments: 7 }, scene)
+        : ps2
+        ? MeshBuilder.CreateSphere('shrubBase', { diameter: 1, segments: 5 }, scene)
+        : MeshBuilder.CreateSphere('shrubBase', { diameter: 1, segments: 3 }, scene);
     template.material = mat;
     this.treeMeshes.push(template);
 
-    const count = ps1 ? 220 : 160;
+    const count = ps1 ? 220 : ps3 ? 480 : ps2 ? 320 : 160;
     const maxRadius = profile.drawDistance * 1.15;
     const matrices: Matrix[] = [];
     let placed = 0, attempts = 0;
@@ -580,6 +719,14 @@ export class ForestGenerator {
     bumperMat.diffuseColor = new Color3(0.09, 0.09, 0.10);
     bumperMat.specularColor = Color3.Black();
 
+    const trimMat = new StandardMaterial('carTrimMat', scene);
+    trimMat.diffuseColor = new Color3(0.025, 0.025, 0.028);
+    trimMat.specularColor = Color3.Black();
+
+    const plateMat = new StandardMaterial('carPlateMat', scene);
+    plateMat.diffuseColor = new Color3(0.68, 0.64, 0.48);
+    plateMat.specularColor = Color3.Black();
+
     const wheelMat = new StandardMaterial('carWheelMat', scene);
     wheelMat.diffuseColor = new Color3(0.04, 0.04, 0.04);
     wheelMat.specularColor = Color3.Black();
@@ -601,42 +748,128 @@ export class ForestGenerator {
     const taillightMat = this.taillightMat;
 
     // ─── Car geometry — sedan proportions, car faces +Z ───────────────
-    // Raw dimensions (× cs = actual world size).
-    const bW = 1.72, bH = 0.78, bD = 4.1; // main body
+    // Raw dimensions (x cs = actual world size).
+    const bW = 1.82, bH = 0.64, bD = 4.55; // low sedan body
     const bodyBottom = groundY + 0.18 * cs;
     const bodyTopY = bodyBottom + bH * cs;
 
-    const addMesh = (m: ReturnType<typeof MeshBuilder.CreateBox>) => {
+    const addMesh = (m: Mesh) => {
       if (ps1) m.convertToFlatShadedMesh();
       this.treeMeshes.push(m);
     };
 
+    const makeTaperedPrism = (
+      name: string,
+      bottomWidth: number,
+      topWidth: number,
+      bottomDepth: number,
+      topDepth: number,
+      height: number,
+      topZOffset: number,
+    ): Mesh => {
+      const mesh = new Mesh(name, scene);
+      const bw = bottomWidth * cs / 2;
+      const tw = topWidth * cs / 2;
+      const bd = bottomDepth * cs / 2;
+      const td = topDepth * cs / 2;
+      const h = height * cs;
+      const z = topZOffset * cs;
+      const positions = [
+        -bw, 0, -bd,  bw, 0, -bd,  bw, 0, bd,  -bw, 0, bd,
+        -tw, h, z - td,  tw, h, z - td,  tw, h, z + td,  -tw, h, z + td,
+      ];
+      const indices = [
+        0, 2, 1, 0, 3, 2,
+        4, 5, 6, 4, 6, 7,
+        3, 7, 6, 3, 6, 2,
+        0, 1, 5, 0, 5, 4,
+        1, 2, 6, 1, 6, 5,
+        0, 4, 7, 0, 7, 3,
+      ];
+      const normals: number[] = [];
+      VertexData.ComputeNormals(positions, indices, normals);
+      const vertexData = new VertexData();
+      vertexData.positions = positions;
+      vertexData.indices = indices;
+      vertexData.normals = normals;
+      vertexData.applyToMesh(mesh);
+      return mesh;
+    };
+
     // Lower body (door sills, side panels)
-    const body = MeshBuilder.CreateBox('carBody', { width: bW * cs, height: bH * cs, depth: bD * cs }, scene);
-    body.position.set(pos.x, bodyBottom + (bH * cs) / 2, pos.z);
+    const body = makeTaperedPrism('carBody', bW, bW * 0.88, bD, bD * 0.94, bH, 0);
+    body.position.set(pos.x, bodyBottom, pos.z);
     body.material = bodyMat;
     addMesh(body);
 
+    const nose = MeshBuilder.CreateBox('carNoseWedge', { width: 1.42 * cs, height: 0.22 * cs, depth: 0.62 * cs }, scene);
+    nose.position.set(pos.x, bodyBottom + 0.34 * cs, pos.z + (bD / 2 - 0.18) * cs);
+    nose.rotation.x = -0.06;
+    nose.material = bodyMat;
+    addMesh(nose);
+
     // Hood — thin slab on top of front third of body
-    const hoodD = 1.3;
-    const hood = MeshBuilder.CreateBox('carHood', { width: (bW - 0.08) * cs, height: 0.10 * cs, depth: hoodD * cs }, scene);
-    hood.position.set(pos.x, bodyTopY + 0.05 * cs, pos.z + (bD / 2 - hoodD / 2) * cs);
+    const hoodD = 1.48;
+    const hood = MeshBuilder.CreateBox('carHood', { width: (bW - 0.26) * cs, height: 0.075 * cs, depth: hoodD * cs }, scene);
+    hood.position.set(pos.x, bodyTopY + 0.025 * cs, pos.z + (bD / 2 - hoodD / 2 - 0.08) * cs);
+    hood.rotation.x = -0.045;
     hood.material = panelMat;
     addMesh(hood);
 
     // Trunk lid — shorter slab on top of rear section
-    const trunkD = 1.0;
-    const trunk = MeshBuilder.CreateBox('carTrunk', { width: (bW - 0.1) * cs, height: 0.10 * cs, depth: trunkD * cs }, scene);
-    trunk.position.set(pos.x, bodyTopY + 0.05 * cs, pos.z - (bD / 2 - trunkD / 2) * cs);
+    const trunkD = 1.1;
+    const trunk = MeshBuilder.CreateBox('carTrunk', { width: (bW - 0.24) * cs, height: 0.075 * cs, depth: trunkD * cs }, scene);
+    trunk.position.set(pos.x, bodyTopY + 0.015 * cs, pos.z - (bD / 2 - trunkD / 2 - 0.10) * cs);
+    trunk.rotation.x = 0.035;
     trunk.material = panelMat;
     addMesh(trunk);
 
     // Cabin / greenhouse (windows + roof)
-    const cW = 1.52, cH = 0.72, cD = 2.3;
-    const cabin = MeshBuilder.CreateBox('carCabin', { width: cW * cs, height: cH * cs, depth: cD * cs }, scene);
-    cabin.position.set(pos.x, bodyTopY + (cH * cs) / 2, pos.z - 0.22 * cs);
+    const cW = 1.48, cH = 0.62, cD = 2.24;
+    const cabin = makeTaperedPrism('carCabin', cW, 1.18, cD, 1.24, cH, -0.06);
+    cabin.position.set(pos.x, bodyTopY + 0.02 * cs, pos.z - 0.20 * cs);
     cabin.material = glassMat;
     addMesh(cabin);
+
+    // Roof cap and window breaks make the greenhouse read as glass panels
+    // instead of one dark block.
+    const roof = MeshBuilder.CreateBox('carRoof', { width: 1.12 * cs, height: 0.065 * cs, depth: 1.16 * cs }, scene);
+    roof.position.set(pos.x, bodyTopY + cH * cs + 0.055 * cs, pos.z - 0.25 * cs);
+    roof.material = bodyMat;
+    addMesh(roof);
+
+    const windshield = MeshBuilder.CreateBox('carWindshield', { width: 1.22 * cs, height: 0.38 * cs, depth: 0.045 * cs }, scene);
+    windshield.position.set(pos.x, bodyTopY + 0.38 * cs, pos.z + 0.70 * cs);
+    windshield.rotation.x = -0.42;
+    windshield.material = glassMat;
+    addMesh(windshield);
+
+    const rearWindow = MeshBuilder.CreateBox('carRearWindow', { width: 1.12 * cs, height: 0.34 * cs, depth: 0.045 * cs }, scene);
+    rearWindow.position.set(pos.x, bodyTopY + 0.36 * cs, pos.z - 1.22 * cs);
+    rearWindow.rotation.x = 0.36;
+    rearWindow.material = glassMat;
+    addMesh(rearWindow);
+
+    for (const sx of [-1, 1]) {
+      const sideWindow = MeshBuilder.CreateBox('carSideWindow', {
+        width: 0.045 * cs, height: 0.31 * cs, depth: 0.72 * cs,
+      }, scene);
+      sideWindow.position.set(pos.x + sx * (cW / 2 + 0.025) * cs, bodyTopY + 0.38 * cs, pos.z - 0.10 * cs);
+      sideWindow.material = glassMat;
+      addMesh(sideWindow);
+    }
+
+    for (const sx of [-1, 1]) {
+      const beltline = MeshBuilder.CreateBox('carBeltline', { width: 0.035 * cs, height: 0.055 * cs, depth: 2.95 * cs }, scene);
+      beltline.position.set(pos.x + sx * (bW / 2 + 0.018) * cs, bodyBottom + 0.66 * cs, pos.z - 0.12 * cs);
+      beltline.material = trimMat;
+      addMesh(beltline);
+
+      const rocker = MeshBuilder.CreateBox('carRockerPanel', { width: 0.055 * cs, height: 0.13 * cs, depth: 3.28 * cs }, scene);
+      rocker.position.set(pos.x + sx * (bW / 2 + 0.018) * cs, bodyBottom + 0.17 * cs, pos.z - 0.04 * cs);
+      rocker.material = bumperMat;
+      addMesh(rocker);
+    }
 
     // Front bumper
     const fBumper = MeshBuilder.CreateBox('carFBumper', { width: (bW + 0.06) * cs, height: 0.28 * cs, depth: 0.20 * cs }, scene);
@@ -661,6 +894,16 @@ export class ForestGenerator {
       addMesh(hl);
     }
 
+    const grille = MeshBuilder.CreateBox('carGrille', { width: 0.58 * cs, height: 0.20 * cs, depth: 0.06 * cs }, scene);
+    grille.position.set(pos.x, bodyBottom + 0.42 * cs, pos.z + (bD / 2 + 0.02) * cs);
+    grille.material = trimMat;
+    addMesh(grille);
+
+    const frontPlate = MeshBuilder.CreateBox('carFrontPlate', { width: 0.46 * cs, height: 0.14 * cs, depth: 0.04 * cs }, scene);
+    frontPlate.position.set(pos.x, bodyBottom + 0.20 * cs, pos.z + (bD / 2 + 0.12) * cs);
+    frontPlate.material = plateMat;
+    addMesh(frontPlate);
+
     // Taillights (rear face)
     const tlXOff = (bW / 2 - 0.24) * cs;
     const tlY = bodyBottom + 0.48 * cs;
@@ -672,12 +915,44 @@ export class ForestGenerator {
       addMesh(tl);
     }
 
+    const rearPlate = MeshBuilder.CreateBox('carRearPlate', { width: 0.48 * cs, height: 0.15 * cs, depth: 0.04 * cs }, scene);
+    rearPlate.position.set(pos.x, bodyBottom + 0.34 * cs, pos.z - (bD / 2 + 0.12) * cs);
+    rearPlate.material = plateMat;
+    addMesh(rearPlate);
+
+    const seamSpecs: [number, number, number, number][] = [
+      [-0.02, -0.52, 0.024, 0.72],
+      [-0.02, 0.48, 0.024, 0.58],
+    ];
+    for (const sx of [-1, 1]) {
+      for (const [, zOff, width, height] of seamSpecs) {
+        const seam = MeshBuilder.CreateBox('carDoorSeam', { width: width * cs, height: height * cs, depth: 0.025 * cs }, scene);
+        seam.position.set(pos.x + sx * (bW / 2 + 0.01) * cs, bodyBottom + 0.48 * cs, pos.z + zOff * cs);
+        seam.rotation.y = Math.PI / 2;
+        seam.material = trimMat;
+        addMesh(seam);
+      }
+
+      const handle = MeshBuilder.CreateBox('carDoorHandle', { width: 0.025 * cs, height: 0.055 * cs, depth: 0.22 * cs }, scene);
+      handle.position.set(pos.x + sx * (bW / 2 + 0.035) * cs, bodyBottom + 0.62 * cs, pos.z + 0.28 * cs);
+      handle.rotation.y = Math.PI / 2;
+      handle.material = trimMat;
+      addMesh(handle);
+    }
+
     // Wheels + rims (4 corners)
     const wR = 0.36, wXOff = (bW / 2 + 0.05) * cs, wZOff = 1.28 * cs;
     const wheelAxes: [number, number][] = [[-1, 1], [1, 1], [-1, -1], [1, -1]];
     for (const [sx, sz] of wheelAxes) {
+      const arch = MeshBuilder.CreateBox('carWheelArch', {
+        width: 0.08 * cs, height: 0.38 * cs, depth: 0.88 * cs,
+      }, scene);
+      arch.position.set(pos.x + sx * (bW / 2 + 0.035) * cs, groundY + 0.58 * cs, pos.z + sz * wZOff);
+      arch.material = trimMat;
+      addMesh(arch);
+
       const tire = MeshBuilder.CreateCylinder('carWheel', {
-        height: 0.30 * cs, diameter: wR * 2 * cs, tessellation: ps1 ? 8 : 14,
+        height: 0.30 * cs, diameter: wR * 2 * cs, tessellation: ps1 ? 8 : profile.mode === 'ps3' ? 18 : 14,
       }, scene);
       tire.rotation.z = Math.PI / 2;
       tire.position.set(pos.x + sx * wXOff, groundY + wR * cs, pos.z + sz * wZOff);
@@ -685,12 +960,20 @@ export class ForestGenerator {
       addMesh(tire);
 
       const rim = MeshBuilder.CreateCylinder('carRim', {
-        height: 0.32 * cs, diameter: wR * 1.26 * cs, tessellation: ps1 ? 6 : 10,
+        height: 0.32 * cs, diameter: wR * 1.26 * cs, tessellation: ps1 ? 6 : profile.mode === 'ps3' ? 14 : 10,
       }, scene);
       rim.rotation.z = Math.PI / 2;
       rim.position.copyFrom(tire.position);
       rim.material = rimMat;
       addMesh(rim);
+
+      const hub = MeshBuilder.CreateCylinder('carHub', {
+        height: 0.34 * cs, diameter: wR * 0.42 * cs, tessellation: ps1 ? 6 : profile.mode === 'ps3' ? 14 : 10,
+      }, scene);
+      hub.rotation.z = Math.PI / 2;
+      hub.position.copyFrom(tire.position);
+      hub.material = trimMat;
+      addMesh(hub);
     }
 
     // Side mirrors
@@ -726,7 +1009,7 @@ export class ForestGenerator {
       const poleHeight = 5.0;
 
       const pole = MeshBuilder.CreateCylinder('lampPole', {
-        height: poleHeight, diameter: 0.13, tessellation: ps1 ? 6 : 8,
+        height: poleHeight, diameter: 0.13, tessellation: ps1 ? 6 : profile.mode === 'ps3' ? 10 : 8,
       }, scene);
       pole.position.set(pos.x + lx, lampGroundY + poleHeight / 2, pos.z + lz);
       pole.material = poleMat;
@@ -746,8 +1029,8 @@ export class ForestGenerator {
       const light = new PointLight('lampLight', lampHeadPos, scene);
       light.diffuse = new Color3(1.0, 0.85, 0.55);
       light.specular = Color3.Black();
-      light.intensity = 1.0;
-      light.range = 22;
+      light.intensity = profile.mode === 'ps3' ? 1.65 : profile.mode === 'ps2' ? 1.45 : 1.0;
+      light.range = profile.mode === 'ps3' ? 34 : profile.mode === 'ps2' ? 28 : 22;
       this.lights.push(light);
     }
   }
@@ -775,7 +1058,7 @@ export class ForestGenerator {
     });
     const matricesByTemplate: Matrix[][] = templates.map(() => []);
 
-    const count = profile.mode === 'ps1' ? 80 : 55;
+    const count = profile.mode === 'ps1' ? 80 : profile.mode === 'ps3' ? 125 : 55;
     const maxRadius = profile.drawDistance * 1.15;
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -831,7 +1114,7 @@ export class ForestGenerator {
     });
     const matricesByTemplate: Matrix[][] = templates.map(() => []);
 
-    const outcropCount = profile.mode === 'ps1' ? 14 : 9;
+    const outcropCount = profile.mode === 'ps1' ? 14 : profile.mode === 'ps3' ? 22 : 9;
     const maxRadius = profile.drawDistance * 1.15;
     let placed = 0, attempts = 0;
     while (placed < outcropCount && attempts < outcropCount * 8) {
@@ -880,8 +1163,418 @@ export class ForestGenerator {
   // Thin-instanced — was a regular InstancedMesh per blade (up to ~4,400
   // full mesh-node objects). Thin instances are just a matrix appended to
   // a buffer on the template, no per-instance JS object at all.
+  private buildRockyTrailFeatures(scene: Scene, profile: ExperienceProfile): void {
+    if (this.trailOptions.flavor !== 'rocky') return;
+    const pts = this.trailOptions.waypoints ?? [];
+    if (pts.length === 0) return;
+
+    const screeMat = new PBRMaterial('ridgeScreeMat', scene);
+    screeMat.albedoColor = profile.mode === 'radio'
+      ? new Color3(0.12, 0.12, 0.13)
+      : new Color3(0.30, 0.28, 0.24);
+    screeMat.metallic = 0;
+    screeMat.roughness = 0.95;
+
+    const scree = MeshBuilder.CreateBox('ridgeScreeTemplate', { size: 1 }, scene);
+    scree.material = screeMat;
+    if (profile.mode === 'ps1') scree.convertToFlatShadedMesh();
+    this.treeMeshes.push(scree);
+
+    const screeMatrices: Matrix[] = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const nx = -dz / len;
+      const nz = dx / len;
+      const count = profile.mode === 'ps3' ? 34 : profile.mode === 'ps2' ? 26 : 18;
+
+      for (let s = 0; s < count; s++) {
+        const t = (s + Math.random()) / count;
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const shoulder = 2.0 + Math.random() * 4.8;
+        const x = a.x + dx * t + nx * shoulder * side + (Math.random() - 0.5) * 1.2;
+        const z = a.z + dz * t + nz * shoulder * side + (Math.random() - 0.5) * 1.2;
+        const groundY = this.terrain.getHeightAt(x, z);
+        const size = 0.22 + Math.random() * 0.72;
+        screeMatrices.push(Matrix.Compose(
+          new Vector3(size * (1.0 + Math.random()), size * (0.25 + Math.random() * 0.45), size * (0.8 + Math.random())),
+          Quaternion.FromEulerAngles(Math.random() * 0.4, Math.random() * Math.PI * 2, Math.random() * 0.4),
+          new Vector3(x, groundY + size * 0.16, z),
+        ));
+      }
+    }
+    scree.thinInstanceAdd(screeMatrices, true);
+    this.addCasters([scree]);
+
+    if (profile.mode === 'ps3') {
+      const shaleMat = new PBRMaterial('ridgeShaleChipMat', scene);
+      shaleMat.albedoColor = new Color3(0.18, 0.17, 0.15);
+      shaleMat.metallic = 0;
+      shaleMat.roughness = 0.96;
+      const shale = MeshBuilder.CreateBox('ridgeShaleChipTemplate', { size: 1 }, scene);
+      shale.material = shaleMat;
+      this.treeMeshes.push(shale);
+
+      const rootMat = new PBRMaterial('ridgeRootMat', scene);
+      rootMat.albedoColor = new Color3(0.13, 0.075, 0.035);
+      rootMat.metallic = 0;
+      rootMat.roughness = 0.9;
+      const root = MeshBuilder.CreateCylinder('ridgeRootTemplate', {
+        height: 1,
+        diameterTop: 0.045,
+        diameterBottom: 0.07,
+        tessellation: 6,
+      }, scene);
+      root.material = rootMat;
+      this.treeMeshes.push(root);
+
+      const shaleMatrices: Matrix[] = [];
+      const rootMatrices: Matrix[] = [];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const len = Math.sqrt(dx * dx + dz * dz) || 1;
+        const nx = -dz / len;
+        const nz = dx / len;
+
+        for (let s = 0; s < 42; s++) {
+          const t = Math.random();
+          const side = Math.random() < 0.5 ? -1 : 1;
+          const shoulder = 0.9 + Math.random() * 5.6;
+          const x = a.x + dx * t + nx * shoulder * side + (Math.random() - 0.5) * 1.4;
+          const z = a.z + dz * t + nz * shoulder * side + (Math.random() - 0.5) * 1.4;
+          const groundY = this.terrain.getHeightAt(x, z);
+          const size = 0.14 + Math.random() * 0.32;
+          shaleMatrices.push(Matrix.Compose(
+            new Vector3(size * (1.4 + Math.random() * 1.6), 0.018 + Math.random() * 0.025, size * (0.7 + Math.random())),
+            Quaternion.FromEulerAngles((Math.random() - 0.5) * 0.12, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.12),
+            new Vector3(x, groundY + 0.018, z),
+          ));
+        }
+
+        for (let r = 0; r < 8; r++) {
+          const t = Math.random();
+          const side = Math.random() < 0.5 ? -1 : 1;
+          const shoulder = 1.6 + Math.random() * 4.4;
+          const x = a.x + dx * t + nx * shoulder * side;
+          const z = a.z + dz * t + nz * shoulder * side;
+          const groundY = this.terrain.getHeightAt(x, z);
+          rootMatrices.push(Matrix.Compose(
+            new Vector3(1, 0.65 + Math.random() * 1.0, 1),
+            Quaternion.FromEulerAngles(Math.PI / 2 + (Math.random() - 0.5) * 0.16, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.22),
+            new Vector3(x, groundY + 0.055, z),
+          ));
+        }
+      }
+      shale.thinInstanceAdd(shaleMatrices, true);
+      root.thinInstanceAdd(rootMatrices, true);
+      this.addCasters([root]);
+    }
+
+    const cairnMat = new PBRMaterial('ridgeCairnMat', scene);
+    cairnMat.albedoColor = new Color3(0.36, 0.34, 0.30);
+    cairnMat.metallic = 0;
+    cairnMat.roughness = 0.92;
+
+    pts.slice(1).forEach((p, i) => {
+      const prev = pts[i];
+      const next = pts[Math.min(pts.length - 1, i + 2)];
+      const dx = next.x - prev.x;
+      const dz = next.z - prev.z;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const side = i % 2 === 0 ? 1 : -1;
+      const cairnX = p.x + (-dz / len) * 2.45 * side;
+      const cairnZ = p.z + (dx / len) * 2.45 * side;
+      const groundY = this.terrain.getHeightAt(cairnX, cairnZ);
+      const levels = i === pts.length - 2 ? 5 : 3 + Math.floor(Math.random() * 2);
+      for (let l = 0; l < levels; l++) {
+        const w = (0.86 - l * 0.11) * (0.82 + Math.random() * 0.22);
+        const h = 0.16 + Math.random() * 0.08;
+        const d = (0.62 - l * 0.07) * (0.82 + Math.random() * 0.20);
+        const stone = MeshBuilder.CreateBox(`ridgeCairn_${i}_${l}`, {
+          width: w,
+          height: h,
+          depth: d,
+        }, scene);
+        stone.position.set(
+          cairnX + (Math.random() - 0.5) * 0.14,
+          groundY + 0.08 + l * 0.14,
+          cairnZ + (Math.random() - 0.5) * 0.14,
+        );
+        stone.rotation.set(
+          (Math.random() - 0.5) * 0.18,
+          Math.random() * Math.PI * 2,
+          (Math.random() - 0.5) * 0.18,
+        );
+        stone.material = cairnMat;
+        if (profile.mode === 'ps1') stone.convertToFlatShadedMesh();
+        this.treeMeshes.push(stone);
+        this.addCasters([stone]);
+      }
+      this._colliders.push({ x: cairnX, z: cairnZ, radius: 0.55 });
+    });
+  }
+
+  private buildRiverTrailFeatures(scene: Scene, profile: ExperienceProfile): void {
+    if (this.trailOptions.flavor !== 'river') return;
+
+    const waterMat = new StandardMaterial('blackwaterMat', scene);
+    // Deliberately cool and saturated blue — every other surface in this
+    // scene (ground, bark, fog, the ps3 golden-hour sky) sits in warm
+    // tan/green territory, so a near-black warm teal was blending straight
+    // into the terrain instead of reading as water. Blue is the one hue
+    // nothing else here uses.
+    waterMat.diffuseColor = profile.mode === 'radio'
+      ? new Color3(0.015, 0.02, 0.035)
+      : new Color3(0.03, 0.06, 0.16);
+    waterMat.emissiveColor = profile.mode === 'radio'
+      ? Color3.Black()
+      : profile.mode === 'ps3'
+      ? new Color3(0.020, 0.048, 0.11)
+      : new Color3(0.012, 0.030, 0.075);
+    waterMat.specularColor = new Color3(0.35, 0.45, 0.6);
+    waterMat.specularPower = 32;
+    // Fully opaque — alpha < 1 was letting the pale terrain directly beneath
+    // the water box show through and wash the color out. The bank/stone
+    // ring around it already reads as "edge," so the water itself doesn't
+    // need transparency to look wet.
+    waterMat.alpha = 1.0;
+
+    const bankMat = new PBRMaterial('blackwaterBankRockMat', scene);
+    bankMat.albedoColor = new Color3(0.13, 0.12, 0.10);
+    bankMat.metallic = 0;
+    bankMat.roughness = 0.94;
+
+    // The one deliberate crossing point — a gap in the bank colliders below
+    // lines up with this so the rock ford is the only place the river can
+    // actually be crossed.
+    const crossing = { x: -24, z: 62 };
+    const BANK_COLLIDER_RADIUS = 3.0;
+    const BANK_OFFSET = RIVER_WIDTH * 0.5 - 0.3;
+    // The ford stones themselves span up to ~6.2 units either side of the
+    // centerline (see the crossing-stone loop below), and the guided
+    // approach path actually reaches the river ~5 units off from this
+    // constant — a 5-unit gap radius left colliders clipping the ford on
+    // both counts. Wide enough to clear both with margin.
+    const CROSSING_GAP_RADIUS = 14;
+
+    // One flat box per RIVER_POINTS segment (each up to ~125 units long) let
+    // the terrain's carved-channel noise — only damped 58%, not flattened —
+    // rise well above the box's flat elevation partway along its length,
+    // poking through and breaking the water into disconnected patches.
+    // Sampling every ~6 units and hugging local terrain height per short
+    // sub-segment keeps the water surface within the noise's short-range
+    // variation instead of averaging over the whole span.
+    const WATER_STEP = 6;
+    const samples: { x: number; z: number }[] = [];
+    for (let i = 0; i < RIVER_POINTS.length - 1; i++) {
+      const [ax, az] = RIVER_POINTS[i];
+      const [bx, bz] = RIVER_POINTS[i + 1];
+      const segLen = Math.sqrt((bx - ax) ** 2 + (bz - az) ** 2);
+      const stepsInSeg = Math.max(1, Math.round(segLen / WATER_STEP));
+      for (let s = 0; s < stepsInSeg; s++) {
+        const t = s / stepsInSeg;
+        samples.push({ x: ax + (bx - ax) * t, z: az + (bz - az) * t });
+      }
+    }
+    const [lastX, lastZ] = RIVER_POINTS[RIVER_POINTS.length - 1];
+    samples.push({ x: lastX, z: lastZ });
+
+    // Sampling per-box from only its own two endpoints meant neighbouring
+    // boxes each picked elevation independently and disagreed at the shared
+    // joint, showing up as a visible stair-step (bare ground peeking through
+    // at every seam) instead of one continuous surface. Precomputing a
+    // windowed-max height per sample first means adjacent boxes agree on
+    // the shared point's height, and a thicker box absorbs whatever small
+    // mismatch remains as an underwater ledge instead of exposed ground.
+    const rawHeights = samples.map(p => this.terrain.getHeightAt(p.x, p.z));
+    const surfaceHeights = rawHeights.map((_, i) => {
+      const lo = Math.max(0, i - 1);
+      const hi = Math.min(rawHeights.length - 1, i + 1);
+      let m = rawHeights[i];
+      for (let k = lo; k <= hi; k++) m = Math.max(m, rawHeights[k]);
+      return m;
+    });
+
+    const WATER_CLEARANCE = 0.16;
+    const WATER_THICKNESS = 0.6;
+
+    let arcLen = 0;
+    for (let i = 0; i < samples.length - 1; i++) {
+      const a = samples[i];
+      const b = samples[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const nx = -dz / len;
+      const nz = dx / len;
+      const mx = (a.x + b.x) * 0.5;
+      const mz = (a.z + b.z) * 0.5;
+      const yTop = Math.max(surfaceHeights[i], surfaceHeights[i + 1]) + WATER_CLEARANCE;
+      const y = yTop - WATER_THICKNESS * 0.5;
+
+      const water = MeshBuilder.CreateBox(`blackwaterSegment_${i}`, {
+        width: RIVER_WIDTH,
+        height: WATER_THICKNESS,
+        depth: len + 0.8,
+      }, scene);
+      water.position.set(mx, y, mz);
+      water.rotation.y = Math.atan2(dx, dz);
+      water.material = waterMat;
+      water.isPickable = false;
+      this.treeMeshes.push(water);
+      this.riverWaterSegments.push({ mesh: water, baseY: y, phase: arcLen + len * 0.5 });
+      arcLen += len;
+
+      // Bank colliders block entry into the water everywhere except a gap
+      // around the rock-ford crossing, so the river reads as an obstacle
+      // you have to route around rather than open ground you can wade
+      // straight through.
+      if (Math.sqrt((mx - crossing.x) ** 2 + (mz - crossing.z) ** 2) > CROSSING_GAP_RADIUS) {
+        this._colliders.push({ x: mx + nx * BANK_OFFSET, z: mz + nz * BANK_OFFSET, radius: BANK_COLLIDER_RADIUS });
+        this._colliders.push({ x: mx - nx * BANK_OFFSET, z: mz - nz * BANK_OFFSET, radius: BANK_COLLIDER_RADIUS });
+      }
+    }
+
+    const stone = MeshBuilder.CreateBox('blackwaterStoneTemplate', { size: 1 }, scene);
+    stone.material = bankMat;
+    if (profile.mode === 'ps1') stone.convertToFlatShadedMesh();
+    this.treeMeshes.push(stone);
+
+    const stoneMatrices: Matrix[] = [];
+    for (let i = 0; i < RIVER_POINTS.length - 1; i++) {
+      const [ax, az] = RIVER_POINTS[i];
+      const [bx, bz] = RIVER_POINTS[i + 1];
+      const dx = bx - ax;
+      const dz = bz - az;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const nx = -dz / len;
+      const nz = dx / len;
+      const count = profile.mode === 'ps3' ? 22 : 14;
+      for (let r = 0; r < count; r++) {
+        const t = Math.random();
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const bankOffset = RIVER_WIDTH * (0.58 + Math.random() * 0.42) * side;
+        const x = ax + dx * t + nx * bankOffset + (Math.random() - 0.5) * 1.4;
+        const z = az + dz * t + nz * bankOffset + (Math.random() - 0.5) * 1.4;
+        const s = 0.35 + Math.random() * 0.9;
+        stoneMatrices.push(Matrix.Compose(
+          new Vector3(s * (1.2 + Math.random()), s * (0.22 + Math.random() * 0.28), s * (0.8 + Math.random())),
+          Quaternion.FromEulerAngles(Math.random() * 0.24, Math.random() * Math.PI * 2, Math.random() * 0.18),
+          new Vector3(x, this.terrain.getHeightAt(x, z) + s * 0.12, z),
+        ));
+      }
+
+      // Streambed rocks scattered within the water itself (not just the
+      // banks) so the river has some texture/character instead of reading
+      // as a flat blue slab — poking up just above the surface like rocks
+      // breaking a real creek.
+      const bedCount = profile.mode === 'ps3' ? 16 : 9;
+      for (let r = 0; r < bedCount; r++) {
+        const t = Math.random();
+        const bedOffset = (Math.random() - 0.5) * RIVER_WIDTH * 0.7;
+        const x = ax + dx * t + nx * bedOffset;
+        const z = az + dz * t + nz * bedOffset;
+        const s = 0.28 + Math.random() * 0.5;
+        stoneMatrices.push(Matrix.Compose(
+          new Vector3(s * (0.9 + Math.random() * 0.6), s * (0.5 + Math.random() * 0.5), s * (0.7 + Math.random() * 0.5)),
+          Quaternion.FromEulerAngles(Math.random() * 0.3, Math.random() * Math.PI * 2, Math.random() * 0.3),
+          new Vector3(x, this.terrain.getHeightAt(x, z) + WATER_CLEARANCE + s * 0.22, z),
+        ));
+      }
+    }
+
+    const [ca, cb] = [RIVER_POINTS[2], RIVER_POINTS[3]];
+    const cdx = cb[0] - ca[0];
+    const cdz = cb[1] - ca[1];
+    const clen = Math.sqrt(cdx * cdx + cdz * cdz) || 1;
+    const cnx = -cdz / clen;
+    const cnz = cdx / clen;
+    for (let s = -4; s <= 4; s++) {
+      const x = crossing.x + cnx * s * 1.55 + (Math.random() - 0.5) * 0.18;
+      const z = crossing.z + cnz * s * 1.55 + (Math.random() - 0.5) * 0.18;
+      stoneMatrices.push(Matrix.Compose(
+        new Vector3(1.55 + Math.random() * 0.42, 0.22 + Math.random() * 0.12, 1.08 + Math.random() * 0.34),
+        Quaternion.FromEulerAngles((Math.random() - 0.5) * 0.12, Math.atan2(cnx, cnz) + (Math.random() - 0.5) * 0.24, (Math.random() - 0.5) * 0.12),
+        new Vector3(x, this.terrain.getHeightAt(x, z) + 0.18, z),
+      ));
+    }
+    stone.thinInstanceAdd(stoneMatrices, true);
+    this.addCasters([stone]);
+
+    // Gives the river visible motion without any texture/shader asset: each
+    // short water segment bobs on a sine wave keyed by its own arc-length
+    // position, so the crests travel steadily downstream rather than the
+    // whole surface pulsing in place.
+    this.riverScene = scene;
+    const RIPPLE_AMPLITUDE = 0.05;
+    const RIPPLE_SPEED = 1.6;
+    const RIPPLE_WAVELENGTH_K = 0.28;
+    this.riverFlowObserver = scene.onBeforeRenderObservable.add(() => {
+      const t = performance.now() / 1000;
+      for (const seg of this.riverWaterSegments) {
+        seg.mesh.position.y = seg.baseY + Math.sin(seg.phase * RIPPLE_WAVELENGTH_K - t * RIPPLE_SPEED) * RIPPLE_AMPLITUDE;
+      }
+    });
+
+    if (profile.mode !== 'ps3') return;
+
+    const reedMat = new StandardMaterial('blackwaterReedMat', scene);
+    reedMat.diffuseColor = new Color3(0.16, 0.20, 0.075);
+    reedMat.specularColor = Color3.Black();
+    const reed = MeshBuilder.CreateCylinder('blackwaterReedTemplate', {
+      height: 1,
+      diameterTop: 0.022,
+      diameterBottom: 0.045,
+      tessellation: 5,
+    }, scene);
+    reed.material = reedMat;
+    this.treeMeshes.push(reed);
+
+    const reedMatrices: Matrix[] = [];
+    for (let i = 0; i < RIVER_POINTS.length - 1; i++) {
+      const [ax, az] = RIVER_POINTS[i];
+      const [bx, bz] = RIVER_POINTS[i + 1];
+      const dx = bx - ax;
+      const dz = bz - az;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      const nx = -dz / len;
+      const nz = dx / len;
+      for (let r = 0; r < 34; r++) {
+        const t = Math.random();
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const bankOffset = RIVER_WIDTH * (0.50 + Math.random() * 0.35) * side;
+        const x = ax + dx * t + nx * bankOffset + (Math.random() - 0.5) * 1.8;
+        const z = az + dz * t + nz * bankOffset + (Math.random() - 0.5) * 1.8;
+        const h = 0.65 + Math.random() * 1.05;
+        reedMatrices.push(Matrix.Compose(
+          new Vector3(1, h, 1),
+          Quaternion.FromEulerAngles((Math.random() - 0.5) * 0.35, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.35),
+          new Vector3(x, this.terrain.getHeightAt(x, z) + h * 0.5, z),
+        ));
+      }
+    }
+    reed.thinInstanceAdd(reedMatrices, true);
+  }
+
   private buildGrass(scene: Scene, profile: ExperienceProfile): void {
-    const grassPalette = profile.mode === 'ps1'
+    const grassPalette = profile.mode === 'ps3'
+      ? [
+          [0.11, 0.25, 0.08], [0.07, 0.18, 0.06],
+          [0.045, 0.12, 0.045], [0.15, 0.22, 0.065],
+          [0.08, 0.14, 0.055],
+        ]
+      : profile.mode === 'ps2'
+      ? [
+          [0.10, 0.22, 0.07], [0.06, 0.15, 0.05],
+          [0.04, 0.10, 0.04], [0.13, 0.18, 0.05],
+        ]
+      : profile.mode === 'ps1'
       ? [
           [0.18, 0.44, 0.09], [0.11, 0.32, 0.06],
           [0.06, 0.22, 0.04], [0.22, 0.38, 0.06],
@@ -907,7 +1600,8 @@ export class ForestGenerator {
       this.treeMeshes.push(base);
     }
 
-    const perBase = profile.mode === 'ps1' ? 1100 : 640;
+    const perBaseRaw = profile.mode === 'ps1' ? 1100 : profile.mode === 'ps3' ? 1700 : profile.mode === 'ps2' ? 1250 : 640;
+    const perBase = this.trailOptions.flavor === 'rocky' ? Math.round(perBaseRaw * 0.56) : perBaseRaw;
     const maxRadius = profile.drawDistance * 1.15;
     for (let bi = 0; bi < bases.length; bi++) {
       const matrices: Matrix[] = [];
@@ -941,7 +1635,13 @@ export class ForestGenerator {
   // now thin instances (one matrix in a buffer each).
   private buildLowGroundcover(scene: Scene, profile: ExperienceProfile): void {
     const ps1 = profile.mode === 'ps1';
-    const palette = ps1
+    const ps2 = profile.mode === 'ps2';
+    const ps3 = profile.mode === 'ps3';
+    const palette = ps3
+      ? [[0.20, 0.34, 0.12], [0.13, 0.25, 0.09], [0.09, 0.18, 0.07], [0.24, 0.28, 0.10]]
+      : ps2
+      ? [[0.18, 0.30, 0.10], [0.12, 0.22, 0.08], [0.08, 0.16, 0.06], [0.20, 0.24, 0.08]]
+      : ps1
       ? [[0.42, 0.62, 0.22], [0.34, 0.56, 0.18], [0.50, 0.68, 0.30]]
       : [[0.10, 0.16, 0.07], [0.08, 0.13, 0.06]];
 
@@ -962,7 +1662,8 @@ export class ForestGenerator {
     });
     const matricesByTemplate: Matrix[][] = bladeTemplates.map(() => []);
 
-    const clumpCount = ps1 ? 950 : 650;
+    const clumpCountRaw = ps1 ? 950 : ps3 ? 1800 : ps2 ? 1250 : 650;
+    const clumpCount = this.trailOptions.flavor === 'rocky' ? Math.round(clumpCountRaw * 0.55) : clumpCountRaw;
     const maxRadius = profile.drawDistance * 1.15;
     let placed = 0, attempts = 0;
     while (placed < clumpCount && attempts < clumpCount * 5) {
@@ -974,7 +1675,7 @@ export class ForestGenerator {
       if (this.inEitherCorridor(cx, cz)) continue;
 
       const groundY = this.terrain.getHeightAt(cx, cz);
-      const bladesInClump = 14 + Math.floor(Math.random() * 10);
+      const bladesInClump = (ps3 ? 24 : ps2 ? 18 : 14) + Math.floor(Math.random() * (ps3 ? 18 : ps2 ? 14 : 10));
       const ti = Math.floor(Math.random() * bladeTemplates.length);
 
       for (let b = 0; b < bladesInClump; b++) {
@@ -992,12 +1693,220 @@ export class ForestGenerator {
     bladeTemplates.forEach((t, i) => t.thinInstanceAdd(matricesByTemplate[i], true));
   }
 
+  private buildPs3PlantVariety(scene: Scene, profile: ExperienceProfile): void {
+    if (profile.mode !== 'ps3') return;
+
+    const maxRadius = profile.drawDistance * 1.15;
+
+    const makeLeafMat = (name: string, color: Color3, alpha = 0.92): StandardMaterial => {
+      const mat = new StandardMaterial(name, scene);
+      mat.diffuseColor = color;
+      mat.emissiveColor = new Color3(color.r * 0.12, color.g * 0.16, color.b * 0.08);
+      mat.specularColor = Color3.Black();
+      mat.backFaceCulling = false;
+      mat.alpha = alpha;
+      return mat;
+    };
+
+    const fernTemplates = [
+      makeLeafMat('ps3FernMat_0', new Color3(0.10, 0.26, 0.08)),
+      makeLeafMat('ps3FernMat_1', new Color3(0.07, 0.20, 0.07)),
+      makeLeafMat('ps3FernMat_2', new Color3(0.14, 0.30, 0.10)),
+    ].map((mat, i) => {
+      const blade = MeshBuilder.CreatePlane(`ps3FernBlade_${i}`, { width: 0.16, height: 0.9 }, scene);
+      blade.material = mat;
+      this.treeMeshes.push(blade);
+      return blade;
+    });
+    const fernMatrices: Matrix[][] = fernTemplates.map(() => []);
+
+    const rocky = this.trailOptions.flavor === 'rocky';
+    const fernClumps = rocky ? 430 : 1050;
+    let fernPlaced = 0, fernAttempts = 0;
+    while (fernPlaced < fernClumps && fernAttempts < fernClumps * 5) {
+      fernAttempts++;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 5 + Math.random() * (maxRadius - 5);
+      const cx = Math.cos(angle) * radius;
+      const cz = Math.sin(angle) * radius;
+      if (this.inEitherCorridor(cx, cz)) continue;
+
+      const groundY = this.terrain.getHeightAt(cx, cz);
+      const ti = Math.floor(Math.random() * fernTemplates.length);
+      const fronds = 5 + Math.floor(Math.random() * 5);
+      for (let f = 0; f < fronds; f++) {
+        const yaw = (f / fronds) * Math.PI * 2 + Math.random() * 0.45;
+        const offset = Math.random() * 0.22;
+        const h = 0.42 + Math.random() * 0.42;
+        fernMatrices[ti].push(Matrix.Compose(
+          new Vector3(0.75 + Math.random() * 0.45, h / 0.9, 1),
+          Quaternion.FromEulerAngles(-0.38 - Math.random() * 0.35, yaw, (Math.random() - 0.5) * 0.22),
+          new Vector3(cx + Math.cos(yaw) * offset, groundY + h * 0.46, cz + Math.sin(yaw) * offset),
+        ));
+      }
+      fernPlaced++;
+    }
+    fernTemplates.forEach((t, i) => t.thinInstanceAdd(fernMatrices[i], true));
+
+    const broadleafMats = [
+      makeLeafMat('ps3BroadleafMat_0', new Color3(0.11, 0.28, 0.09)),
+      makeLeafMat('ps3BroadleafMat_1', new Color3(0.17, 0.32, 0.10)),
+      makeLeafMat('ps3BroadleafMat_2', new Color3(0.08, 0.18, 0.07)),
+    ];
+    const broadleafTemplates = broadleafMats.map((mat, i) => {
+      const leaf = MeshBuilder.CreatePlane(`ps3Broadleaf_${i}`, { width: 0.34, height: 0.48 }, scene);
+      leaf.material = mat;
+      this.treeMeshes.push(leaf);
+      return leaf;
+    });
+    const broadleafMatrices: Matrix[][] = broadleafTemplates.map(() => []);
+
+    const broadleafCount = rocky ? 620 : 1500;
+    let leafPlaced = 0, leafAttempts = 0;
+    while (leafPlaced < broadleafCount && leafAttempts < broadleafCount * 5) {
+      leafAttempts++;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 4 + Math.random() * (maxRadius - 4);
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      if (this.inEitherCorridor(x, z) || this.inRockyVistaClearing(x, z)) continue;
+
+      const ti = Math.floor(Math.random() * broadleafTemplates.length);
+      const h = 0.16 + Math.random() * 0.36;
+      const groundY = this.terrain.getHeightAt(x, z);
+      broadleafMatrices[ti].push(Matrix.Compose(
+        new Vector3(0.55 + Math.random() * 0.7, h / 0.48, 1),
+        Quaternion.FromEulerAngles(-0.65 + Math.random() * 0.5, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.6),
+        new Vector3(x, groundY + h * 0.45, z),
+      ));
+      leafPlaced++;
+    }
+    broadleafTemplates.forEach((t, i) => t.thinInstanceAdd(broadleafMatrices[i], true));
+
+    const saplingMat = makeLeafMat('ps3SaplingLeafMat', new Color3(0.12, 0.31, 0.10));
+    const saplingStemMat = new StandardMaterial('ps3SaplingStemMat', scene);
+    saplingStemMat.diffuseColor = new Color3(0.10, 0.06, 0.035);
+    saplingStemMat.specularColor = Color3.Black();
+
+    const saplingStem = MeshBuilder.CreateCylinder('ps3SaplingStem', {
+      height: 1,
+      diameter: 0.055,
+      tessellation: 6,
+    }, scene);
+    saplingStem.material = saplingStemMat;
+    this.treeMeshes.push(saplingStem);
+
+    const saplingLeaf = MeshBuilder.CreateSphere('ps3SaplingLeaf', {
+      diameter: 1,
+      segments: 6,
+    }, scene);
+    saplingLeaf.material = saplingMat;
+    this.treeMeshes.push(saplingLeaf);
+
+    const stemMatrices: Matrix[] = [];
+    const crownMatrices: Matrix[] = [];
+    const saplingCount = rocky ? 95 : 260;
+    let saplings = 0, saplingAttempts = 0;
+    while (saplings < saplingCount && saplingAttempts < saplingCount * 6) {
+      saplingAttempts++;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 8 + Math.random() * (maxRadius - 8);
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      if (this.inEitherCorridor(x, z) || this.inRockyVistaClearing(x, z)) continue;
+
+      const h = 0.7 + Math.random() * 1.0;
+      const groundY = this.terrain.getHeightAt(x, z);
+      const leanX = (Math.random() - 0.5) * 0.22;
+      const leanZ = (Math.random() - 0.5) * 0.22;
+      stemMatrices.push(Matrix.Compose(
+        new Vector3(1, h, 1),
+        Quaternion.FromEulerAngles(leanX, Math.random() * Math.PI * 2, leanZ),
+        new Vector3(x, groundY + h * 0.5, z),
+      ));
+      crownMatrices.push(Matrix.Compose(
+        new Vector3(0.42 + Math.random() * 0.26, 0.24 + Math.random() * 0.18, 0.42 + Math.random() * 0.26),
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x + leanZ * 0.35, groundY + h + 0.10, z - leanX * 0.35),
+      ));
+      saplings++;
+    }
+    saplingStem.thinInstanceAdd(stemMatrices, true);
+    saplingLeaf.thinInstanceAdd(crownMatrices, true);
+
+    const mushroomStemMat = new StandardMaterial('ps3MushroomStemMat', scene);
+    mushroomStemMat.diffuseColor = new Color3(0.42, 0.36, 0.27);
+    mushroomStemMat.specularColor = Color3.Black();
+    const mushroomCapMat = new StandardMaterial('ps3MushroomCapMat', scene);
+    mushroomCapMat.diffuseColor = new Color3(0.34, 0.16, 0.09);
+    mushroomCapMat.specularColor = Color3.Black();
+
+    const mushroomStem = MeshBuilder.CreateCylinder('ps3MushroomStem', {
+      height: 1,
+      diameter: 0.12,
+      tessellation: 6,
+    }, scene);
+    mushroomStem.material = mushroomStemMat;
+    this.treeMeshes.push(mushroomStem);
+
+    const mushroomCap = MeshBuilder.CreateCylinder('ps3MushroomCap', {
+      height: 0.12,
+      diameterTop: 0.16,
+      diameterBottom: 0.38,
+      tessellation: 8,
+    }, scene);
+    mushroomCap.material = mushroomCapMat;
+    this.treeMeshes.push(mushroomCap);
+
+    const mushroomStemMatrices: Matrix[] = [];
+    const mushroomCapMatrices: Matrix[] = [];
+    const mushroomCount = rocky ? 120 : 340;
+    let mushrooms = 0, mushroomAttempts = 0;
+    while (mushrooms < mushroomCount && mushroomAttempts < mushroomCount * 5) {
+      mushroomAttempts++;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 5 + Math.random() * (maxRadius - 5);
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      if (this.inEitherCorridor(x, z)) continue;
+
+      const h = 0.12 + Math.random() * 0.22;
+      const s = 0.55 + Math.random() * 0.9;
+      const groundY = this.terrain.getHeightAt(x, z);
+      mushroomStemMatrices.push(Matrix.Compose(
+        new Vector3(s, h, s),
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x, groundY + h * 0.5, z),
+      ));
+      mushroomCapMatrices.push(Matrix.Compose(
+        new Vector3(s, 1, s),
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x, groundY + h + 0.05, z),
+      ));
+      mushrooms++;
+    }
+    mushroomStem.thinInstanceAdd(mushroomStemMatrices, true);
+    mushroomCap.thinInstanceAdd(mushroomCapMatrices, true);
+  }
+
   // Leaves and moss were already regular instances; logs were unique
   // geometry per log (length/radius varied per-log). All three now use
   // thin instances — logs via a unit-size template scaled per instance
   // instead of building bespoke geometry each time.
   private buildForestFloor(scene: Scene, profile: ExperienceProfile): void {
-    const leafColors = profile.mode === 'ps1'
+    const leafColors = profile.mode === 'ps3'
+      ? [
+          [0.28, 0.14, 0.045], [0.18, 0.09, 0.035],
+          [0.30, 0.23, 0.07], [0.10, 0.14, 0.05],
+          [0.20, 0.15, 0.08], [0.12, 0.10, 0.06],
+        ]
+      : profile.mode === 'ps2'
+      ? [
+          [0.25, 0.12, 0.04], [0.16, 0.08, 0.03],
+          [0.26, 0.20, 0.06], [0.09, 0.12, 0.04],
+          [0.18, 0.14, 0.08],
+        ]
+      : profile.mode === 'ps1'
       ? [
           [0.44, 0.22, 0.07], [0.32, 0.14, 0.05],
           [0.50, 0.34, 0.06], [0.24, 0.18, 0.08],
@@ -1024,7 +1933,7 @@ export class ForestGenerator {
     }
 
     const maxRadius = profile.drawDistance * 1.15;
-    const leavesPerColor = profile.mode === 'ps1' ? 260 : 110;
+    const leavesPerColor = profile.mode === 'ps1' ? 260 : profile.mode === 'ps3' ? 500 : profile.mode === 'ps2' ? 340 : 110;
     for (let bi = 0; bi < leafBases.length; bi++) {
       const matrices: Matrix[] = [];
       for (let i = 0; i < leavesPerColor; i++) {
@@ -1044,7 +1953,11 @@ export class ForestGenerator {
     }
 
     const mossMat = new StandardMaterial('mossMat', scene);
-    mossMat.diffuseColor = profile.mode === 'ps1'
+    mossMat.diffuseColor = profile.mode === 'ps3'
+      ? new Color3(0.045, 0.18, 0.045)
+      : profile.mode === 'ps2'
+      ? new Color3(0.04, 0.15, 0.04)
+      : profile.mode === 'ps1'
       ? new Color3(0.06, 0.22, 0.06)
       : new Color3(0.03, 0.06, 0.03);
     mossMat.specularColor = Color3.Black();
@@ -1057,7 +1970,7 @@ export class ForestGenerator {
     mossBase.material = mossMat;
     this.treeMeshes.push(mossBase);
 
-    const mossCount = profile.mode === 'ps1' ? 90 : 55;
+    const mossCount = profile.mode === 'ps1' ? 90 : profile.mode === 'ps3' ? 190 : profile.mode === 'ps2' ? 130 : 55;
     const mossMatrices: Matrix[] = [];
     for (let i = 0; i < mossCount; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -1075,21 +1988,25 @@ export class ForestGenerator {
     mossBase.thinInstanceAdd(mossMatrices, true);
 
     const logMat = new StandardMaterial('logMat', scene);
-    logMat.diffuseColor = profile.mode === 'ps1'
+    logMat.diffuseColor = profile.mode === 'ps3'
+      ? new Color3(0.12, 0.075, 0.045)
+      : profile.mode === 'ps2'
+      ? new Color3(0.11, 0.07, 0.04)
+      : profile.mode === 'ps1'
       ? new Color3(0.20, 0.13, 0.07)
       : new Color3(0.06, 0.05, 0.04);
     logMat.specularColor = Color3.Black();
 
     const logBase = MeshBuilder.CreateCylinder(
       'logBase',
-      { height: 1, diameter: 1, tessellation: profile.mode === 'ps1' ? 6 : 8 },
+      { height: 1, diameter: 1, tessellation: profile.mode === 'ps1' ? 6 : profile.mode === 'ps3' ? 12 : profile.mode === 'ps2' ? 10 : 8 },
       scene,
     );
     logBase.material = logMat;
     if (profile.mode === 'ps1') logBase.convertToFlatShadedMesh();
     this.treeMeshes.push(logBase);
 
-    const logCount = profile.mode === 'ps1' ? 42 : 28;
+    const logCount = profile.mode === 'ps1' ? 42 : profile.mode === 'ps3' ? 90 : profile.mode === 'ps2' ? 60 : 28;
     const logMatrices: Matrix[] = [];
     for (let i = 0; i < logCount; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -1251,10 +2168,149 @@ export class ForestGenerator {
     }
   }
 
+  private buildSurveyTrail(scene: Scene, profile: ExperienceProfile): void {
+    const ps1 = profile.mode === 'ps1';
+
+    const dirtMat = new StandardMaterial('surveyDirtMat', scene);
+    dirtMat.diffuseColor = profile.mode === 'ps3'
+      ? new Color3(0.18, 0.13, 0.08)
+      : profile.mode === 'ps2'
+      ? new Color3(0.16, 0.11, 0.07)
+      : ps1
+        ? new Color3(0.24, 0.15, 0.08)
+        : new Color3(0.055, 0.045, 0.035);
+    dirtMat.specularColor = Color3.Black();
+
+    const woodMat = new StandardMaterial('surveyPostMat', scene);
+    woodMat.diffuseColor = profile.mode === 'ps3'
+      ? new Color3(0.16, 0.095, 0.05)
+      : profile.mode === 'ps2'
+      ? new Color3(0.14, 0.085, 0.045)
+      : ps1
+        ? new Color3(0.24, 0.14, 0.07)
+        : new Color3(0.07, 0.055, 0.04);
+    woodMat.specularColor = Color3.Black();
+
+    const stoneMat = new StandardMaterial('surveyCairnMat', scene);
+    stoneMat.diffuseColor = profile.mode === 'radio'
+      ? new Color3(0.08, 0.08, 0.09)
+      : new Color3(0.25, 0.24, 0.22);
+    stoneMat.specularColor = Color3.Black();
+
+    const markerMat = new StandardMaterial('surveyMarkerMat', scene);
+    markerMat.diffuseColor = new Color3(0.52, 0.30, 0.10);
+    markerMat.emissiveColor = profile.mode === 'ps3'
+      ? new Color3(0.22, 0.10, 0.03)
+      : profile.mode === 'ps2'
+      ? new Color3(0.18, 0.08, 0.02)
+      : Color3.Black();
+    markerMat.specularColor = Color3.Black();
+
+    const pts = SURVEY_TRAIL_WAYPOINTS;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, az] = pts[i];
+      const [bx, bz] = pts[i + 1];
+      const ddx = bx - ax, ddz = bz - az;
+      const len = Math.sqrt(ddx * ddx + ddz * ddz);
+      const yaw = Math.atan2(ddx, ddz);
+      const subCount = Math.max(1, Math.ceil(len / 7));
+      const subLen = len / subCount;
+
+      for (let s = 0; s < subCount; s++) {
+        const t0 = s / subCount, t1 = (s + 1) / subCount;
+        const x0 = ax + t0 * ddx, z0 = az + t0 * ddz;
+        const x1 = ax + t1 * ddx, z1 = az + t1 * ddz;
+        const y0 = this.terrain.getHeightAt(x0, z0);
+        const y1 = this.terrain.getHeightAt(x1, z1);
+        const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, my = (y0 + y1) / 2;
+        const slope = Math.atan2(y1 - y0, subLen);
+
+        const strip = MeshBuilder.CreateBox(`surveyTrailStrip_${i}_${s}`, {
+          width: SURVEY_TRAIL_WIDTH * 2,
+          height: 0.045,
+          depth: subLen + 0.28,
+        }, scene);
+        strip.position.set(mx, my + 0.025, mz);
+        strip.rotation.set(-slope, yaw, 0);
+        strip.material = dirtMat;
+        this.treeMeshes.push(strip);
+      }
+
+      if (i % 2 === 0) {
+        const px = -ddz / len, pz = ddx / len;
+        const side = i % 4 === 0 ? 1 : -1;
+        const wx = ax + px * (SURVEY_TRAIL_WIDTH + 0.7) * side;
+        const wz = az + pz * (SURVEY_TRAIL_WIDTH + 0.7) * side;
+        const wy = this.terrain.getHeightAt(wx, wz);
+
+        const post = MeshBuilder.CreateCylinder('surveyPost', {
+          height: 1.1, diameter: 0.10, tessellation: ps1 ? 5 : 7,
+        }, scene);
+        post.position.set(wx, wy + 0.55, wz);
+        post.rotation.z = (Math.random() - 0.5) * 0.18;
+        post.material = woodMat;
+        if (ps1) post.convertToFlatShadedMesh();
+        this.treeMeshes.push(post);
+
+        const tag = MeshBuilder.CreateBox('surveyTag', { width: 0.28, height: 0.18, depth: 0.035 }, scene);
+        tag.position.set(wx, wy + 1.0, wz);
+        tag.rotation.y = yaw + Math.PI / 2;
+        tag.material = markerMat;
+        this.treeMeshes.push(tag);
+      }
+    }
+
+    for (let i = 1; i < pts.length; i += 2) {
+      const [cx, cz] = pts[i];
+      const cy = this.terrain.getHeightAt(cx, cz);
+      for (let s = 0; s < 4; s++) {
+        const size = 0.42 - s * 0.06;
+        const stone = MeshBuilder.CreateBox(`surveyCairn_${i}_${s}`, { size }, scene);
+        stone.position.set(
+          cx + (Math.random() - 0.5) * 0.18,
+          cy + 0.10 + s * 0.18,
+          cz + (Math.random() - 0.5) * 0.18,
+        );
+        stone.rotation.set(Math.random() * 0.4, Math.random() * Math.PI, Math.random() * 0.4);
+        stone.scaling.y = 0.45;
+        stone.material = stoneMat;
+        if (ps1) stone.convertToFlatShadedMesh();
+        this.treeMeshes.push(stone);
+      }
+    }
+
+    const [ex, ez] = pts[pts.length - 1];
+    const ey = this.terrain.getHeightAt(ex, ez);
+    const signPost = MeshBuilder.CreateCylinder('surveyEndPost', {
+      height: 1.4, diameter: 0.12, tessellation: ps1 ? 5 : 7,
+    }, scene);
+    signPost.position.set(ex, ey + 0.7, ez);
+    signPost.material = woodMat;
+    this.treeMeshes.push(signPost);
+
+    const sign = MeshBuilder.CreateBox('surveyEndSign', { width: 1.1, height: 0.32, depth: 0.06 }, scene);
+    sign.position.set(ex, ey + 1.28, ez);
+    sign.rotation.set(0.08, -0.7, -0.08);
+    sign.material = woodMat;
+    this.treeMeshes.push(sign);
+
+    const cap = MeshBuilder.CreateCylinder('surveyMarkerCap', {
+      height: 0.08, diameter: 0.48, tessellation: ps1 ? 8 : 12,
+    }, scene);
+    cap.position.set(ex + 1.4, ey + 0.06, ez - 0.8);
+    cap.material = markerMat;
+    this.treeMeshes.push(cap);
+  }
+
   dispose(): void {
     this.treeMeshes.forEach(m => m.dispose());
     this.treeMeshes = [];
     this.lights.forEach(l => l.dispose());
     this.lights = [];
+    if (this.riverFlowObserver && this.riverScene) {
+      this.riverScene.onBeforeRenderObservable.remove(this.riverFlowObserver);
+    }
+    this.riverFlowObserver = null;
+    this.riverWaterSegments = [];
   }
 }

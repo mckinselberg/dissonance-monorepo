@@ -8,6 +8,7 @@ import { MainMenu } from './ui/MainMenu';
 import { Game } from './game/Game';
 import { DevHUD } from './ui/DevHUD';
 import type { GameConfig } from '@dissonance/shared-types';
+import { DEFAULT_TRAIL_ID, TRAILS } from './config/trails';
 
 const STORAGE_KEY = 'dta_config';
 
@@ -46,6 +47,7 @@ function showMenu(): void {
 }
 
 function showResumeScreen(config: GameConfig): void {
+  const trail = TRAILS[config.trailId ?? DEFAULT_TRAIL_ID] ?? TRAILS[DEFAULT_TRAIL_ID];
   const el = document.createElement('div');
   el.style.cssText = `
     position: fixed; inset: 0; background: #000;
@@ -58,7 +60,8 @@ function showResumeScreen(config: GameConfig): void {
       DON'T TURN AROUND
     </p>
     <p style="font-size:0.75rem;letter-spacing:0.2em;color:#666;margin:0 0 0.4rem">
-      ${config.experienceMode.toUpperCase()} &nbsp;·&nbsp; ${config.departureTime.toUpperCase()}
+      ${trail.name.toUpperCase()}<br>
+      <span style="font-size:0.65rem;color:#444">${config.experienceMode.toUpperCase()} &nbsp;·&nbsp; ${config.departureTime.toUpperCase()}</span>
     </p>
     <p style="font-size:0.6rem;letter-spacing:0.15em;color:#333;margin:1.5rem 0 0">
       click to enter

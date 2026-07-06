@@ -7,7 +7,7 @@ import {
   VertexData,
   Mesh,
 } from '@babylonjs/core';
-import type { ExperienceProfile } from '@dissonance/shared-types';
+import type { ExperienceProfile, WorldPosition } from '@dissonance/shared-types';
 
 const WORLD_SIZE = 800;
 const GRID_RES = 192;
@@ -32,6 +32,19 @@ const MACRO_HEIGHT = 64;
 // reads as that tilt within the player's actual draw distance. Starting
 // value — adjust after seeing it in motion.
 const TILT_GRADE = Math.tan((6 * Math.PI) / 180); // ~6°, ~0.105 rise per unit
+
+export type TerrainOptions = {
+  destinationPosition?: WorldPosition;
+  flavor?: 'pine' | 'rocky' | 'river';
+};
+
+export const RIVER_POINTS: [number, number][] = [
+  [-220, -120],
+  [-126, -38],
+  [-48, 42],
+  [34, 112],
+  [128, 190],
+];
 
 function macro(x: number, y: number): number {
   return (
@@ -76,11 +89,29 @@ function fbm(x: number, y: number): number {
   );
 }
 
+function distanceToPolyline(x: number, z: number, points: [number, number][]): number {
+  let nearest = Infinity;
+  for (let i = 0; i < points.length - 1; i++) {
+    const [ax, az] = points[i];
+    const [bx, bz] = points[i + 1];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len2 = dx * dx + dz * dz || 1;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / len2));
+    const px = ax + dx * t - x;
+    const pz = az + dz * t - z;
+    nearest = Math.min(nearest, Math.sqrt(px * px + pz * pz));
+  }
+  return nearest;
+}
+
 export class Terrain {
   private readonly heights: Float32Array;
   private ground: Mesh;
+  private readonly options: TerrainOptions;
 
-  constructor(scene: Scene, profile: ExperienceProfile) {
+  constructor(scene: Scene, profile: ExperienceProfile, options: TerrainOptions = {}) {
+    this.options = options;
     this.heights = this.generateHeights();
     this.ground = this.buildMesh(scene, profile);
   }
@@ -115,7 +146,8 @@ export class Terrain {
         const dSpawn = Math.sqrt(wx * wx + (wz + 262) * (wz + 262));
         if (dSpawn < 40) bumps *= Math.pow(dSpawn / 40, 2);
 
-        const ddx = wx - 190, ddz = wz - 140;
+        const dest = this.options.destinationPosition ?? { x: 190, y: 0, z: 140 };
+        const ddx = wx - dest.x, ddz = wz - dest.z;
         const dDest = Math.sqrt(ddx * ddx + ddz * ddz);
         // Flatten bumps out to radius 50 so no cliff band appears on approach.
         if (dDest < 50) bumps *= Math.pow(dDest / 50, 2);
@@ -126,14 +158,47 @@ export class Terrain {
         // We blend toward the tilt at the lot centre (190 × TILT_GRADE), not
         // toward 0 — keeping the base elevation so there's no cliff at the edge.
         const baseTilt = wx * TILT_GRADE;
-        const destTilt = 190 * TILT_GRADE;
+        const destTilt = dest.x * TILT_GRADE;
         const tiltBlend = dDest < 50 ? Math.pow(dDest / 50, 2) : 1;
-        const tilt = destTilt + (baseTilt - destTilt) * tiltBlend;
+        let tilt = destTilt + (baseTilt - destTilt) * tiltBlend;
+
+        if (this.options.flavor === 'rocky') {
+          const climb = Math.max(0, Math.min(1, (wz + 270) / 420));
+          const ridgeLift = Math.pow(climb, 1.18) * 54;
+          const sideBank = Math.max(0, Math.min(1, Math.abs(wx) / 240)) * 12;
+          const destClimb = Math.max(0, Math.min(1, (dest.z + 270) / 420));
+          const destRidgeLift = Math.pow(destClimb, 1.18) * 54
+            + Math.max(0, Math.min(1, Math.abs(dest.x) / 240)) * 12;
+          const ridgeBlend = dDest < 50 ? Math.pow(dDest / 50, 2) : 1;
+          tilt += destRidgeLift + (ridgeLift + sideBank - destRidgeLift) * ridgeBlend;
+        } else if (this.options.flavor === 'river') {
+          const riverDist = distanceToPolyline(wx, wz, RIVER_POINTS);
+          if (riverDist < 34) {
+            const t = 1 - Math.min(1, riverDist / 34);
+            const carved = Math.pow(t, 1.7);
+            // Damping bumps by only 58% left enough residual noise along the
+            // channel bed that it rose above the (near-flat) water mesh
+            // between sample points, breaking the water surface into
+            // disconnected patches. Right at the centerline (carved≈1) the
+            // bed needs to be almost fully flat for continuous water to sit
+            // on top of it cleanly.
+            bumps *= 1 - carved * 0.92;
+            tilt -= carved * 4.2;
+          }
+        }
 
         grid[iz * n + ix] = bumps + tilt;
       }
     }
     return grid;
+  }
+
+  // Distance from (wx, wz) to the river centerline, or null when this
+  // terrain has no river feature — lets audio/other systems drive a
+  // proximity beacon without duplicating RIVER_POINTS.
+  getRiverDistance(wx: number, wz: number): number | null {
+    if (this.options.flavor !== 'river') return null;
+    return distanceToPolyline(wx, wz, RIVER_POINTS);
   }
 
   getHeightAt(wx: number, wz: number): number {
@@ -175,6 +240,20 @@ export class Terrain {
     if (profile.mode === 'radio') {
       mat.albedoColor = new Color3(0.04, 0.04, 0.04);
       mat.ambientColor = new Color3(0.02, 0.02, 0.03);
+    } else if (profile.mode === 'ps3') {
+      mat.albedoColor = this.options.flavor === 'rocky'
+        ? new Color3(0.14, 0.12, 0.085)
+        : this.options.flavor === 'river'
+        ? new Color3(0.058, 0.105, 0.060)
+        : new Color3(0.065, 0.125, 0.058);
+      mat.ambientColor = this.options.flavor === 'rocky'
+        ? new Color3(0.065, 0.055, 0.040)
+        : this.options.flavor === 'river'
+        ? new Color3(0.025, 0.050, 0.032)
+        : new Color3(0.030, 0.065, 0.030);
+    } else if (profile.mode === 'ps2') {
+      mat.albedoColor = new Color3(0.08, 0.15, 0.06);
+      mat.ambientColor = new Color3(0.04, 0.08, 0.03);
     } else {
       mat.albedoColor = new Color3(0.14, 0.22, 0.07);
       mat.ambientColor = new Color3(0.10, 0.16, 0.05);

@@ -1,6 +1,5 @@
 import type { Game, GameControls } from '../game/Game';
 import type { ExperienceMode } from '@dissonance/shared-types';
-import { RUN_COUNT_KEY } from '../config/runProfiles';
 
 const STORAGE_KEY = 'dta_config';
 const PERF_MODE_STORAGE_KEY = 'dta_perf_mode';
@@ -51,13 +50,13 @@ export class DevHUD {
       row('fps', s.fps.toFixed(0)) +
       row('pursuer', `${s.pursuerState}  ${s.pursuerDistance.toFixed(1)}m  aggr ${s.pursuerAggression.toFixed(2)}  ${s.isHidden ? 'HIDDEN' : 'los'}`) +
       row('phone', `${s.hasPhone ? 'found' : 'not found'}  flashlight:${s.flashlightOn ? 'ON' : 'off'}  pursuer lit:${s.isIlluminated ? 'YES' : 'no'}`) +
+      row('fob', `${s.carFobUnlocked ? 'ready' : 'locked'}  alarm:${s.carAlarmSilenced ? 'off' : 'active'}`) +
       row('speed', `${s.playerSpeed.toFixed(1)} m/s  ${s.isCrouching ? 'crouch' : ''}`) +
       row('breath', bar(s.breathLoad)) +
       row('adrenaline', bar(s.adrenaline)) +
       row('dest', `${s.destDistance.toFixed(1)}m`) +
       row('light', bar(s.lightLevel)) +
-      row('wind', bar(s.windIntensity)) +
-      row('run', `#${s.runCount}  (diff ${Math.min(100, Math.round(s.runCount / 5 * 100))}%)`);
+      row('wind', bar(s.windIntensity));
   }
 
   private build(): HTMLElement {
@@ -134,16 +133,6 @@ export class DevHUD {
     panel.appendChild(toggleRow('pursuer body', true, (on) => {
       this.controls.setPursuerBodyVisible(on);
     }));
-    panel.appendChild(toggleRow('pursuer eyes', true, (on) => {
-      this.controls.setWatcherEnabled(on);
-    }));
-
-    const spawnBtn = document.createElement('button');
-    spawnBtn.className = 'dh-action';
-    spawnBtn.textContent = 'spawn eyes now';
-    spawnBtn.addEventListener('click', () => this.controls.forceSpawnEyes());
-    panel.appendChild(spawnBtn);
-
     panel.appendChild(sectionLabel('graphics'));
 
     const savedRaw = localStorage.getItem(STORAGE_KEY);
@@ -157,8 +146,12 @@ export class DevHUD {
     const modeBtns = document.createElement('div');
     modeBtns.style.cssText = 'display:flex;gap:6px';
     const ps1Btn = modeBtn('PS1', currentMode === 'ps1', () => this.switchMode('ps1'));
+    const ps2Btn = modeBtn('PS2', currentMode === 'ps2', () => this.switchMode('ps2'));
+    const ps3Btn = modeBtn('PS3', currentMode === 'ps3', () => this.switchMode('ps3'));
     const radioBtn = modeBtn('RADIO', currentMode === 'radio', () => this.switchMode('radio'));
     modeBtns.appendChild(ps1Btn);
+    modeBtns.appendChild(ps2Btn);
+    modeBtns.appendChild(ps3Btn);
     modeBtns.appendChild(radioBtn);
     modeRow.appendChild(modeBtns);
     panel.appendChild(modeRow);
@@ -200,16 +193,6 @@ export class DevHUD {
       window.location.reload();
     });
     panel.appendChild(resetBtn);
-
-    const resetDiffBtn = document.createElement('button');
-    resetDiffBtn.className = 'dh-action';
-    resetDiffBtn.textContent = 'reset difficulty (run #0)';
-    resetDiffBtn.addEventListener('click', () => {
-      localStorage.removeItem(RUN_COUNT_KEY);
-      localStorage.removeItem(STORAGE_KEY);
-      window.location.reload();
-    });
-    panel.appendChild(resetDiffBtn);
 
     return panel;
   }

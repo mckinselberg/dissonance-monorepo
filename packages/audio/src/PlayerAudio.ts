@@ -6,6 +6,8 @@ export class PlayerAudio {
   private activeIntervalMs = 0;
   private breathMuted = false;
   private currentBreathLoad = 0;
+  private lastBreathLoad = 0;
+  private nextBreathCatchAt = 0;
 
   constructor() {
     this.breathLayer = AudioEngine.createBreathLayer();
@@ -23,8 +25,22 @@ export class PlayerAudio {
   setBreathMuted(muted: boolean): void { this.breathMuted = muted; }
 
   updateBreath(breathLoad: number): void {
+    const now = performance.now();
     this.currentBreathLoad = breathLoad;
     this.breathLayer.setLoad(this.breathMuted ? 0 : breathLoad);
+
+    if (!this.breathMuted && breathLoad > 0.68 && now >= this.nextBreathCatchAt) {
+      const intensity = Math.min(1, (breathLoad - 0.55) / 0.45);
+      AudioEngine.playBreathCatch(-24 + intensity * 5, intensity);
+      this.nextBreathCatchAt = now + 2300 - intensity * 850 + Math.random() * 450;
+    }
+
+    if (!this.breathMuted && this.lastBreathLoad < 0.94 && breathLoad >= 0.94) {
+      AudioEngine.playBreathCatch(-17, 1);
+      this.nextBreathCatchAt = now + 1400;
+    }
+
+    this.lastBreathLoad = breathLoad;
   }
 
   updateFootsteps(speed: number): void {

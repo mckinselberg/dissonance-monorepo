@@ -5,6 +5,7 @@ export class DestinationSystem {
   readonly position: Vector3;
   private audio: DestinationAudio;
   private readonly maxAudibleDistance = 180;
+  private readonly visibleDistance = 58;
   private reached = false;
 
   constructor(position: Vector3) {
@@ -41,6 +42,14 @@ export class DestinationSystem {
 
   stop(): void {
     this.audio.stop();
+  }
+
+  chirpOnce(): void {
+    this.audio.chirpOnce();
+  }
+
+  isVisibleFrom(playerPos: Vector3): boolean {
+    return this.getDistance(playerPos) <= this.visibleDistance;
   }
 
   dispose(): void {

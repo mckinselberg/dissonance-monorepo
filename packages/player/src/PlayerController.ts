@@ -9,6 +9,14 @@ const STAND_HEIGHT = 1.7;
 const CROUCH_HEIGHT = 0.9;
 const PLAYER_RADIUS = 0.38;
 
+export type FlashlightTuning = {
+  intensity: number;
+  range: number;
+  angle: number;
+  exponent: number;
+  color: { r: number; g: number; b: number };
+};
+
 export class PlayerController {
   readonly camera: FreeCamera;
   readonly breath: BreathSystem;
@@ -21,6 +29,9 @@ export class PlayerController {
   private mouseDeltaX = 0;
   private mouseDeltaY = 0;
   private isPointerLocked = false;
+  private flashlightEnabled = false;
+  private flashlightIntensity = 2.8;
+  private sprintLocked = false;
   private currentSpeed = 0;
   private shakeTime = 0;
   private eyeHeight = STAND_HEIGHT;
@@ -59,7 +70,17 @@ export class PlayerController {
 
   // Intensity-based toggle is more reliable than setEnabled() across BabylonJS versions.
   setFlashlightEnabled(enabled: boolean): void {
-    this.flashlight.intensity = enabled ? 2.8 : 0;
+    this.flashlightEnabled = enabled;
+    this.flashlight.intensity = enabled ? this.flashlightIntensity : 0;
+  }
+
+  setFlashlightTuning(tuning: FlashlightTuning): void {
+    this.flashlightIntensity = tuning.intensity;
+    this.flashlight.range = tuning.range;
+    this.flashlight.angle = tuning.angle;
+    this.flashlight.exponent = tuning.exponent;
+    this.flashlight.diffuse = new Color3(tuning.color.r, tuning.color.g, tuning.color.b);
+    if (this.flashlightEnabled) this.flashlight.intensity = this.flashlightIntensity;
   }
 
   // Cone + range test against the flashlight — same relative-angle math
@@ -74,6 +95,26 @@ export class PlayerController {
     const cosAngle = Vector3.Dot(dir, toPoint.normalize());
     // Use full half-angle (not half of it) — detection fills the entire visible cone.
     return cosAngle > Math.cos(this.flashlight.angle);
+  }
+
+  getFlashlightPressure(point: Vector3): number {
+    if (this.flashlight.intensity <= 0) return 0;
+    const toPoint = point.subtract(this.camera.position);
+    const dist = toPoint.length();
+    if (dist < 0.001 || dist > this.flashlight.range) return 0;
+
+    const dir = this.camera.getDirection(Vector3.Forward());
+    const cosAngle = Vector3.Dot(dir, toPoint.normalize());
+    const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+    const inner = this.flashlight.angle;
+    const outer = inner * 1.65;
+    if (angle >= outer) return 0;
+
+    const conePressure = angle <= inner
+      ? 1
+      : 1 - (angle - inner) / (outer - inner);
+    const rangePressure = 1 - Math.min(0.45, dist / this.flashlight.range * 0.45);
+    return Math.max(0, Math.min(1, conePressure * rangePressure));
   }
 
   setTerrain(terrain: Terrain): void {
@@ -127,7 +168,10 @@ export class PlayerController {
     }
 
     this.isCrouching = !!(this.keys['ControlLeft'] || this.keys['ControlRight']);
-    const isSprinting = !this.isCrouching && !!(this.keys['ShiftLeft'] || this.keys['ShiftRight']);
+    const breathLoad = this.breath.getLoad();
+    if (breathLoad > 0.94) this.sprintLocked = true;
+    if (breathLoad < 0.55) this.sprintLocked = false;
+    const isSprinting = !this.isCrouching && !this.sprintLocked && !!(this.keys['ShiftLeft'] || this.keys['ShiftRight']);
     const isMoving = !!(this.keys['KeyW'] || this.keys['KeyS'] || this.keys['KeyA'] || this.keys['KeyD']);
 
     let targetSpeed = 0;
@@ -172,7 +216,7 @@ export class PlayerController {
     this.camera.position.y = groundY + this.eyeHeight;
 
     this.shakeTime += dt * 3.0;
-    const shakeMag = this.adrenaline.getShakeMagnitude() + this.breath.getLoad() * 0.004;
+    const shakeMag = this.adrenaline.getShakeMagnitude() * 0.72 + this.breath.getLoad() * 0.0025;
     if (shakeMag > 0.001) {
       const nx = Math.sin(this.shakeTime * 1.7) * Math.sin(this.shakeTime * 2.3);
       const ny = Math.sin(this.shakeTime * 1.3) * Math.sin(this.shakeTime * 3.1);
@@ -228,6 +272,7 @@ export class PlayerController {
     this.breath.reset();
     this.adrenaline.reset();
     this.currentSpeed = 0;
+    this.sprintLocked = false;
     this.isCrouching = false;
     this.eyeHeight = STAND_HEIGHT;
     this.keys = {};

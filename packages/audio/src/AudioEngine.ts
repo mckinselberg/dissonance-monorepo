@@ -230,6 +230,49 @@ export class AudioEngine {
     }, 600);
   }
 
+  static playPursuerGrowl(panValue: number = 0, volumeDb: number = -18, intensity: number = 0.5): void {
+    const panner = new Tone.Panner(panValue);
+    panner.toDestination();
+
+    const baseFreq = 42 + Math.random() * 18;
+    const osc = new Tone.Oscillator(baseFreq, 'sawtooth');
+    const sub = new Tone.Oscillator(baseFreq * 0.5, 'triangle');
+    const noise = new Tone.Noise('brown');
+    const filter = new Tone.Filter(120 + intensity * 180, 'lowpass');
+    (filter as unknown as { Q: { value: number } }).Q.value = 3.2;
+    const env = new Tone.AmplitudeEnvelope({
+      attack: 0.04,
+      decay: 0.26 + intensity * 0.20,
+      sustain: 0.18,
+      release: 0.24 + intensity * 0.20,
+    });
+    const gain = new Tone.Gain(Tone.dbToGain(volumeDb));
+    const noiseGain = new Tone.Gain(Tone.dbToGain(volumeDb - 7));
+
+    osc.connect(filter);
+    sub.connect(filter);
+    filter.connect(env);
+    env.connect(gain);
+    gain.connect(panner);
+
+    noise.connect(noiseGain);
+    noiseGain.connect(filter);
+
+    osc.start();
+    sub.start();
+    noise.start();
+    osc.frequency.rampTo(baseFreq * (0.72 + Math.random() * 0.15), 0.28);
+    sub.frequency.rampTo(baseFreq * 0.42, 0.28);
+    env.triggerAttackRelease(0.42 + intensity * 0.28);
+
+    setTimeout(() => {
+      osc.stop(); osc.dispose();
+      sub.stop(); sub.dispose();
+      noise.stop(); noise.dispose();
+      filter.dispose(); env.dispose(); gain.dispose(); noiseGain.dispose(); panner.dispose();
+    }, 1200);
+  }
+
   // Short directional rustle for when the player brushes past a tree at jog/sprint.
   // Crisper onset than playLeafRustle (which is slower and more ambient).
   static playProximityRustle(panValue: number = 0): void {
@@ -253,6 +296,35 @@ export class AudioEngine {
       noise.stop(); noise.dispose();
       filter.dispose(); env.dispose(); gain.dispose(); panner.dispose();
     }, 800);
+  }
+
+  static playBreathCatch(volumeDb: number = -20, intensity: number = 0.7): void {
+    const noise = new Tone.Noise('pink');
+    const filter = new Tone.Filter(520 + intensity * 520, 'bandpass');
+    (filter as unknown as { Q: { value: number } }).Q.value = 1.1 + intensity * 0.8;
+    const env = new Tone.AmplitudeEnvelope({
+      attack: 0.018,
+      decay: 0.18 + intensity * 0.08,
+      sustain: 0.05,
+      release: 0.16 + intensity * 0.10,
+    });
+    const gain = new Tone.Gain(Tone.dbToGain(volumeDb + intensity * 3));
+
+    noise.connect(filter);
+    filter.connect(env);
+    env.connect(gain);
+    gain.toDestination();
+
+    noise.start();
+    env.triggerAttackRelease(0.18 + intensity * 0.12);
+
+    setTimeout(() => {
+      noise.stop();
+      noise.dispose();
+      filter.dispose();
+      env.dispose();
+      gain.dispose();
+    }, 700);
   }
 
   static createBreathLayer(): {
@@ -287,10 +359,11 @@ export class AudioEngine {
         running = false;
       },
       setLoad(load: number) {
-        const breathRate = 0.18 + load * 0.55;
-        lfo.frequency.rampTo(breathRate, 1.0);
-        lfoGain.gain.rampTo(load * 0.18, 0.8);
-        filter.frequency.rampTo(400 + load * 400, 1.0);
+        const effort = Math.pow(Math.max(0, Math.min(1, load)), 1.55);
+        const breathRate = 0.18 + effort * 1.05;
+        lfo.frequency.rampTo(breathRate, 0.6);
+        lfoGain.gain.rampTo(effort * 0.23, 0.45);
+        filter.frequency.rampTo(360 + effort * 680, 0.65);
       },
     };
   }
