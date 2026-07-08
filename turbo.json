@@ -11,6 +11,9 @@
     },
     "preview": {
       "dependsOn": ["build"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
     }
   }
 }
