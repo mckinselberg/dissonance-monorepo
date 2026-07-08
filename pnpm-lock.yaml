@@ -64,6 +64,28 @@ importers:
         specifier: ^5.2.0
         version: 5.4.21
 
+  apps/trail-viewer:
+    dependencies:
+      '@babylonjs/core':
+        specifier: ^7.0.0
+        version: 7.54.3
+      '@dissonance/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@dissonance/geo':
+        specifier: workspace:*
+        version: link:../../packages/geo
+      '@dissonance/world':
+        specifier: workspace:*
+        version: link:../../packages/world
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vite:
+        specifier: ^5.2.0
+        version: 5.4.21
+
   packages/audio:
     dependencies:
       '@dissonance/shared-types':
@@ -150,6 +172,9 @@ importers:
       '@babylonjs/materials':
         specifier: ^7.0.0
         version: 7.54.3(@babylonjs/core@7.54.3)
+      '@dissonance/geo':
+        specifier: workspace:*
+        version: link:../geo
       '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../shared-types

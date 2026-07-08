@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@dissonance/engine": ["../../packages/engine/src/index.ts"],
+      "@dissonance/world": ["../../packages/world/src/index.ts"],
+      "@dissonance/geo": ["../../packages/geo/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

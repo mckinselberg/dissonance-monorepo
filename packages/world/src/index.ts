@@ -1,4 +1,7 @@
 export { Terrain } from './Terrain';
+export type { ITerrain } from './ITerrain';
+export type { HeightmapTerrainOptions } from './HeightmapTerrain';
+export { HeightmapTerrain } from './HeightmapTerrain';
 export type { Collider } from './ForestGenerator';
 export { ForestGenerator } from './ForestGenerator';
 export { DaylightSystem } from './DaylightSystem';
