@@ -14,6 +14,9 @@
       }
       #ui label { display: block; cursor: pointer; }
       #readout { margin-top: 8px; white-space: pre; }
+      #level-label { margin-top: 8px; font-weight: bold; }
+      #level-links a { color: #9cf; margin-right: 8px; }
+      #level-links a.active { color: #fff; text-decoration: none; font-weight: bold; }
     </style>
   </head>
   <body>
@@ -22,8 +25,17 @@
       <label><input type="checkbox" id="toggle-terrain" checked /> Terrain</label>
       <label><input type="checkbox" id="toggle-osm" checked /> OSM Trails</label>
       <label><input type="checkbox" id="toggle-gpx" checked /> GPX Track</label>
+      <div id="level-links">Level: <a href="?level=1">1</a> <a href="?level=2">2</a> <a href="?level=3">3 (orbit)</a></div>
+      <div id="level-label"></div>
       <div id="readout">loading...</div>
     </div>
+    <script>
+      // Highlight the active level link based on the current query param.
+      const activeLevel = new URLSearchParams(location.search).get('level') ?? '1';
+      document.querySelectorAll('#level-links a').forEach((a) => {
+        if (a.getAttribute('href') === `?level=${activeLevel}`) a.classList.add('active');
+      });
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

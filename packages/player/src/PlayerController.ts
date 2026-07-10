@@ -2,12 +2,25 @@ import { Vector3, FreeCamera, Scene, SpotLight, Color3 } from '@babylonjs/core';
 import { PLAYER_CONFIG } from './defaults';
 import { BreathSystem } from './BreathSystem';
 import { AdrenalineSystem } from './AdrenalineSystem';
-import type { Terrain } from '@dissonance/world';
+import type { ITerrain } from '@dissonance/world';
 import type { Collider } from '@dissonance/world';
 
 const STAND_HEIGHT = 1.7;
 const CROUCH_HEIGHT = 0.9;
 const PLAYER_RADIUS = 0.38;
+
+export type PlayerControllerOptions = {
+  // Uniform multiplier on the player's own physical size (eye height,
+  // crouch height, collision radius) — not on movement speed. Lets a
+  // scene shrink/grow the player relative to a world whose own geometry
+  // was scaled independently (see HeightmapTerrain's horizontalScale/
+  // verticalExaggeration), without touching DTA's own default (scale: 1).
+  scale?: number;
+  // Babylon's Camera.maxZ (far clip plane) defaults to 10000 — fine for
+  // DTA's ~800-unit world, but far too short for a scene whose geometry
+  // has been scaled up past that (distant terrain just isn't drawn).
+  farClip?: number;
+};
 
 export type FlashlightTuning = {
   intensity: number;
@@ -34,18 +47,29 @@ export class PlayerController {
   private sprintLocked = false;
   private currentSpeed = 0;
   private shakeTime = 0;
-  private eyeHeight = STAND_HEIGHT;
+  private eyeHeight: number;
 
-  private terrain: Terrain | null = null;
+  private readonly standHeight: number;
+  private readonly crouchHeight: number;
+  private readonly playerRadius: number;
+
+  private terrain: ITerrain | null = null;
   private colliders: Collider[] = [];
   private worldBoundaryRadius: number | null = null;
 
-  constructor(scene: Scene, startPosition: Vector3) {
+  constructor(scene: Scene, startPosition: Vector3, options: PlayerControllerOptions = {}) {
+    const scale = options.scale ?? 1;
+    this.standHeight = STAND_HEIGHT * scale;
+    this.crouchHeight = CROUCH_HEIGHT * scale;
+    this.playerRadius = PLAYER_RADIUS * scale;
+    this.eyeHeight = this.standHeight;
+
     this.breath = new BreathSystem();
     this.adrenaline = new AdrenalineSystem();
 
     this.camera = new FreeCamera('playerCam', startPosition, scene);
     this.camera.minZ = 0.1;
+    this.camera.maxZ = options.farClip ?? 10000;
     this.camera.fov = 1.05;
     this.camera.rotation = Vector3.Zero();
 
@@ -117,7 +141,7 @@ export class PlayerController {
     return Math.max(0, Math.min(1, conePressure * rangePressure));
   }
 
-  setTerrain(terrain: Terrain): void {
+  setTerrain(terrain: ITerrain): void {
     this.terrain = terrain;
   }
 
@@ -209,7 +233,7 @@ export class PlayerController {
       }
     }
 
-    const targetEye = this.isCrouching ? CROUCH_HEIGHT : STAND_HEIGHT;
+    const targetEye = this.isCrouching ? this.crouchHeight : this.standHeight;
     this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 10);
 
     const groundY = this.terrain?.getHeightAt(this.camera.position.x, this.camera.position.z) ?? 0;
@@ -254,7 +278,7 @@ export class PlayerController {
     for (const c of this.colliders) {
       const dx = x - c.x;
       const dz = z - c.z;
-      const r = c.radius + PLAYER_RADIUS;
+      const r = c.radius + this.playerRadius;
       if (dx * dx + dz * dz < r * r) return true;
     }
     return false;
@@ -274,7 +298,7 @@ export class PlayerController {
     this.currentSpeed = 0;
     this.sprintLocked = false;
     this.isCrouching = false;
-    this.eyeHeight = STAND_HEIGHT;
+    this.eyeHeight = this.standHeight;
     this.keys = {};
   }
 }

@@ -75,6 +75,9 @@ importers:
       '@dissonance/geo':
         specifier: workspace:*
         version: link:../../packages/geo
+      '@dissonance/player':
+        specifier: workspace:*
+        version: link:../../packages/player
       '@dissonance/world':
         specifier: workspace:*
         version: link:../../packages/world

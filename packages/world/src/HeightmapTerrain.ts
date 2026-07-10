@@ -18,7 +18,17 @@ export type HeightmapTerrainOptions = {
   gridResolution?: number;
   // Real-world relief (e.g. SMR's ~120m over ~5.5km) reads as nearly flat
   // at typical game camera distances. 1.0 = true scale.
+  //
+  // verticalExaggeration alone (horizontalScale left at 1) distorts real
+  // slope angles — it stretches the terrain's Y axis without touching X/Z,
+  // so a real 6-degree hillside can become a 45+ degree wall. Setting
+  // horizontalScale equal to verticalExaggeration instead grows the whole
+  // world uniformly (true slopes preserved, nothing gets steeper) — combine
+  // that with PlayerController's own independent `scale` option to make the
+  // *player* relatively smaller/slower against the enlarged world instead.
   verticalExaggeration?: number;
+  // Uniform scale on X/Z only. 1.0 = true scale (1 world unit = 1 meter).
+  horizontalScale?: number;
 };
 
 const DEFAULT_GRID_RESOLUTION = 128;
@@ -36,6 +46,7 @@ export class HeightmapTerrain implements ITerrain {
   private readonly ground: Mesh;
   private readonly sampler: HeightmapSampler;
   private readonly verticalExaggeration: number;
+  private readonly horizontalScale: number;
 
   constructor(
     scene: Scene,
@@ -46,11 +57,17 @@ export class HeightmapTerrain implements ITerrain {
   ) {
     this.sampler = sampler;
     this.verticalExaggeration = options.verticalExaggeration ?? 1.0;
+    this.horizontalScale = options.horizontalScale ?? 1.0;
     this.ground = this.buildMesh(scene, contract, origin, options.gridResolution ?? DEFAULT_GRID_RESOLUTION);
   }
 
+  // x, z are in this terrain's *rendered* world space — i.e. already
+  // multiplied by horizontalScale, same space the mesh and a camera moving
+  // through the scene both live in. Divide back out to find the real DEM
+  // location before sampling.
   getHeightAt(x: number, z: number): number {
-    return this.sampler.sampleHeight({ x, z }) * this.verticalExaggeration;
+    const real = { x: x / this.horizontalScale, z: z / this.horizontalScale };
+    return this.sampler.sampleHeight(real) * this.verticalExaggeration;
   }
 
   private buildMesh(scene: Scene, contract: HeightmapContract, origin: UtmCoordinate, gridResolution: number): Mesh {
@@ -62,24 +79,32 @@ export class HeightmapTerrain implements ITerrain {
     const centerX = (worldMin.x + worldMax.x) / 2;
     const centerZ = (worldMin.z + worldMax.z) / 2;
 
+    // Built at true (unscaled) size/position so the vertex loop below can
+    // sample the DEM in real coordinates; rendered scale is applied after,
+    // to the mesh root and each vertex's X/Z, once sampling is done.
     const ground = MeshBuilder.CreateGround('heightmapTerrain', {
       width,
       height: depth,
       subdivisions: gridResolution,
       updatable: true,
     }, scene);
-    ground.position.x = centerX;
-    ground.position.z = centerZ;
+    ground.position.x = centerX * this.horizontalScale;
+    ground.position.z = centerZ * this.horizontalScale;
 
     const positions = ground.getVerticesData(VertexBuffer.PositionKind) as Float32Array;
     const colors: number[] = [];
     const elevationRange = elevation.max - elevation.min;
 
     for (let i = 0; i < positions.length; i += 3) {
+      // Real (unscaled) world position — sample the DEM here, before
+      // positions[i]/[i+2] get overwritten with their rendered (scaled) values.
       const worldX = positions[i] + centerX;
       const worldZ = positions[i + 2] + centerZ;
       const rawElevation = this.sampler.sampleHeight({ x: worldX, z: worldZ });
+
+      positions[i] *= this.horizontalScale;
       positions[i + 1] = rawElevation * this.verticalExaggeration;
+      positions[i + 2] *= this.horizontalScale;
 
       const t = elevationRange > 0 ? clamp01((rawElevation - elevation.min) / elevationRange) : 0;
       colors.push(
