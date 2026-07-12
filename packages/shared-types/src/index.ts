@@ -15,6 +15,12 @@ export interface ExperienceProfile {
   audioLoFiAmount: number;
   fogColor: { r: number; g: number; b: number };
   skyColor: { r: number; g: number; b: number };
+  // Selects between the original tuned look ('genesis') and the overcast
+  // forest color/lighting pass from docs/dissonance-forest-color-handoff.md
+  // ('overcast'). Only consulted by modes that have an overcast variant
+  // wired up (currently ps3 only) — omit or set 'genesis' to keep a mode's
+  // original values untouched.
+  lookVariant?: 'genesis' | 'overcast';
 }
 
 export interface RunProfile {

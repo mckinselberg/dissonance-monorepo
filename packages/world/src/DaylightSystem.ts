@@ -35,6 +35,13 @@ export class DaylightSystem {
     this.shadowGenerator.usePercentageCloserFiltering = true;
     this.shadowGenerator.bias = 0.002;
 
+    // Overcast reference (docs/dissonance-forest-color-handoff.md) has
+    // almost no hard shadows — lift instead of switching shadow techniques,
+    // so this stays cheap. Genesis/night keep full-strength shadows.
+    if (expProfile.mode === 'ps3' && expProfile.lookVariant === 'overcast' && !this.isNight) {
+      this.shadowGenerator.darkness = 0.3;
+    }
+
     // Every registered caster (trees, rocks — over a thousand at full
     // forest scale) is static once placed, and the sun's *direction* never
     // changes (only its color/intensity over time) — so the shadow map's
@@ -53,7 +60,19 @@ export class DaylightSystem {
       this.ambient.diffuse = new Color3(0.10, 0.16, 0.24);
       this.ambient.groundColor = new Color3(0.02, 0.03, 0.02);
       this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 0.7;
+    } else if (expProfile.mode === 'ps3' && expProfile.lookVariant === 'overcast') {
+      // Overcast bounce rig (docs/dissonance-forest-color-handoff.md) — no
+      // visible sun direction; everything lit by sky + a green-contaminated
+      // ground bounce instead of a warm directional key. The genesis ps3
+      // golden-hour rig below is preserved and still selectable via
+      // expProfile.lookVariant === 'genesis'.
+      this.sun.diffuse = new Color3(0.92, 0.94, 0.92);
+      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 1.9;
+      this.ambient.diffuse = new Color3(0.87, 0.91, 0.89);
+      this.ambient.groundColor = new Color3(0.36, 0.42, 0.25);
+      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 2.7;
     } else if (expProfile.mode === 'ps3') {
+      // Genesis — original warm golden-hour ps3 rig.
       this.sun.diffuse = new Color3(1.0, 0.76, 0.48);
       this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 7.2;
       this.ambient.diffuse = new Color3(0.24, 0.34, 0.50);
@@ -99,6 +118,18 @@ export class DaylightSystem {
         0.30 + warmth * 0.25,
         0.36 + warmth * 0.26,
         0.55 + warmth * 0.30,
+      );
+    } else if (expProfile.mode === 'ps3' && expProfile.lookVariant === 'overcast') {
+      this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 1.9;
+      this.ambient.intensity = this.lightLevel * expProfile.ambientIntensity * 2.7;
+      // Stays in the cool overcast family throughout — dims toward dusk
+      // rather than warming toward gold, matching the reference's "no
+      // visible sun direction" read. warmth=1 matches the constructor's
+      // initial (0.92, 0.94, 0.92) exactly, for continuity at run start.
+      this.sun.diffuse = new Color3(
+        0.55 + warmth * 0.37,
+        0.60 + warmth * 0.34,
+        0.55 + warmth * 0.37,
       );
     } else if (expProfile.mode === 'ps3') {
       this.sun.intensity = this.lightLevel * expProfile.ambientIntensity * 7.2;

@@ -11,10 +11,23 @@ import {
   SSAO2RenderingPipeline,
   MotionBlurPostProcess,
   ColorCurves,
+  ImageProcessingConfiguration,
   Vector3,
   Mesh,
 } from '@babylonjs/core';
 import type { ExperienceProfile, RunProfile } from '@dissonance/shared-types';
+
+// Overcast forest fog retint (docs/dissonance-forest-color-handoff.md,
+// section 4) — grey-green so distance dissolves into "more forest" rather
+// than atmospheric blue/brown. Only used when expProfile.lookVariant ===
+// 'overcast'; genesis fog values (in experienceProfiles.ts and below) are
+// untouched and still selectable by leaving lookVariant unset/'genesis'.
+const PS3_OVERCAST_FOG = new Color3(0.62, 0.70, 0.60);
+const PS3_OVERCAST_FOG_DUSK = new Color3(0.34, 0.38, 0.33);
+
+function isOvercast(expProfile?: ExperienceProfile): boolean {
+  return expProfile?.mode === 'ps3' && expProfile?.lookVariant === 'overcast';
+}
 
 export class SceneFactory {
   static create(
@@ -48,6 +61,8 @@ export class SceneFactory {
     scene.fogDensity = expProfile.fogDensity;
     scene.fogColor = isNight
       ? new Color3(0.14, 0.14, 0.15)
+      : isOvercast(expProfile)
+      ? PS3_OVERCAST_FOG
       : new Color3(fog.r, fog.g, fog.b);
     scene.fogStart = 2;
     scene.fogEnd = expProfile.drawDistance;
@@ -74,6 +89,15 @@ export class SceneFactory {
 
     const mat = new StandardMaterial('skyDomeMat', scene);
     mat.disableLighting = true;
+    // With disableLighting on, StandardMaterial's finalDiffuse is
+    // clamp(emissiveColor + vAmbientColor) * vertexColor — with emissiveColor
+    // and ambientColor both left at their default black, that clamp is
+    // always zero regardless of the gradient painted below, so the dome has
+    // been rendering solid black in every mode. White emissive makes the
+    // vertex-color gradient itself the final output, independent of scene
+    // lighting (the intent — the sky shouldn't dim/tint with the ambient
+    // light that drives ground-level time-of-day).
+    mat.emissiveColor = Color3.White();
     mat.backFaceCulling = false;
     dome.material = mat;
 
@@ -127,6 +151,9 @@ export class SceneFactory {
     // blend into the dome instead of showing a seam.
     const hazeMat = new StandardMaterial('ps3HorizonHazeMat', scene);
     hazeMat.disableLighting = true;
+    // Same fix as skyDomeMat above — without this the vertex-color gradient
+    // set below is multiplied by zero and the haze band is invisible.
+    hazeMat.emissiveColor = Color3.White();
     hazeMat.backFaceCulling = false;
     // Just under 1 so the per-vertex alpha below actually drives blending
     // instead of being ignored as fully opaque.
@@ -252,12 +279,16 @@ export class SceneFactory {
   ): { motionBlur: MotionBlurPostProcess; ssao: SSAO2RenderingPipeline; pipeline: DefaultRenderingPipeline } {
     const ps2 = expProfile?.mode === 'ps2';
     const ps3 = expProfile?.mode === 'ps3';
+    const overcast = isOvercast(expProfile);
     const ssao = new SSAO2RenderingPipeline('ssao', scene, {
       ssaoRatio: ps3 ? 0.8 : ps2 ? 0.65 : 0.5,
       blurRatio: ps3 ? 0.65 : 0.5,
     }, [camera]);
-    ssao.totalStrength = ps3 ? 0.72 : ps2 ? 0.55 : 0.35;
-    ssao.radius = ps3 ? 3.6 : ps2 ? 2.8 : 2;
+    // Overcast wants SSAO to read as contact darkening at leaf-litter/log
+    // bases, not a global dirt pass — smaller radius, slightly higher
+    // strength than genesis ps3.
+    ssao.totalStrength = overcast ? 0.85 : ps3 ? 0.72 : ps2 ? 0.55 : 0.35;
+    ssao.radius = overcast ? 1.8 : ps3 ? 3.6 : ps2 ? 2.8 : 2;
     ssao.base = 0.2;
     ssao.samples = ps3 ? 16 : ps2 ? 12 : 8;
 
@@ -274,12 +305,24 @@ export class SceneFactory {
     pipeline.grain.animated = true;
 
     pipeline.imageProcessingEnabled = true;
-    pipeline.imageProcessing.contrast = ps3 ? 1.18 : ps2 ? 1.12 : 1.0;
-    pipeline.imageProcessing.exposure = ps3 ? 1.02 : ps2 ? 0.95 : 1.0;
+    // Overcast wants lifted shadows (contrast below 1) and a brighter,
+    // desaturated-then-boosted read — the opposite direction from genesis
+    // ps3's punchier golden-hour grade.
+    pipeline.imageProcessing.contrast = overcast ? 0.9 : ps3 ? 1.18 : ps2 ? 1.12 : 1.0;
+    pipeline.imageProcessing.exposure = overcast ? 1.15 : ps3 ? 1.02 : ps2 ? 0.95 : 1.0;
+    pipeline.imageProcessing.toneMappingEnabled = overcast;
+    if (overcast) pipeline.imageProcessing.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_ACES;
     pipeline.imageProcessing.colorCurvesEnabled = true;
     const curves = new ColorCurves();
-    curves.globalSaturation = ps3 ? -6 : ps2 ? -14 : -8;
+    curves.globalSaturation = overcast ? 15 : ps3 ? -6 : ps2 ? -14 : -8;
     curves.globalDensity = ps3 ? 5 : ps2 ? 8 : 4;
+    if (overcast) {
+      // Shadow tint toward green-teal — highlights stay neutral so only
+      // the darker end of the range reads as "under canopy."
+      curves.shadowsHue = 150;
+      curves.shadowsSaturation = 12;
+      curves.shadowsDensity = 8;
+    }
     pipeline.imageProcessing.colorCurves = curves;
 
     const motionBlur = new MotionBlurPostProcess('motionBlur', scene, 0, camera);
@@ -299,10 +342,11 @@ export class SceneFactory {
     const windFog = weatherMask * (ps3 ? 0.010 : 0.015);
     scene.fogDensity = baseDensity + nightFog + windFog;
 
+    const overcast = isOvercast(expProfile);
     if (ps3 && runProfile?.departureTime === 'afternoon') {
-      scene.fogColor = new Color3(0.24, 0.21, 0.16);
+      scene.fogColor = overcast ? PS3_OVERCAST_FOG : new Color3(0.24, 0.21, 0.16);
     } else if (ps3 && runProfile?.departureTime === 'dusk') {
-      scene.fogColor = new Color3(0.13, 0.12, 0.13);
+      scene.fogColor = overcast ? PS3_OVERCAST_FOG_DUSK : new Color3(0.13, 0.12, 0.13);
     }
   }
 }

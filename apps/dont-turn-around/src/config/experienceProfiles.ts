@@ -47,7 +47,13 @@ export const EXPERIENCE_PROFILES: Record<ExperienceMode, ExperienceProfile> = {
     ambientIntensity: 0.26,
     visualNoise: 0.0,
     audioLoFiAmount: 0.02,
+    // Genesis fogColor — kept as-is; the overcast look-dev pass
+    // (docs/dissonance-forest-color-handoff.md) overrides fog/lighting/
+    // grading/palette at the consumption sites when lookVariant is
+    // 'overcast', so this value stays available if lookVariant is ever
+    // set back to 'genesis'.
     fogColor: { r: 0.15, g: 0.16, b: 0.14 },
     skyColor: { r: 0.16, g: 0.18, b: 0.24 },
+    lookVariant: 'overcast',
   },
 };

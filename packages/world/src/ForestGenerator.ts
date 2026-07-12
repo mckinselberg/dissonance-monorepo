@@ -20,6 +20,7 @@ import type { WorldPosition } from '@dissonance/shared-types';
 import type { Terrain } from './Terrain';
 import { RIVER_POINTS } from './Terrain';
 import { displaceToBlob, displaceRadial } from './noise';
+import { FOREST_PALETTE, buildJitteredColorBuffer, jitterFamily, jitterHsv, hueShift, scaleValue } from './palette';
 
 const TRAIL_DIR = new Vector3(-0.65, 0, -0.76).normalize();
 const TRAIL_LENGTH = 90;
@@ -198,6 +199,16 @@ export class ForestGenerator {
     );
   }
 
+  // Overcast look-dev pass (docs/dissonance-forest-color-handoff.md) wants
+  // canopy jitter done in HSV space against the named hue family rather
+  // than the genesis RGB-space jitterColor above. Falls back to jitterColor
+  // whenever overcast is false, so genesis output is byte-for-byte unchanged.
+  private jitterCanopy(base: Color3, overcast: boolean): Color3 {
+    if (!overcast) return this.jitterColor(base);
+    const f = FOREST_PALETTE.canopyWarm;
+    return jitterHsv(base, f.hueJitterDeg, f.satJitter, f.valueJitter);
+  }
+
   private makeWindMat(name: string, albedo: Color3, roughness: number, scene: Scene): PBRMaterial {
     const mat = new PBRMaterial(name, scene);
     mat.albedoColor = albedo;
@@ -216,6 +227,7 @@ export class ForestGenerator {
     const ps1 = profile.mode === 'ps1';
     const ps2 = profile.mode === 'ps2';
     const ps3 = profile.mode === 'ps3';
+    const overcast = ps3 && profile.lookVariant === 'overcast';
     const height = 4 + Math.random() * 18;
     const baseRad = 0.12 + Math.random() * 0.22;
     const topRad = baseRad * 0.75;
@@ -224,7 +236,12 @@ export class ForestGenerator {
     const parts: Mesh[] = [];
 
     const trunkMat = new PBRMaterial(`treeTrunkMat_${id}`, scene);
-    trunkMat.albedoColor = this.jitterColor(ps3 ? new Color3(0.12, 0.065, 0.028) : new Color3(0.06, 0.03, 0.01));
+    // Genesis bark stays dark brown-black (jittered in RGB space, as before).
+    // Overcast bark leans toward the doc's grey-brown family, HSV-jittered —
+    // "nothing crushed to black" per the reference's lifted-shadow read.
+    trunkMat.albedoColor = overcast
+      ? jitterFamily(FOREST_PALETTE.barkGreyBrown)
+      : this.jitterColor(ps3 ? new Color3(0.12, 0.065, 0.028) : new Color3(0.06, 0.03, 0.01));
     trunkMat.metallic = 0;
     trunkMat.roughness = 0.95;
 
@@ -288,7 +305,13 @@ export class ForestGenerator {
     const apexY = height;
 
     if (isConifer) {
-      const baseConiferColor = ps3
+      // Genesis ps3 conifer stays its own hand-tuned dark green. Overcast
+      // derives from canopyWarm rotated cooler (conifers read bluer than
+      // deciduous canopy) — the doc's palette doesn't name a separate
+      // conifer family, so this is an extrapolation, not a literal value.
+      const baseConiferColor = overcast
+        ? scaleValue(hueShift(FOREST_PALETTE.canopyWarm.base, -42), shadeFactor)
+        : ps3
         ? new Color3(0.035, 0.36 * shadeFactor, 0.075 * shadeFactor)
         : new Color3(0.06, 0.75 * shadeFactor, 0.16 * shadeFactor);
 
@@ -317,14 +340,16 @@ export class ForestGenerator {
         const oz = (Math.random() - 0.5) * tierBottomDiam * 0.15;
         tier.position.set(ox, cursorY - tierHeight / 2, oz);
         tier.rotation.y = Math.random() * Math.PI * 2;
-        tier.material = this.makeWindMat(`treeConiferMat_${id}_${t}`, this.jitterColor(baseConiferColor), 0.7, scene);
+        tier.material = this.makeWindMat(`treeConiferMat_${id}_${t}`, this.jitterCanopy(baseConiferColor, overcast), 0.7, scene);
         if (ps1) tier.convertToFlatShadedMesh();
         parts.push(tier);
 
         cursorY -= tierHeight * (1 + gapFrac);
       }
     } else {
-      const baseDeciduousColor = ps3
+      const baseDeciduousColor = overcast
+        ? scaleValue(FOREST_PALETTE.canopyWarm.base, shadeFactor)
+        : ps3
         ? new Color3(0.055, 0.40 * shadeFactor, 0.085 * shadeFactor)
         : new Color3(0.08, 0.72 * shadeFactor, 0.14 * shadeFactor);
 
@@ -344,7 +369,7 @@ export class ForestGenerator {
       );
       dome.position.set(0, height - canopyWidth * 0.12, 0);
       dome.rotation.y = Math.random() * Math.PI * 2;
-      dome.material = this.makeWindMat(`treeDeciduousMat_${id}_dome`, this.jitterColor(baseDeciduousColor), 0.6, scene);
+      dome.material = this.makeWindMat(`treeDeciduousMat_${id}_dome`, this.jitterCanopy(baseDeciduousColor, overcast), 0.6, scene);
       if (ps1) dome.convertToFlatShadedMesh();
       parts.push(dome);
 
@@ -366,7 +391,7 @@ export class ForestGenerator {
         );
         clump.position.set(ox, height - canopyWidth * 0.12 + oy, oz);
         clump.rotation.y = Math.random() * Math.PI * 2;
-        clump.material = this.makeWindMat(`treeDeciduousMat_${id}_${c}`, this.jitterColor(baseDeciduousColor), 0.6, scene);
+        clump.material = this.makeWindMat(`treeDeciduousMat_${id}_${c}`, this.jitterCanopy(baseDeciduousColor, overcast), 0.6, scene);
         if (ps1) clump.convertToFlatShadedMesh();
         parts.push(clump);
       }
@@ -554,8 +579,17 @@ export class ForestGenerator {
   // mesh per shrub (160-220 individual draw calls) for a shape that never
   // varied beyond size/rotation.
   private buildUnderbrush(scene: Scene, profile: ExperienceProfile): void {
+    const ps1 = profile.mode === 'ps1';
+    const ps2 = profile.mode === 'ps2';
+    const ps3 = profile.mode === 'ps3';
+    const overcast = ps3 && profile.lookVariant === 'overcast';
+
     const mat = new StandardMaterial('underbrushMat', scene);
-    if (profile.mode === 'radio') {
+    if (overcast) {
+      // White — per-instance jitter below (understoryMid family) is the
+      // sole colorant so genesis's flat shared color doesn't also tint it.
+      mat.diffuseColor = Color3.White();
+    } else if (profile.mode === 'radio') {
       mat.diffuseColor = new Color3(0.05, 0.06, 0.06);
     } else if (profile.mode === 'ps3') {
       mat.diffuseColor = new Color3(0.09, 0.20, 0.075);
@@ -567,9 +601,6 @@ export class ForestGenerator {
     mat.specularColor = Color3.Black();
     mat.backFaceCulling = false;
 
-    const ps1 = profile.mode === 'ps1';
-    const ps2 = profile.mode === 'ps2';
-    const ps3 = profile.mode === 'ps3';
     const template = ps1
       ? MeshBuilder.CreateCylinder('shrubBase', { height: 1, diameterTop: 0, diameterBottom: 1, tessellation: 4 }, scene)
       : ps3
@@ -606,6 +637,9 @@ export class ForestGenerator {
       placed++;
     }
     template.thinInstanceAdd(matrices, true);
+    if (overcast) {
+      template.thinInstanceSetBuffer('color', buildJitteredColorBuffer(matrices.length, FOREST_PALETTE.understoryMid), 4);
+    }
   }
 
   private buildDeadEndTrail(scene: Scene, profile: ExperienceProfile): void {
@@ -1894,6 +1928,11 @@ export class ForestGenerator {
   // thin instances — logs via a unit-size template scaled per instance
   // instead of building bespoke geometry each time.
   private buildForestFloor(scene: Scene, profile: ExperienceProfile): void {
+    if (profile.mode === 'ps3' && profile.lookVariant === 'overcast') {
+      this.buildForestFloorOvercast(scene, profile);
+      return;
+    }
+
     const leafColors = profile.mode === 'ps3'
       ? [
           [0.28, 0.14, 0.045], [0.18, 0.09, 0.035],
@@ -2027,6 +2066,116 @@ export class ForestGenerator {
       ));
     }
     logBase.thinInstanceAdd(logMatrices, true);
+  }
+
+  // Overcast variant of buildForestFloor (docs/dissonance-forest-color-handoff.md).
+  // Leaf litter/moss/logs each move from a handful of discrete materials to
+  // one shared white-based material + a per-thin-instance HSV-jittered color
+  // buffer from FOREST_PALETTE, matching the doc's "jitter per instance, no
+  // per-instance materials" guidance. Logs additionally get a scarce,
+  // minimum-spaced rust-accent recolor instead of the flat log-brown genesis
+  // used everywhere else. Counts/placement/corridor rules are otherwise
+  // identical to the genesis path above.
+  private buildForestFloorOvercast(scene: Scene, profile: ExperienceProfile): void {
+    const maxRadius = profile.drawDistance * 1.15;
+
+    // ─── Leaf litter ────────────────────────────────────────────────────
+    const leafMat = new StandardMaterial('leafLitterMatOvercast', scene);
+    leafMat.diffuseColor = Color3.White();
+    leafMat.specularColor = Color3.Black();
+    leafMat.backFaceCulling = false;
+    const leafTemplate = MeshBuilder.CreateCylinder('leafLitterBaseOvercast', {
+      height: 0.025, diameter: 0.28, tessellation: 5,
+    }, scene);
+    leafTemplate.material = leafMat;
+    this.treeMeshes.push(leafTemplate);
+
+    const leafCount = 500 * 6; // matches genesis ps3's 6-bucket x 500 total
+    const leafMatrices: Matrix[] = [];
+    for (let i = 0; i < leafCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 5 + Math.random() * (maxRadius - 5);
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      const groundY = this.terrain.getHeightAt(x, z);
+      const scale = 0.6 + Math.random() * 1.6;
+      leafMatrices.push(Matrix.Compose(
+        new Vector3(scale, scale, scale),
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x, groundY + 0.013, z),
+      ));
+    }
+    leafTemplate.thinInstanceAdd(leafMatrices, true);
+    leafTemplate.thinInstanceSetBuffer('color', buildJitteredColorBuffer(leafMatrices.length, FOREST_PALETTE.leafLitter), 4);
+
+    // ─── Moss ───────────────────────────────────────────────────────────
+    const mossMat = new StandardMaterial('mossMatOvercast', scene);
+    mossMat.diffuseColor = Color3.White();
+    mossMat.specularColor = Color3.Black();
+    const mossBase = MeshBuilder.CreateCylinder('mossBaseOvercast', { height: 0.04, diameter: 1.2, tessellation: 7 }, scene);
+    mossBase.material = mossMat;
+    this.treeMeshes.push(mossBase);
+
+    const mossCount = 190; // matches genesis ps3
+    const mossMatrices: Matrix[] = [];
+    for (let i = 0; i < mossCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 6 + Math.random() * (maxRadius - 6);
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      const groundY = this.terrain.getHeightAt(x, z);
+      const scale = 0.5 + Math.random() * 1.8;
+      mossMatrices.push(Matrix.Compose(
+        new Vector3(scale, scale, scale),
+        Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+        new Vector3(x, groundY + 0.02, z),
+      ));
+    }
+    mossBase.thinInstanceAdd(mossMatrices, true);
+    mossBase.thinInstanceSetBuffer('color', buildJitteredColorBuffer(mossMatrices.length, FOREST_PALETTE.mossCool), 4);
+
+    // ─── Logs — bark-brown by default, scarce rust-accent hero logs ───────
+    const logMat = new StandardMaterial('logMatOvercast', scene);
+    logMat.diffuseColor = Color3.White();
+    logMat.specularColor = Color3.Black();
+    const logBase = MeshBuilder.CreateCylinder('logBaseOvercast', { height: 1, diameter: 1, tessellation: 12 }, scene);
+    logBase.material = logMat;
+    this.treeMeshes.push(logBase);
+
+    const logCount = 90; // matches genesis ps3
+    const RUST_MIN_SPACING = 28;
+    const RUST_PROBABILITY = 0.10;
+    const logMatrices: Matrix[] = [];
+    const logColors: number[] = [];
+    const rustLogPositions: { x: number; z: number }[] = [];
+    for (let i = 0; i < logCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 8 + Math.random() * (maxRadius - 8);
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      if (this.inEitherCorridor(x, z)) continue;
+
+      const groundY = this.terrain.getHeightAt(x, z);
+      const logLen = 3 + Math.random() * 5;
+      const logRad = 0.14 + Math.random() * 0.18;
+      const yaw = Math.random() * Math.PI * 2;
+
+      logMatrices.push(Matrix.Compose(
+        new Vector3(logRad * 2, logLen, logRad * 2),
+        Quaternion.FromEulerAngles(0, yaw, Math.PI / 2),
+        new Vector3(x, groundY + logRad, z),
+      ));
+
+      const farEnoughFromRust = rustLogPositions.every(
+        (p) => (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z) > RUST_MIN_SPACING * RUST_MIN_SPACING,
+      );
+      const isRust = farEnoughFromRust && Math.random() < RUST_PROBABILITY;
+      const color = isRust ? jitterFamily(FOREST_PALETTE.rustAccent) : jitterFamily(FOREST_PALETTE.barkGreyBrown);
+      if (isRust) rustLogPositions.push({ x, z });
+      logColors.push(color.r, color.g, color.b, 1);
+    }
+    logBase.thinInstanceAdd(logMatrices, true);
+    logBase.thinInstanceSetBuffer('color', new Float32Array(logColors), 4);
   }
 
   private buildHikingTrail(scene: Scene, profile: ExperienceProfile): void {

@@ -22,3 +22,39 @@ for the pursuer/flashlight system - we want the pursuer to pause when the light 
 instead of a bell, let's have the sound be the car (in the parking lot and our goal) alarm going off.
 
 fix the look of the mountains. they still look kinda funny. I actually think billboards for the backdrop with a boundary that player cannot cross would be great for this
+
+fix the mountains. they seem to move in space with player but should be fixed - they are mountainxs.
+
+add a really rocky mountain trail to our game plan
+
+remove the # runs item from dev hud and other associated logic. we will be adding more trails later instead, so that will take the palce of this simple levelling system.
+
+remove spawn eyes from dev hud
+
+add growling sounds for the pursuer for when they are within a certain proximity
+
+decrease the playewrs disorientation effect somewhat
+
+let's put a cap on how long the player can run at full speed before they need to stop and catch their breath
+
+let's give the car a more sleek design. it's still look really boxy
+
+add wildlife: deer, birds, occasional fox or turkey
+
+increase render distance for ps3 mode
+
+have the pursuer pursue faster once you have found the item
+
+remove f5 (which is page reload) as the restart key
+
+generate a landscape with a river and arock path that can be used to get across it.
+
+for first level, when car is in view, unlock the player ability to press the button on the key fob to torun off the alarm
+
+in later levels this can be a game mechanic that has to be used to look for the car, where you press the button to hear a car alarm chirp, which can be used to navigate. otherwise the constant alarming will become very annonying.
+
+make the pursuer vanish and appear using a fade effect instead of a strict on/off.
+
+the missing artifact overlay lasts far too long. don't pause tyhe graphics, just show the toast message.
+
+it's not clear when the player is captured by the pursuer what is happening. I am not hearing the pursuer growl.
