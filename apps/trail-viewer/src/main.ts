@@ -90,20 +90,20 @@ function blazeColorFromTags(tags?: Record<string, string>): Color3 {
 
 async function loadHeightmap(): Promise<{ contract: HeightmapContract; pngBytes: Uint8Array }> {
   const [contract, pngResponse] = await Promise.all([
-    fetch('/data/smr-heightmap.json').then((r) => r.json()),
-    fetch('/data/smr-heightmap.png'),
+    fetch(`${import.meta.env.BASE_URL}data/smr-heightmap.json`).then((r) => r.json()),
+    fetch(`${import.meta.env.BASE_URL}data/smr-heightmap.png`),
   ]);
   const pngBytes = new Uint8Array(await pngResponse.arrayBuffer());
   return { contract, pngBytes };
 }
 
 async function loadTrails(): Promise<GeoPolyline[]> {
-  const geojson = await fetch('/data/smr-trails.geojson').then((r) => r.json());
+  const geojson = await fetch(`${import.meta.env.BASE_URL}data/smr-trails.geojson`).then((r) => r.json());
   return parseGeoJsonTrails(geojson);
 }
 
 async function loadGpxTrack(): Promise<GeoPolyline[]> {
-  const gpxXml = await fetch('/data/my-track.gpx').then((r) => r.text());
+  const gpxXml = await fetch(`${import.meta.env.BASE_URL}data/my-track.gpx`).then((r) => r.text());
   return parseGpxTrack(gpxXml);
 }
 
