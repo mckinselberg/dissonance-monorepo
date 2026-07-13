@@ -92,6 +92,17 @@ export class PlayerController {
 
   get isLocked(): boolean { return this.isPointerLocked; }
 
+  // For scenes that swap between multiple simultaneously-alive camera
+  // controllers sharing one pointer-locked canvas (e.g. trail-viewer's
+  // walk/fly toggle): while this controller isn't the active one, it still
+  // accumulates mousemove deltas from the shared listener. Without clearing
+  // them, reactivating it applies all that pent-up delta in one jarring
+  // snap. Call this right after making this controller active again.
+  clearLookDelta(): void {
+    this.mouseDeltaX = 0;
+    this.mouseDeltaY = 0;
+  }
+
   // Intensity-based toggle is more reliable than setEnabled() across BabylonJS versions.
   setFlashlightEnabled(enabled: boolean): void {
     this.flashlightEnabled = enabled;

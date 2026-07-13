@@ -4,3 +4,5 @@ export { BreathSystem } from './BreathSystem';
 export { AdrenalineSystem } from './AdrenalineSystem';
 export { PlayerController } from './PlayerController';
 export type { PlayerControllerOptions, FlashlightTuning } from './PlayerController';
+export { FlightController } from './FlightController';
+export type { FlightControllerOptions } from './FlightController';

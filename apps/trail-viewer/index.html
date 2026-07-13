@@ -17,6 +17,13 @@
       #level-label { margin-top: 8px; font-weight: bold; }
       #level-links a { color: #9cf; margin-right: 8px; }
       #level-links a.active { color: #fff; text-decoration: none; font-weight: bold; }
+      #goto { margin-top: 8px; }
+      #goto input { width: 68px; font: inherit; background: #111; color: #eee; border: 1px solid #555; border-radius: 3px; padding: 2px 4px; }
+      #goto button { font: inherit; margin-left: 4px; cursor: pointer; }
+      #scale-tuning { margin-top: 8px; }
+      #scale-tuning label { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+      #scale-tuning input[type="range"] { flex: 1; }
+      #scale-tuning .value { width: 34px; text-align: right; }
     </style>
   </head>
   <body>
@@ -25,8 +32,18 @@
       <label><input type="checkbox" id="toggle-terrain" checked /> Terrain</label>
       <label><input type="checkbox" id="toggle-osm" checked /> OSM Trails</label>
       <label><input type="checkbox" id="toggle-gpx" checked /> GPX Track</label>
+      <label id="fly-toggle-row" style="display:none"><input type="checkbox" id="toggle-fly" /> Fly Mode (fast air travel)</label>
+      <div id="goto">
+        Go to: <input type="text" id="goto-lat" placeholder="lat" /> <input type="text" id="goto-lon" placeholder="lon" />
+        <button id="goto-button" type="button">Go</button>
+      </div>
+      <div id="scale-tuning" style="display:none">
+        <label>H-scale <input type="range" id="scale-horizontal" min="1" max="15" step="0.5" /> <span class="value" id="scale-horizontal-value"></span>x</label>
+        <label>V-exagg <input type="range" id="scale-vertical" min="1" max="20" step="0.5" /> <span class="value" id="scale-vertical-value"></span>x</label>
+      </div>
       <div id="level-links">Level: <a href="?level=1">1</a> <a href="?level=2">2</a> <a href="?level=3">3 (orbit)</a></div>
       <div id="level-label"></div>
+      <button id="reset-position-button" type="button" style="margin-top:8px; font: inherit; cursor:pointer;">Reset position (back to trailhead)</button>
       <div id="readout">loading...</div>
     </div>
     <script>
