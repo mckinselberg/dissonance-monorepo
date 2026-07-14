@@ -7,10 +7,14 @@
       html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; background: #000; }
       #renderCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
       #ui {
-        position: fixed; top: 12px; left: 12px; z-index: 10;
+        position: fixed; top: 40px; left: 12px; z-index: 10;
         background: rgba(0, 0, 0, 0.6); color: #eee;
         font: 12px/1.5 monospace; padding: 10px 12px; border-radius: 6px;
         user-select: none;
+      }
+      #toggle-hud-button {
+        position: fixed; top: 8px; left: 12px; z-index: 11;
+        font: 12px monospace; cursor: pointer; padding: 3px 8px;
       }
       #ui label { display: block; cursor: pointer; }
       #readout { margin-top: 8px; white-space: pre; }
@@ -28,11 +32,43 @@
   </head>
   <body>
     <canvas id="renderCanvas"></canvas>
+    <button id="toggle-hud-button" type="button">☰ HUD</button>
     <div id="ui">
       <label><input type="checkbox" id="toggle-terrain" checked /> Terrain</label>
       <label><input type="checkbox" id="toggle-osm" checked /> OSM Trails</label>
       <label><input type="checkbox" id="toggle-gpx" checked /> GPX Track</label>
-      <label id="fly-toggle-row" style="display:none"><input type="checkbox" id="toggle-fly" /> Fly Mode (fast air travel)</label>
+      <label><input type="checkbox" id="toggle-water" checked /> Water</label>
+      <label><input type="checkbox" id="toggle-clouds" checked /> Clouds</label>
+      <label><input type="checkbox" id="toggle-trees" checked /> Trees</label>
+      <div id="atmosphere-row" style="margin-top:4px;">
+        <label style="display:flex; align-items:center; gap:6px;">
+          Time of day <input type="range" id="time-of-day" min="0" max="24" step="0.1" style="flex:1" /> <span id="time-of-day-value"></span>h
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
+          Fog <input type="range" id="fog-density" min="0" max="0.002" step="0.00005" style="flex:1" /> <span id="fog-density-value"></span>
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
+          Stars <input type="range" id="star-count" min="0" max="3000" step="100" style="flex:1" /> <span id="star-count-value"></span>
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
+          Cloud density <input type="range" id="cloud-count" min="0" max="60" step="2" style="flex:1" /> <span id="cloud-count-value"></span>
+        </label>
+      </div>
+      <div id="movement-mode-row" style="display:none; margin-top:4px;">
+        Mode:
+        <select id="movement-mode">
+          <option value="walk">Walk</option>
+          <option value="fly">Fly (fast air travel)</option>
+          <option value="drive">Drive (fast ground travel)</option>
+        </select>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
+          Cam height <input type="range" id="camera-height" min="0" max="3" step="0.1" style="flex:1" /> <span id="camera-height-value"></span>m
+        </label>
+        <div style="margin-top:4px;">
+          <button id="ignite-fire-button" type="button" style="font: inherit; cursor:pointer;">🔥 Ignite fire (F)</button>
+          <button id="reset-fire-button" type="button" style="font: inherit; cursor:pointer;">Reset fire</button>
+        </div>
+      </div>
       <div id="goto">
         Go to: <input type="text" id="goto-lat" placeholder="lat" /> <input type="text" id="goto-lon" placeholder="lon" />
         <button id="goto-button" type="button">Go</button>
@@ -40,6 +76,7 @@
       <div id="scale-tuning" style="display:none">
         <label>H-scale <input type="range" id="scale-horizontal" min="1" max="15" step="0.5" /> <span class="value" id="scale-horizontal-value"></span>x</label>
         <label>V-exagg <input type="range" id="scale-vertical" min="1" max="20" step="0.5" /> <span class="value" id="scale-vertical-value"></span>x</label>
+        <label>Water lvl <input type="range" id="scale-water" /> <span class="value" id="scale-water-value"></span>m</label>
       </div>
       <div id="level-links">Level: <a href="?level=1">1</a> <a href="?level=2">2</a> <a href="?level=3">3 (orbit)</a></div>
       <div id="level-label"></div>

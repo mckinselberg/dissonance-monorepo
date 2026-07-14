@@ -21,8 +21,9 @@ export default defineConfig(({ command }) => ({
     },
   },
   optimizeDeps: {
-    // @babylonjs/core is native ESM ("type":"module") — excluding prevents the
-    // re-optimization loop caused by Vite discovering it via multiple pnpm symlink paths
-    exclude: ['@babylonjs/core'],
+    // @babylonjs/core and @babylonjs/materials (WaterMaterial) are both native
+    // ESM ("type":"module") — excluding prevents the re-optimization loop
+    // caused by Vite discovering them via multiple pnpm symlink paths
+    exclude: ['@babylonjs/core', '@babylonjs/materials'],
   },
 }));

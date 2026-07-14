@@ -56,6 +56,11 @@ export class PlayerController {
   private terrain: ITerrain | null = null;
   private colliders: Collider[] = [];
   private worldBoundaryRadius: number | null = null;
+  // Extra Y added on top of the normal stand/crouch eye height — a scene-level
+  // "raise the camera a bit" tweak, independent of the scale-driven eye
+  // height math above (e.g. trail-viewer's shrunk-player levels compensating
+  // for vertical exaggeration). Defaults to 0: no behavior change for DTA.
+  private heightOffset = 0;
 
   constructor(scene: Scene, startPosition: Vector3, options: PlayerControllerOptions = {}) {
     const scale = options.scale ?? 1;
@@ -156,6 +161,10 @@ export class PlayerController {
     this.terrain = terrain;
   }
 
+  setHeightOffset(offset: number): void {
+    this.heightOffset = offset;
+  }
+
   setColliders(colliders: Collider[]): void {
     this.colliders = colliders;
   }
@@ -248,7 +257,7 @@ export class PlayerController {
     this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 10);
 
     const groundY = this.terrain?.getHeightAt(this.camera.position.x, this.camera.position.z) ?? 0;
-    this.camera.position.y = groundY + this.eyeHeight;
+    this.camera.position.y = groundY + this.eyeHeight + this.heightOffset;
 
     this.shakeTime += dt * 3.0;
     const shakeMag = this.adrenaline.getShakeMagnitude() * 0.72 + this.breath.getLoad() * 0.0025;

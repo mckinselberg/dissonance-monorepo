@@ -2,6 +2,7 @@ import {
   Engine,
   Scene,
   ArcRotateCamera,
+  FreeCamera,
   HemisphericLight,
   Vector3,
   Color3,
@@ -10,8 +11,12 @@ import {
   MeshBuilder,
 } from '@babylonjs/core';
 import { GameLoop } from '@dissonance/engine';
-import { HeightmapTerrain, type ITerrain } from '@dissonance/world';
-import { PlayerController, FlightController } from '@dissonance/player';
+import {
+  HeightmapTerrain, WaterPlane, defaultWaterLevel, DriftingClouds, Sun, sunHeightForHour, StarField,
+  ThinInstanceTrees, ForestFire,
+  type ITerrain, type TreePoint,
+} from '@dissonance/world';
+import { PlayerController, FlightController, DriveController } from '@dissonance/player';
 import {
   decodeHeightmapPng,
   HeightmapSampler,
@@ -73,33 +78,55 @@ function currentLevelKey(): string {
   return key in LEVELS ? key : '1';
 }
 
-// Position is only meaningful within a given level's own coordinate space
-// (horizontalScale differs between levels), so it's saved per level key.
-// Player mode only — the orbit camera's "position" is a derived value
-// (target + radius/alpha/beta), not something meaningful to restore the
-// same way.
-type SavedPosition = { x: number; y: number; z: number };
+// Fly and Drive are unconditionally available in this POC — no unlock gate
+// exists yet. Design intent for whatever game eventually grows out of this
+// viewer: these read naturally as *fast travel skills the player unlocks*
+// rather than default abilities, e.g. gated behind reaching a landmark or
+// finding an item. Not built now — a real unlock system needs persistence
+// (packages/persistence is still a stub) and a reason to gate progression
+// at all, neither of which exists yet.
+type ActiveMode = 'walk' | 'fly' | 'drive';
 
-function positionStorageKey(levelKey: string): string {
-  return `trail-viewer:position:${levelKey}`;
+// Everything a level-1/2 session might want to survive a reload — position,
+// which traversal mode was active, and (level 1 only, but harmless to
+// include everywhere) the live-tuned scale/water/camera-height sliders.
+// Saved per level key, since position and scale are only meaningful within
+// a given level's own coordinate space. Player mode only — the orbit
+// camera's "position" is a derived value (target + radius/alpha/beta), not
+// something meaningful to restore the same way.
+type SavedSettings = {
+  x?: number;
+  y?: number;
+  z?: number;
+  activeMode?: ActiveMode;
+  hScale?: number;
+  vExag?: number;
+  waterLevel?: number;
+  cameraHeightOffset?: number;
+  timeOfDay?: number;
+  fogDensity?: number;
+  starCount?: number;
+  cloudCount?: number;
+  hudVisible?: boolean;
+};
+
+function settingsStorageKey(levelKey: string): string {
+  return `trail-viewer:settings:${levelKey}`;
 }
 
-function loadSavedPosition(levelKey: string): SavedPosition | null {
-  const raw = localStorage.getItem(positionStorageKey(levelKey));
-  if (!raw) return null;
+function loadSavedSettings(levelKey: string): SavedSettings {
+  const raw = localStorage.getItem(settingsStorageKey(levelKey));
+  if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
-    if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number' && typeof parsed?.z === 'number') {
-      return parsed;
-    }
+    return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
-    // ignore malformed/corrupt localStorage value, fall back to spawn point
+    return {}; // ignore malformed/corrupt localStorage value, fall back to defaults
   }
-  return null;
 }
 
-function savePosition(levelKey: string, pos: SavedPosition): void {
-  localStorage.setItem(positionStorageKey(levelKey), JSON.stringify(pos));
+function saveSettings(levelKey: string, settings: SavedSettings): void {
+  localStorage.setItem(settingsStorageKey(levelKey), JSON.stringify(settings));
 }
 
 // OSM's osmc:symbol format is "waycolor:symbolcolor:symboltext" (e.g.
@@ -175,23 +202,46 @@ async function main() {
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
   const engine = new Engine(canvas, true);
   const scene = new Scene(engine);
-  scene.clearColor = new Color4(0.55, 0.65, 0.78, 1);
-
-  const light = new HemisphericLight('light', new Vector3(0.3, 1, 0.2), scene);
-  light.intensity = 0.9;
 
   const levelKey = currentLevelKey();
   const level = LEVELS[levelKey];
+  const savedSettings = loadSavedSettings(levelKey);
+
+  const light = new HemisphericLight('light', new Vector3(0.3, 1, 0.2), scene);
+  let timeOfDay = savedSettings.timeOfDay ?? 12;
+  const sun = new Sun(scene, { hour: timeOfDay });
+  let starCount = savedSettings.starCount ?? 800;
+  let stars = new StarField(scene, { count: starCount });
+
+  const SKY_DAY = new Color4(0.55, 0.65, 0.78, 1);
+  const SKY_NIGHT = new Color4(0.02, 0.03, 0.08, 1);
+  // Ambient fill dims at night too (Sun's own directional light already
+  // does this internally) — a bright hemispheric fill at midnight would
+  // fight the dark sky/sun color instead of reading as night.
+  const applyTimeOfDay = (hour: number) => {
+    sun.setTimeOfDay(hour);
+    const dayFactor = Math.max(0, sunHeightForHour(hour));
+    light.intensity = 0.15 + dayFactor * 0.4;
+    scene.clearColor = Color4.Lerp(SKY_NIGHT, SKY_DAY, dayFactor);
+    stars.setNightFactor(1 - dayFactor);
+  };
+  applyTimeOfDay(timeOfDay);
+
+  let fogDensity = savedSettings.fogDensity ?? 0;
+  scene.fogMode = Scene.FOGMODE_EXP2;
+  scene.fogColor = new Color3(SKY_DAY.r, SKY_DAY.g, SKY_DAY.b);
+  scene.fogDensity = fogDensity;
 
   // Mutable — level 1 exposes live HUD sliders that rebuild the terrain
   // and trail/GPX overlays with new scale values (see the scale-tuning
   // section below). Every other read of "the current scale" in this
   // function goes through these two variables, not level.* directly, so a
   // live rescale stays consistent everywhere.
-  let hScale = level.horizontalScale;
-  let vExag = level.verticalExaggeration;
+  let hScale = savedSettings.hScale ?? level.horizontalScale;
+  let vExag = savedSettings.vExag ?? level.verticalExaggeration;
 
   const { contract, pngBytes } = await loadHeightmap();
+  let waterLevel = savedSettings.waterLevel ?? defaultWaterLevel(contract);
   const origin = originFromBoundingBox(contract.bbox);
   const elevations = decodeHeightmapPng(pngBytes, contract);
   const sampler = new HeightmapSampler(elevations, contract, origin);
@@ -211,6 +261,73 @@ async function main() {
     horizontalScale: hScale,
   });
 
+  // Stand-in water: the DEM has no tagged lake/river geometry to trace (see
+  // WaterPlane's own comment), so this is a flat plane at a configurable
+  // elevation rather than a real water body traced from OSM data.
+  const water = new WaterPlane(scene, contract, origin, {
+    level: waterLevel,
+    verticalExaggeration: vExag,
+    horizontalScale: hScale,
+  });
+  water.addToRenderList(terrain.getMesh());
+
+  // Scattered once in real (unscaled) world space, independent of hScale/
+  // vExag, so a rescale re-renders the same forest instead of re-rolling
+  // different tree positions. World space is centered on the bbox (see
+  // originFromBoundingBox/utmToWorld — origin = bbox center, so real world
+  // X/Z each span [-width/2, width/2]). Skips low-elevation ground near the
+  // waterline: there's no land-use data in this dataset to distinguish
+  // actual forest from the built-up flat area visible near the coast (see
+  // smr-trails.geojson — trail lines only, no polygons), so elevation is a
+  // simple stand-in for "this is probably slope, not town."
+  const TREE_CANDIDATE_COUNT = 6000;
+  const TREE_CLEARANCE_ABOVE_WATER = 20;
+  const realWidth = contract.bbox.maxX - contract.bbox.minX;
+  const realDepth = contract.bbox.maxZ - contract.bbox.minZ;
+  const treePoints: TreePoint[] = [];
+  for (let i = 0; i < TREE_CANDIDATE_COUNT; i++) {
+    const x = (Math.random() - 0.5) * realWidth;
+    const z = (Math.random() - 0.5) * realDepth;
+    const groundY = sampler.sampleHeight({ x, z });
+    if (groundY < waterLevel + TREE_CLEARANCE_ABOVE_WATER) continue;
+    treePoints.push({ x, z, groundY });
+  }
+  let trees = new ThinInstanceTrees(scene);
+  trees.scatter(treePoints, hScale, vExag);
+
+  // Same technique as @dissonance/world's CloudSystem (a decoupled sibling,
+  // DriftingClouds — CloudSystem's sizes/altitudes are hardcoded to DTA's
+  // ~800-unit world and gated behind its ExperienceProfile, neither of
+  // which fits this real-world-scale DEM viewer). Sized in real meters,
+  // then converted the same way terrain/water are: X/Z by horizontalScale,
+  // Y by verticalExaggeration.
+  let cloudCount = savedSettings.cloudCount ?? 16;
+  const cloudOptionsFor = (currentHScale: number, currentVExag: number, count: number) => ({
+    count,
+    spread: (contract.bbox.maxX - contract.bbox.minX) * currentHScale * 1.3,
+    altitudeMin: (contract.elevation.max + 250) * currentVExag,
+    altitudeMax: (contract.elevation.max + 450) * currentVExag,
+    diameterMin: 300 * currentHScale,
+    diameterMax: 800 * currentHScale,
+    driftSpeed: 5 * currentHScale,
+  });
+  let clouds = new DriftingClouds(scene, cloudOptionsFor(hScale, vExag, cloudCount));
+  clouds.getMeshes().forEach((m) => water.addToRenderList(m));
+  water.addToRenderList(sun.getMesh());
+
+  // Cloud positions/sizes are baked in at construction (unlike water's cheap
+  // setScale), so both a scale change and the cloud-density slider rebuild
+  // them from scratch. Shared so the two call sites (H/V-scale rebuild,
+  // cloud-density slider) don't duplicate the dispose/recreate/render-list
+  // dance.
+  const rebuildClouds = () => {
+    clouds.getMeshes().forEach((m) => water.removeFromRenderList(m));
+    clouds.dispose();
+    clouds = new DriftingClouds(scene, cloudOptionsFor(hScale, vExag, cloudCount));
+    clouds.getMeshes().forEach((m) => water.addToRenderList(m));
+    clouds.setVisible(cloudsToggle.checked);
+  };
+
   const [trails, gpxTrack] = await Promise.all([loadTrails(), loadGpxTrack()]);
   let trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
     namePrefix: 'osmTrail',
@@ -228,6 +345,9 @@ async function main() {
   const terrainToggle = document.getElementById('toggle-terrain') as HTMLInputElement;
   const osmToggle = document.getElementById('toggle-osm') as HTMLInputElement;
   const gpxToggle = document.getElementById('toggle-gpx') as HTMLInputElement;
+  const waterToggle = document.getElementById('toggle-water') as HTMLInputElement;
+  const cloudsToggle = document.getElementById('toggle-clouds') as HTMLInputElement;
+  const treesToggle = document.getElementById('toggle-trees') as HTMLInputElement;
   const readout = document.getElementById('readout') as HTMLDivElement;
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
   levelLabel.textContent = level.label;
@@ -235,26 +355,98 @@ async function main() {
   terrainToggle.addEventListener('change', () => terrain.setVisible(terrainToggle.checked));
   osmToggle.addEventListener('change', () => setMeshesEnabled(trailMeshes, osmToggle.checked));
   gpxToggle.addEventListener('change', () => setMeshesEnabled(gpxMeshes, gpxToggle.checked));
+  waterToggle.addEventListener('change', () => water.setVisible(waterToggle.checked));
+  cloudsToggle.addEventListener('change', () => clouds.setVisible(cloudsToggle.checked));
+  treesToggle.addEventListener('change', () => trees.setVisible(treesToggle.checked));
+
+  // Atmosphere controls — wired here (before the orbit early-return below)
+  // rather than alongside movement-mode/camera-height, since fog/time-of-
+  // day/stars/clouds all render in orbit mode (level 3) too, unlike
+  // Walk/Fly/Drive which orbit has no equivalent of.
+  const timeOfDaySlider = document.getElementById('time-of-day') as HTMLInputElement;
+  const timeOfDayValue = document.getElementById('time-of-day-value') as HTMLSpanElement;
+  timeOfDaySlider.value = String(timeOfDay);
+  timeOfDayValue.textContent = timeOfDay.toFixed(1);
+  timeOfDaySlider.addEventListener('input', () => {
+    timeOfDay = parseFloat(timeOfDaySlider.value);
+    timeOfDayValue.textContent = timeOfDay.toFixed(1);
+    applyTimeOfDay(timeOfDay);
+  });
+
+  const fogSlider = document.getElementById('fog-density') as HTMLInputElement;
+  const fogValue = document.getElementById('fog-density-value') as HTMLSpanElement;
+  fogSlider.value = String(fogDensity);
+  fogValue.textContent = fogDensity.toFixed(5);
+  fogSlider.addEventListener('input', () => {
+    fogDensity = parseFloat(fogSlider.value);
+    fogValue.textContent = fogDensity.toFixed(5);
+    scene.fogDensity = fogDensity;
+  });
+
+  const starCountSlider = document.getElementById('star-count') as HTMLInputElement;
+  const starCountValue = document.getElementById('star-count-value') as HTMLSpanElement;
+  starCountSlider.value = String(starCount);
+  starCountValue.textContent = String(starCount);
+  starCountSlider.addEventListener('change', () => {
+    starCount = parseFloat(starCountSlider.value);
+    starCountValue.textContent = String(starCount);
+    stars.dispose();
+    stars = new StarField(scene, { count: starCount });
+    stars.setNightFactor(1 - Math.max(0, sunHeightForHour(timeOfDay)));
+  });
+
+  const cloudCountSlider = document.getElementById('cloud-count') as HTMLInputElement;
+  const cloudCountValue = document.getElementById('cloud-count-value') as HTMLSpanElement;
+  cloudCountSlider.value = String(cloudCount);
+  cloudCountValue.textContent = String(cloudCount);
+  cloudCountSlider.addEventListener('change', () => {
+    cloudCount = parseFloat(cloudCountSlider.value);
+    cloudCountValue.textContent = String(cloudCount);
+    rebuildClouds();
+  });
+
+  const hudToggleButton = document.getElementById('toggle-hud-button') as HTMLButtonElement;
+  const uiPanel = document.getElementById('ui') as HTMLDivElement;
+  let hudVisible = savedSettings.hudVisible ?? true;
+  const applyHudVisible = () => { uiPanel.style.display = hudVisible ? 'block' : 'none'; };
+  applyHudVisible();
+  hudToggleButton.addEventListener('click', () => {
+    hudVisible = !hudVisible;
+    applyHudVisible();
+    // persistSettings (and the position/mode state it reads) doesn't apply
+    // in orbit mode — see SavedSettings' own comment on why.
+    if (level.cameraMode !== 'orbit') persistSettings();
+  });
 
   const gotoLat = document.getElementById('goto-lat') as HTMLInputElement;
   const gotoLon = document.getElementById('goto-lon') as HTMLInputElement;
   const gotoButton = document.getElementById('goto-button') as HTMLButtonElement;
   const resetPositionButton = document.getElementById('reset-position-button') as HTMLButtonElement;
+  // No meaningful position is ever saved for orbit mode (see SavedSettings'
+  // comment) — hide the button there rather than leave it clickable but
+  // broken (its handler below reaches into player-mode-only state that
+  // orbit's early return means never gets declared).
+  if (level.cameraMode === 'orbit') resetPositionButton.style.display = 'none';
 
   // Fly Mode has no bounds clamping, so it's easy to end up saved somewhere
   // far outside the DEM's real footprint (nothing but sky, a distant sliver
-  // of terrain). This drops the saved position for the current level and
-  // reloads back to the recorded hike's trailhead.
+  // of terrain). This drops just the saved position for the current level
+  // (keeping scale/water/camera-height tuning intact) and reloads back to
+  // the recorded hike's trailhead.
   //
   // location.reload() fires beforeunload/pagehide on the page being torn
-  // down *before* the new one loads — saveNow (registered on those events
-  // below) would otherwise immediately re-persist the still-in-memory
-  // stranded position and undo the removeItem a moment later. Unregistering
-  // both first prevents that race.
+  // down *before* the new one loads — persistSettings (registered on those
+  // events below) would otherwise immediately re-persist the still-in-memory
+  // stranded position and undo this a moment later. Unregistering both first
+  // prevents that race.
   resetPositionButton.addEventListener('click', () => {
-    window.removeEventListener('beforeunload', saveNow);
-    window.removeEventListener('pagehide', saveNow);
-    localStorage.removeItem(positionStorageKey(levelKey));
+    window.removeEventListener('beforeunload', persistSettings);
+    window.removeEventListener('pagehide', persistSettings);
+    const withoutPosition = loadSavedSettings(levelKey);
+    delete withoutPosition.x;
+    delete withoutPosition.y;
+    delete withoutPosition.z;
+    saveSettings(levelKey, withoutPosition);
     location.reload();
   });
 
@@ -284,7 +476,8 @@ async function main() {
       orbitCamera.target = new Vector3(renderX, groundY, renderZ);
     });
 
-    const gameLoop = new GameLoop(engine, () => {
+    const gameLoop = new GameLoop(engine, (dt) => {
+      clouds.update(dt);
       const pos = orbitCamera.position;
       const groundY = terrain.getHeightAt(pos.x, pos.z);
       readout.textContent =
@@ -300,11 +493,10 @@ async function main() {
   // Spawn at the recorded hike's own starting point — a real trailhead,
   // rather than an arbitrary bbox-center point that might not sit on a trail
   // — unless a saved position exists for this level from a previous visit.
-  const saved = loadSavedPosition(levelKey);
   const spawnPoint = gpxTrack[0]?.points[0];
   const spawnReal = spawnPoint ? latLonToWorld(spawnPoint, origin) : { x: 0, z: 0 };
-  const spawnRenderX = saved?.x ?? spawnReal.x * hScale;
-  const spawnRenderZ = saved?.z ?? spawnReal.z * hScale;
+  const spawnRenderX = savedSettings.x ?? spawnReal.x * hScale;
+  const spawnRenderZ = savedSettings.z ?? spawnReal.z * hScale;
   const spawnGroundY = terrain.getHeightAt(spawnRenderX, spawnRenderZ);
   // Y is a placeholder — PlayerController.update() overwrites it with
   // groundY + its own (scale-adjusted) eye height on the very first frame.
@@ -314,39 +506,105 @@ async function main() {
   player.setTerrain(terrain);
 
   // Fast air travel — a free-fly camera for covering this real-world-scale
-  // map quickly, alongside walking. Both controllers stay alive
+  // map quickly, alongside walking. All three controllers stay alive
   // simultaneously (rather than being created/destroyed on toggle) so
-  // switching back and forth is instant and position carries over cleanly.
+  // switching between them is instant and position carries over cleanly.
   const flight = new FlightController(scene, startPosition.clone(), { farClip: level.farClip, speed: level.flightSpeed });
 
-  type ActiveMode = 'walk' | 'fly';
+  // Same idea as Fly, but grounded — WASD at flight-grade speed with Y
+  // snapped to the terrain every frame, for players who want to cover
+  // ground quickly without losing their footing on the map.
+  const drive = new DriveController(scene, startPosition.clone(), {
+    farClip: level.farClip,
+    speed: level.flightSpeed,
+    scale: level.playerScale,
+  });
+  drive.setTerrain(terrain);
+
+  // Forest fire game mechanic — press F (or the HUD button) to ignite the
+  // nearest tree; fire spreads through neighboring trees over time. Reuses
+  // the same treePoints the forest was scattered from, rather than any
+  // per-instance state on the tree meshes themselves (see ForestFire's own
+  // comment on why).
+  const forestFire = new ForestFire(scene, treePoints, { horizontalScale: hScale, verticalExaggeration: vExag });
+  const igniteFireButton = document.getElementById('ignite-fire-button') as HTMLButtonElement;
+  const resetFireButton = document.getElementById('reset-fire-button') as HTMLButtonElement;
+  const igniteAtActiveController = () => {
+    const pos = controllers[activeMode].getPosition();
+    forestFire.ignite(pos.x / hScale, pos.z / hScale);
+  };
+  igniteFireButton.addEventListener('click', igniteAtActiveController);
+  resetFireButton.addEventListener('click', () => forestFire.reset());
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyF') igniteAtActiveController();
+  });
+
+  // Extra lift on top of both grounded controllers' own (scale-adjusted)
+  // eye height — levels with a shrunk player (playerScale < 1) otherwise
+  // put the camera uncomfortably close to the ground.
+  let cameraHeightOffset = savedSettings.cameraHeightOffset ?? 1.5;
+  player.setHeightOffset(cameraHeightOffset);
+  drive.setHeightOffset(cameraHeightOffset);
+
+  // Structural shape shared by all three controllers — lets mode-switching
+  // logic below treat them uniformly instead of branching per mode.
+  type TraversalController = {
+    readonly camera: FreeCamera;
+    update(dt: number): void;
+    getPosition(): Vector3;
+    setPosition(pos: Vector3): void;
+    clearLookDelta(): void;
+  };
+  const controllers: Record<ActiveMode, TraversalController> = { walk: player, fly: flight, drive };
   let activeMode: ActiveMode = 'walk';
   scene.activeCamera = player.camera;
 
-  const flyToggleRow = document.getElementById('fly-toggle-row') as HTMLLabelElement;
-  const flyToggle = document.getElementById('toggle-fly') as HTMLInputElement;
-  flyToggleRow.style.display = 'block';
+  const movementModeRow = document.getElementById('movement-mode-row') as HTMLDivElement;
+  const movementModeSelect = document.getElementById('movement-mode') as HTMLSelectElement;
+  movementModeRow.style.display = 'block';
 
-  flyToggle.addEventListener('change', () => {
-    if (flyToggle.checked) {
-      flight.setPosition(player.getPosition());
-      flight.camera.rotation.copyFrom(player.camera.rotation);
-      flight.clearLookDelta();
-      activeMode = 'fly';
-      scene.activeCamera = flight.camera;
+  const cameraHeightSlider = document.getElementById('camera-height') as HTMLInputElement;
+  const cameraHeightValue = document.getElementById('camera-height-value') as HTMLSpanElement;
+  cameraHeightSlider.value = String(cameraHeightOffset);
+  cameraHeightValue.textContent = cameraHeightOffset.toFixed(1);
+  cameraHeightSlider.addEventListener('input', () => {
+    cameraHeightOffset = parseFloat(cameraHeightSlider.value);
+    cameraHeightValue.textContent = cameraHeightOffset.toFixed(1);
+    player.setHeightOffset(cameraHeightOffset);
+    drive.setHeightOffset(cameraHeightOffset);
+  });
+
+  const switchMode = (newMode: ActiveMode) => {
+    if (newMode === activeMode) return;
+    const from = controllers[activeMode];
+    const to = controllers[newMode];
+    const pos = from.getPosition();
+    if (newMode === 'fly') {
+      // Hover right where the previous controller left off.
+      to.setPosition(pos);
     } else {
-      // Land at the same lat/long the flight camera was over, on the
-      // ground — not wherever it was hovering. Y here is computed
-      // immediately (not left to next-frame correction) so there's no
-      // possibility of a mid-air position being visible even for one frame.
-      const flightPos = flight.getPosition();
-      const groundY = terrain.getHeightAt(flightPos.x, flightPos.z);
-      player.setPosition(new Vector3(flightPos.x, groundY, flightPos.z));
-      player.camera.rotation.copyFrom(flight.camera.rotation);
-      player.clearLookDelta();
-      activeMode = 'walk';
-      scene.activeCamera = player.camera;
+      // Landing (Walk/Drive are both grounded) — snap to the terrain at
+      // this XZ immediately rather than leaving a mid-air position visible
+      // even for one frame.
+      const groundY = terrain.getHeightAt(pos.x, pos.z);
+      to.setPosition(new Vector3(pos.x, groundY, pos.z));
     }
+    to.camera.rotation.copyFrom(from.camera.rotation);
+    to.clearLookDelta();
+    activeMode = newMode;
+    scene.activeCamera = to.camera;
+  };
+
+  // Restore whichever mode was active last session, if any.
+  const validModes: ActiveMode[] = ['walk', 'fly', 'drive'];
+  if (savedSettings.activeMode && validModes.includes(savedSettings.activeMode)) {
+    switchMode(savedSettings.activeMode);
+  }
+  movementModeSelect.value = activeMode;
+
+  movementModeSelect.addEventListener('change', () => {
+    switchMode(movementModeSelect.value as ActiveMode);
+    persistSettings();
   });
 
   // Live scale tuning — level 1 only. Rebuilds the terrain mesh and both
@@ -358,22 +616,32 @@ async function main() {
     const scaleTuning = document.getElementById('scale-tuning') as HTMLDivElement;
     const hSlider = document.getElementById('scale-horizontal') as HTMLInputElement;
     const vSlider = document.getElementById('scale-vertical') as HTMLInputElement;
+    const wSlider = document.getElementById('scale-water') as HTMLInputElement;
     const hValue = document.getElementById('scale-horizontal-value') as HTMLSpanElement;
     const vValue = document.getElementById('scale-vertical-value') as HTMLSpanElement;
+    const wValue = document.getElementById('scale-water-value') as HTMLSpanElement;
     scaleTuning.style.display = 'block';
     hSlider.value = String(hScale);
     vSlider.value = String(vExag);
     hValue.textContent = String(hScale);
     vValue.textContent = String(vExag);
+    // Real elevation range, not the rendered/exaggerated one — WaterPlane
+    // takes its level in the same real (unscaled) meters as the DEM.
+    wSlider.min = String(contract.elevation.min);
+    wSlider.max = String(contract.elevation.max);
+    wSlider.step = String((contract.elevation.max - contract.elevation.min) / 200);
+    wSlider.value = String(waterLevel);
+    wValue.textContent = waterLevel.toFixed(1);
 
     const rebuildWorld = (newHScale: number, newVExag: number) => {
-      const activeCamera = activeMode === 'fly' ? flight : player;
-      const beforePos = activeCamera.getPosition();
+      const activeController = controllers[activeMode];
+      const beforePos = activeController.getPosition();
       const beforeGroundY = terrain.getHeightAt(beforePos.x, beforePos.z);
       const heightAboveGround = beforePos.y - beforeGroundY;
       const realX = beforePos.x / hScale;
       const realZ = beforePos.z / hScale;
 
+      water.removeFromRenderList(terrain.getMesh());
       terrain.dispose();
       trailMeshes.forEach((m) => m.dispose());
       gpxMeshes.forEach((m) => m.dispose());
@@ -396,15 +664,29 @@ async function main() {
       setMeshesEnabled(trailMeshes, osmToggle.checked);
       setMeshesEnabled(gpxMeshes, gpxToggle.checked);
       player.setTerrain(terrain);
+      drive.setTerrain(terrain);
+      water.setScale(hScale, vExag, waterLevel);
+      water.addToRenderList(terrain.getMesh());
+
+      rebuildClouds();
+
+      // Positions are cached (treePoints), so this just re-scatters the
+      // same forest at the new scale rather than re-rolling placement.
+      trees.dispose();
+      trees = new ThinInstanceTrees(scene);
+      trees.scatter(treePoints, hScale, vExag);
+      trees.setVisible(treesToggle.checked);
+      forestFire.setScale(hScale, vExag);
 
       const newRenderX = realX * hScale;
       const newRenderZ = realZ * hScale;
       const newGroundY = terrain.getHeightAt(newRenderX, newRenderZ);
       if (activeMode === 'fly') {
-        flight.setPosition(new Vector3(newRenderX, newGroundY + heightAboveGround, newRenderZ));
+        activeController.setPosition(new Vector3(newRenderX, newGroundY + heightAboveGround, newRenderZ));
       } else {
-        player.setPosition(new Vector3(newRenderX, newGroundY, newRenderZ));
+        activeController.setPosition(new Vector3(newRenderX, newGroundY, newRenderZ));
       }
+      persistSettings();
     };
 
     hSlider.addEventListener('input', () => { hValue.textContent = hSlider.value; });
@@ -414,6 +696,15 @@ async function main() {
     // do smoothly on every intermediate slider value.
     hSlider.addEventListener('change', () => rebuildWorld(parseFloat(hSlider.value), vExag));
     vSlider.addEventListener('change', () => rebuildWorld(hScale, parseFloat(vSlider.value)));
+
+    // Unlike H-scale/V-exagg, moving the water plane doesn't touch terrain
+    // geometry at all — just its own position — so this can update live on
+    // every drag tick instead of waiting for release.
+    wSlider.addEventListener('input', () => {
+      waterLevel = parseFloat(wSlider.value);
+      wValue.textContent = waterLevel.toFixed(1);
+      water.setScale(hScale, vExag, waterLevel);
+    });
   }
 
   gotoButton.addEventListener('click', () => {
@@ -424,45 +715,54 @@ async function main() {
     const renderX = real.x * hScale;
     const renderZ = real.z * hScale;
     const groundY = terrain.getHeightAt(renderX, renderZ);
+    const activeController = controllers[activeMode];
     if (activeMode === 'fly') {
       // Hover well above ground so the destination is actually visible,
       // rather than dropping you right at ground level facing who-knows-where.
-      flight.setPosition(new Vector3(renderX, groundY + 50, renderZ));
+      activeController.setPosition(new Vector3(renderX, groundY + 50, renderZ));
     } else {
-      player.setPosition(new Vector3(renderX, groundY, renderZ));
+      activeController.setPosition(new Vector3(renderX, groundY, renderZ));
     }
   });
 
   const SAVE_INTERVAL_SECONDS = 2;
   let timeSinceSave = 0;
-  const saveNow = () => {
-    const pos = activeMode === 'fly' ? flight.getPosition() : player.getPosition();
-    savePosition(levelKey, { x: pos.x, y: pos.y, z: pos.z });
+  const persistSettings = () => {
+    const pos = controllers[activeMode].getPosition();
+    saveSettings(levelKey, {
+      x: pos.x, y: pos.y, z: pos.z,
+      activeMode,
+      hScale, vExag, waterLevel,
+      cameraHeightOffset,
+      timeOfDay, fogDensity, starCount, cloudCount,
+      hudVisible,
+    });
   };
-  window.addEventListener('beforeunload', saveNow);
-  window.addEventListener('pagehide', saveNow);
+  window.addEventListener('beforeunload', persistSettings);
+  window.addEventListener('pagehide', persistSettings);
 
   const gameLoop = new GameLoop(engine, (dt) => {
-    if (activeMode === 'fly') {
-      flight.update(dt);
-    } else {
-      player.update(dt);
-    }
-    const pos = activeMode === 'fly' ? flight.getPosition() : player.getPosition();
+    controllers[activeMode].update(dt);
+    clouds.update(dt);
+    forestFire.update(dt);
+    const pos = controllers[activeMode].getPosition();
     const groundY = terrain.getHeightAt(pos.x, pos.z);
     const controlsHint = activeMode === 'fly'
       ? 'click canvas to look around, WASD to fly, space/ctrl up/down, shift to boost'
+      : activeMode === 'drive'
+      ? 'click canvas to look around, WASD to drive, shift to boost'
       : 'click canvas to look around, WASD to move, shift to run';
     readout.textContent =
       `${activeMode}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
+      `fires burning: ${forestFire.activeFireCount} (F to ignite nearest tree)\n` +
       controlsHint;
     scene.render();
 
     timeSinceSave += dt;
     if (timeSinceSave >= SAVE_INTERVAL_SECONDS) {
       timeSinceSave = 0;
-      saveNow();
+      persistSettings();
     }
   });
   gameLoop.start();

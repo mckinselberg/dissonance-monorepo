@@ -6,3 +6,5 @@ export { PlayerController } from './PlayerController';
 export type { PlayerControllerOptions, FlashlightTuning } from './PlayerController';
 export { FlightController } from './FlightController';
 export type { FlightControllerOptions } from './FlightController';
+export { DriveController } from './DriveController';
+export type { DriveControllerOptions } from './DriveController';

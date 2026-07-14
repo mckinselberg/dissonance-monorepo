@@ -126,6 +126,11 @@ export class HeightmapTerrain implements ITerrain {
     mat.metallic = 0;
     mat.roughness = 0.9;
     mat.albedoColor = new Color3(1, 1, 1); // vertex colors carry the elevation tint
+    // Fly/Drive have no collision, so it's easy to end up below the mesh
+    // (an overhang, or just diving under it) — without this, looking up
+    // from underneath shows nothing (the backface is culled) instead of
+    // the terrain's underside.
+    mat.backFaceCulling = false;
     ground.material = mat;
     ground.receiveShadows = true;
 
@@ -136,6 +141,12 @@ export class HeightmapTerrain implements ITerrain {
   // toggles (getHeightAt keeps sampling the DEM regardless of mesh visibility).
   setVisible(visible: boolean): void {
     this.ground.setEnabled(visible);
+  }
+
+  // Not part of ITerrain — lets a WaterPlane reflect/refract the actual
+  // terrain surface instead of just showing empty background.
+  getMesh(): Mesh {
+    return this.ground;
   }
 
   dispose(): void {
