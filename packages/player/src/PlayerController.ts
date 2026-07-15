@@ -2,12 +2,25 @@ import { Vector3, FreeCamera, Scene, SpotLight, Color3 } from '@babylonjs/core';
 import { PLAYER_CONFIG } from './defaults';
 import { BreathSystem } from './BreathSystem';
 import { AdrenalineSystem } from './AdrenalineSystem';
-import type { Terrain } from '@dissonance/world';
+import type { ITerrain } from '@dissonance/world';
 import type { Collider } from '@dissonance/world';
 
 const STAND_HEIGHT = 1.7;
 const CROUCH_HEIGHT = 0.9;
 const PLAYER_RADIUS = 0.38;
+
+export type PlayerControllerOptions = {
+  // Uniform multiplier on the player's own physical size (eye height,
+  // crouch height, collision radius) — not on movement speed. Lets a
+  // scene shrink/grow the player relative to a world whose own geometry
+  // was scaled independently (see HeightmapTerrain's horizontalScale/
+  // verticalExaggeration), without touching DTA's own default (scale: 1).
+  scale?: number;
+  // Babylon's Camera.maxZ (far clip plane) defaults to 10000 — fine for
+  // DTA's ~800-unit world, but far too short for a scene whose geometry
+  // has been scaled up past that (distant terrain just isn't drawn).
+  farClip?: number;
+};
 
 export type FlashlightTuning = {
   intensity: number;
@@ -34,18 +47,34 @@ export class PlayerController {
   private sprintLocked = false;
   private currentSpeed = 0;
   private shakeTime = 0;
-  private eyeHeight = STAND_HEIGHT;
+  private eyeHeight: number;
 
-  private terrain: Terrain | null = null;
+  private readonly standHeight: number;
+  private readonly crouchHeight: number;
+  private readonly playerRadius: number;
+
+  private terrain: ITerrain | null = null;
   private colliders: Collider[] = [];
   private worldBoundaryRadius: number | null = null;
+  // Extra Y added on top of the normal stand/crouch eye height — a scene-level
+  // "raise the camera a bit" tweak, independent of the scale-driven eye
+  // height math above (e.g. trail-viewer's shrunk-player levels compensating
+  // for vertical exaggeration). Defaults to 0: no behavior change for DTA.
+  private heightOffset = 0;
 
-  constructor(scene: Scene, startPosition: Vector3) {
+  constructor(scene: Scene, startPosition: Vector3, options: PlayerControllerOptions = {}) {
+    const scale = options.scale ?? 1;
+    this.standHeight = STAND_HEIGHT * scale;
+    this.crouchHeight = CROUCH_HEIGHT * scale;
+    this.playerRadius = PLAYER_RADIUS * scale;
+    this.eyeHeight = this.standHeight;
+
     this.breath = new BreathSystem();
     this.adrenaline = new AdrenalineSystem();
 
     this.camera = new FreeCamera('playerCam', startPosition, scene);
     this.camera.minZ = 0.1;
+    this.camera.maxZ = options.farClip ?? 10000;
     this.camera.fov = 1.05;
     this.camera.rotation = Vector3.Zero();
 
@@ -67,6 +96,17 @@ export class PlayerController {
   }
 
   get isLocked(): boolean { return this.isPointerLocked; }
+
+  // For scenes that swap between multiple simultaneously-alive camera
+  // controllers sharing one pointer-locked canvas (e.g. trail-viewer's
+  // walk/fly toggle): while this controller isn't the active one, it still
+  // accumulates mousemove deltas from the shared listener. Without clearing
+  // them, reactivating it applies all that pent-up delta in one jarring
+  // snap. Call this right after making this controller active again.
+  clearLookDelta(): void {
+    this.mouseDeltaX = 0;
+    this.mouseDeltaY = 0;
+  }
 
   // Intensity-based toggle is more reliable than setEnabled() across BabylonJS versions.
   setFlashlightEnabled(enabled: boolean): void {
@@ -117,8 +157,12 @@ export class PlayerController {
     return Math.max(0, Math.min(1, conePressure * rangePressure));
   }
 
-  setTerrain(terrain: Terrain): void {
+  setTerrain(terrain: ITerrain): void {
     this.terrain = terrain;
+  }
+
+  setHeightOffset(offset: number): void {
+    this.heightOffset = offset;
   }
 
   setColliders(colliders: Collider[]): void {
@@ -209,11 +253,11 @@ export class PlayerController {
       }
     }
 
-    const targetEye = this.isCrouching ? CROUCH_HEIGHT : STAND_HEIGHT;
+    const targetEye = this.isCrouching ? this.crouchHeight : this.standHeight;
     this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 10);
 
     const groundY = this.terrain?.getHeightAt(this.camera.position.x, this.camera.position.z) ?? 0;
-    this.camera.position.y = groundY + this.eyeHeight;
+    this.camera.position.y = groundY + this.eyeHeight + this.heightOffset;
 
     this.shakeTime += dt * 3.0;
     const shakeMag = this.adrenaline.getShakeMagnitude() * 0.72 + this.breath.getLoad() * 0.0025;
@@ -254,7 +298,7 @@ export class PlayerController {
     for (const c of this.colliders) {
       const dx = x - c.x;
       const dz = z - c.z;
-      const r = c.radius + PLAYER_RADIUS;
+      const r = c.radius + this.playerRadius;
       if (dx * dx + dz * dz < r * r) return true;
     }
     return false;
@@ -274,7 +318,7 @@ export class PlayerController {
     this.currentSpeed = 0;
     this.sprintLocked = false;
     this.isCrouching = false;
-    this.eyeHeight = STAND_HEIGHT;
+    this.eyeHeight = this.standHeight;
     this.keys = {};
   }
 }

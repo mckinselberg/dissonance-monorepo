@@ -8,6 +8,7 @@ import {
   Mesh,
 } from '@babylonjs/core';
 import type { ExperienceProfile, WorldPosition } from '@dissonance/shared-types';
+import type { ITerrain } from './ITerrain';
 
 const WORLD_SIZE = 800;
 const GRID_RES = 192;
@@ -105,7 +106,7 @@ function distanceToPolyline(x: number, z: number, points: [number, number][]): n
   return nearest;
 }
 
-export class Terrain {
+export class Terrain implements ITerrain {
   private readonly heights: Float32Array;
   private ground: Mesh;
   private readonly options: TerrainOptions;
