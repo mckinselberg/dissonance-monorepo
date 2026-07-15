@@ -46,12 +46,17 @@
         </label>
         <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
           Fog <input type="range" id="fog-density" min="0" max="0.002" step="0.00005" style="flex:1" /> <span id="fog-density-value"></span>
+          <input type="color" id="fog-color" style="width:28px; height:20px; padding:0; border:1px solid #555; border-radius:3px; background:none; cursor:pointer;" />
         </label>
         <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
           Stars <input type="range" id="star-count" min="0" max="3000" step="100" style="flex:1" /> <span id="star-count-value"></span>
         </label>
         <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
           Cloud density <input type="range" id="cloud-count" min="0" max="60" step="2" style="flex:1" /> <span id="cloud-count-value"></span>
+        </label>
+        <label style="margin-top:4px;"><input type="checkbox" id="toggle-overcast" /> Overcast</label>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
+          # Trees <input type="range" id="tree-count" min="0" step="1" style="flex:1" /> <span id="tree-count-value"></span>
         </label>
       </div>
       <div id="movement-mode-row" style="display:none; margin-top:4px;">
@@ -64,9 +69,17 @@
         <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
           Cam height <input type="range" id="camera-height" min="0" max="3" step="0.1" style="flex:1" /> <span id="camera-height-value"></span>m
         </label>
+        <label style="margin-top:4px;"><input type="checkbox" id="toggle-world-bounded" /> Bounded world (clamp to map edge)</label>
         <div style="margin-top:4px;">
           <button id="ignite-fire-button" type="button" style="font: inherit; cursor:pointer;">🔥 Ignite fire (F)</button>
           <button id="reset-fire-button" type="button" style="font: inherit; cursor:pointer;">Reset fire</button>
+        </div>
+      </div>
+      <div id="view-tools-row" style="margin-top:4px;">
+        <button id="copy-view-button" type="button" style="font: inherit; cursor:pointer;">📋 Copy View</button>
+        <div style="margin-top:4px;">
+          <textarea id="load-view-input" rows="3" placeholder="paste a copied view JSON here" style="width:100%; box-sizing:border-box; font:11px monospace; background:#111; color:#eee; border:1px solid #555; border-radius:3px; resize:vertical;"></textarea>
+          <button id="load-view-button" type="button" style="font: inherit; cursor:pointer; margin-top:2px;">Load View</button>
         </div>
       </div>
       <div id="goto">

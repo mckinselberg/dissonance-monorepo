@@ -88,16 +88,21 @@ function currentLevelKey(): string {
 type ActiveMode = 'walk' | 'fly' | 'drive';
 
 // Everything a level-1/2 session might want to survive a reload — position,
-// which traversal mode was active, and (level 1 only, but harmless to
-// include everywhere) the live-tuned scale/water/camera-height sliders.
-// Saved per level key, since position and scale are only meaningful within
-// a given level's own coordinate space. Player mode only — the orbit
-// camera's "position" is a derived value (target + radius/alpha/beta), not
-// something meaningful to restore the same way.
+// look direction, which traversal mode was active, and the live-tuned
+// scale/water/camera-height/atmosphere sliders. Saved per level key, since
+// position and scale are only meaningful within a given level's own
+// coordinate space. orbitX/Y/Z/Alpha/Beta/Radius are the level-3 (orbit)
+// equivalent — orbit's own position field above doesn't apply to it (an
+// ArcRotateCamera's "position" is a derived value of target+radius/alpha/
+// beta), but orbit sessions don't autosave any of this the way player mode
+// does; these fields only ever get written by the Copy/Load View mechanism
+// below (see THREADS.md's "View snapshot / Copy-Paste Views" thread).
 type SavedSettings = {
   x?: number;
   y?: number;
   z?: number;
+  rotationX?: number;
+  rotationY?: number;
   activeMode?: ActiveMode;
   hScale?: number;
   vExag?: number;
@@ -105,9 +110,19 @@ type SavedSettings = {
   cameraHeightOffset?: number;
   timeOfDay?: number;
   fogDensity?: number;
+  fogColor?: string;
+  overcast?: boolean;
   starCount?: number;
   cloudCount?: number;
+  treeCount?: number;
   hudVisible?: boolean;
+  worldBounded?: boolean;
+  orbitTargetX?: number;
+  orbitTargetY?: number;
+  orbitTargetZ?: number;
+  orbitAlpha?: number;
+  orbitBeta?: number;
+  orbitRadius?: number;
 };
 
 function settingsStorageKey(levelKey: string): string {
@@ -215,21 +230,29 @@ async function main() {
 
   const SKY_DAY = new Color4(0.55, 0.65, 0.78, 1);
   const SKY_NIGHT = new Color4(0.02, 0.03, 0.08, 1);
+  // Overcast dims both the sun and the ambient fill — a real overcast sky
+  // is heavily diffused light (soft, flat, no strong directional shadow),
+  // not just "clouds added on top" while the lighting stays sunny.
+  let overcast = savedSettings.overcast ?? false;
+  const OVERCAST_DIMMING = 0.6;
   // Ambient fill dims at night too (Sun's own directional light already
   // does this internally) — a bright hemispheric fill at midnight would
   // fight the dark sky/sun color instead of reading as night.
   const applyTimeOfDay = (hour: number) => {
     sun.setTimeOfDay(hour);
     const dayFactor = Math.max(0, sunHeightForHour(hour));
-    light.intensity = 0.15 + dayFactor * 0.4;
+    const overcastFactor = overcast ? OVERCAST_DIMMING : 1;
+    sun.light.intensity *= overcastFactor;
+    light.intensity = (0.15 + dayFactor * 0.4) * overcastFactor;
     scene.clearColor = Color4.Lerp(SKY_NIGHT, SKY_DAY, dayFactor);
     stars.setNightFactor(1 - dayFactor);
   };
   applyTimeOfDay(timeOfDay);
 
   let fogDensity = savedSettings.fogDensity ?? 0;
+  let fogColor = savedSettings.fogColor ?? '#8ca6c7';
   scene.fogMode = Scene.FOGMODE_EXP2;
-  scene.fogColor = new Color3(SKY_DAY.r, SKY_DAY.g, SKY_DAY.b);
+  scene.fogColor = Color3.FromHexString(fogColor);
   scene.fogDensity = fogDensity;
 
   // Mutable — level 1 exposes live HUD sliders that rebuild the terrain
@@ -280,10 +303,42 @@ async function main() {
   // actual forest from the built-up flat area visible near the coast (see
   // smr-trails.geojson — trail lines only, no polygons), so elevation is a
   // simple stand-in for "this is probably slope, not town."
-  const TREE_CANDIDATE_COUNT = 6000;
+  // Thin instancing keeps the GPU draw-call cost of *rendering* trees flat
+  // regardless of count (a handful of draw calls per template — see
+  // ThinInstanceTrees — however many instances ride along), so the real
+  // constraint is candidate generation + per-instance matrix upload, which
+  // stays cheap even at high counts on integrated graphics. 8000 is a
+  // deliberate ceiling picked for that reason (not an incidental one), with
+  // some headroom in the candidate pool above it since the elevation filter
+  // below discards some fraction of attempts.
+  const MAX_TREE_COUNT = 8000;
+  const TREE_CANDIDATE_COUNT = 10000;
   const TREE_CLEARANCE_ABOVE_WATER = 20;
   const realWidth = contract.bbox.maxX - contract.bbox.minX;
   const realDepth = contract.bbox.maxZ - contract.bbox.minZ;
+
+  // Fly/Drive have no collision or bounds of their own (see their "no
+  // collision" comments) — it's easy to wander straight off the edge of
+  // the loaded DEM into the featureless void beyond it (the same problem
+  // the reset-position button exists to recover from). This clamps X/Z to
+  // the DEM's actual rectangular bbox extent every frame when enabled.
+  // PlayerController already has a boundary mechanism of its own
+  // (setWorldBoundaryRadius, used for DTA's mountain ring) but it's
+  // circular and FlightController/DriveController don't have an
+  // equivalent at all — done here app-locally instead of extending the
+  // shared player package for a rectangular case it doesn't need yet.
+  let worldBounded = savedSettings.worldBounded ?? false;
+  const clampToWorldBounds = (controller: { getPosition(): Vector3; setPosition(pos: Vector3): void }) => {
+    if (!worldBounded) return;
+    const pos = controller.getPosition();
+    const maxX = (realWidth / 2) * hScale;
+    const maxZ = (realDepth / 2) * hScale;
+    const clampedX = Math.max(-maxX, Math.min(maxX, pos.x));
+    const clampedZ = Math.max(-maxZ, Math.min(maxZ, pos.z));
+    if (clampedX !== pos.x || clampedZ !== pos.z) {
+      controller.setPosition(new Vector3(clampedX, pos.y, clampedZ));
+    }
+  };
   const treePoints: TreePoint[] = [];
   for (let i = 0; i < TREE_CANDIDATE_COUNT; i++) {
     const x = (Math.random() - 0.5) * realWidth;
@@ -292,8 +347,16 @@ async function main() {
     if (groundY < waterLevel + TREE_CLEARANCE_ABOVE_WATER) continue;
     treePoints.push({ x, z, groundY });
   }
+  const maxTreeCount = Math.min(treePoints.length, MAX_TREE_COUNT);
+  let treeCount = Math.min(savedSettings.treeCount ?? maxTreeCount, maxTreeCount);
   let trees = new ThinInstanceTrees(scene);
-  trees.scatter(treePoints, hScale, vExag);
+  trees.scatter(treePoints.slice(0, treeCount), hScale, vExag);
+  const rebuildTrees = () => {
+    trees.dispose();
+    trees = new ThinInstanceTrees(scene);
+    trees.scatter(treePoints.slice(0, treeCount), hScale, vExag);
+    trees.setVisible(treesToggle.checked);
+  };
 
   // Same technique as @dissonance/world's CloudSystem (a decoupled sibling,
   // DriftingClouds — CloudSystem's sizes/altitudes are hardcoded to DTA's
@@ -302,14 +365,19 @@ async function main() {
   // then converted the same way terrain/water are: X/Z by horizontalScale,
   // Y by verticalExaggeration.
   let cloudCount = savedSettings.cloudCount ?? 16;
+  // Overcast reads from the closure `overcast` flag rather than taking a
+  // parameter — it's a scene-wide toggle, not something callers pick per
+  // call, same as `contract`/`hScale` already being closed over here.
   const cloudOptionsFor = (currentHScale: number, currentVExag: number, count: number) => ({
-    count,
+    count: overcast ? Math.max(count, 60) : count,
     spread: (contract.bbox.maxX - contract.bbox.minX) * currentHScale * 1.3,
-    altitudeMin: (contract.elevation.max + 250) * currentVExag,
-    altitudeMax: (contract.elevation.max + 450) * currentVExag,
-    diameterMin: 300 * currentHScale,
-    diameterMax: 800 * currentHScale,
+    altitudeMin: (overcast ? contract.elevation.max + 150 : contract.elevation.max + 250) * currentVExag,
+    altitudeMax: (overcast ? contract.elevation.max + 220 : contract.elevation.max + 450) * currentVExag,
+    diameterMin: (overcast ? 600 : 300) * currentHScale,
+    diameterMax: (overcast ? 1400 : 800) * currentHScale,
     driftSpeed: 5 * currentHScale,
+    color: overcast ? new Color3(0.55, 0.56, 0.58) : undefined,
+    alpha: overcast ? 0.95 : undefined,
   });
   let clouds = new DriftingClouds(scene, cloudOptionsFor(hScale, vExag, cloudCount));
   clouds.getMeshes().forEach((m) => water.addToRenderList(m));
@@ -383,6 +451,13 @@ async function main() {
     scene.fogDensity = fogDensity;
   });
 
+  const fogColorPicker = document.getElementById('fog-color') as HTMLInputElement;
+  fogColorPicker.value = fogColor;
+  fogColorPicker.addEventListener('input', () => {
+    fogColor = fogColorPicker.value;
+    scene.fogColor = Color3.FromHexString(fogColor);
+  });
+
   const starCountSlider = document.getElementById('star-count') as HTMLInputElement;
   const starCountValue = document.getElementById('star-count-value') as HTMLSpanElement;
   starCountSlider.value = String(starCount);
@@ -405,6 +480,34 @@ async function main() {
     rebuildClouds();
   });
 
+  const overcastToggle = document.getElementById('toggle-overcast') as HTMLInputElement;
+  overcastToggle.checked = overcast;
+  overcastToggle.addEventListener('change', () => {
+    overcast = overcastToggle.checked;
+    rebuildClouds();
+    // Re-dims/undims the sun+ambient for the current time of day rather
+    // than just the cloud layer — see applyTimeOfDay's own comment on why
+    // overcast touches lighting too, not just cloud appearance.
+    applyTimeOfDay(timeOfDay);
+  });
+
+  const treeCountSlider = document.getElementById('tree-count') as HTMLInputElement;
+  const treeCountValue = document.getElementById('tree-count-value') as HTMLSpanElement;
+  // max is set at runtime, not in the HTML — it depends on maxTreeCount
+  // (candidate pool after the elevation filter, capped by the hardware
+  // ceiling), which isn't known until the heightmap has loaded. step stays
+  // 1 (not some coarser computed value) — a range input snaps .value to
+  // the nearest step boundary when set via JS, so a coarse step here would
+  // silently move the thumb away from the exact default/restored count.
+  treeCountSlider.max = String(maxTreeCount);
+  treeCountSlider.value = String(treeCount);
+  treeCountValue.textContent = String(treeCount);
+  treeCountSlider.addEventListener('change', () => {
+    treeCount = parseFloat(treeCountSlider.value);
+    treeCountValue.textContent = String(treeCount);
+    rebuildTrees();
+  });
+
   const hudToggleButton = document.getElementById('toggle-hud-button') as HTMLButtonElement;
   const uiPanel = document.getElementById('ui') as HTMLDivElement;
   let hudVisible = savedSettings.hudVisible ?? true;
@@ -416,6 +519,45 @@ async function main() {
     // persistSettings (and the position/mode state it reads) doesn't apply
     // in orbit mode — see SavedSettings' own comment on why.
     if (level.cameraMode !== 'orbit') persistSettings();
+  });
+
+  // Load View half of the Copy/Load View dev mechanism (see THREADS.md).
+  // Writes the pasted snapshot straight into the target level's existing
+  // settings-storage key, then reloads (same level) or navigates (a
+  // different one) — reuses the restore-on-load path both branches below
+  // already have, rather than a second parallel "apply this live" path.
+  const loadViewInput = document.getElementById('load-view-input') as HTMLTextAreaElement;
+  const loadViewButton = document.getElementById('load-view-button') as HTMLButtonElement;
+  loadViewButton.addEventListener('click', () => {
+    let snapshot: SavedSettings & { level?: string };
+    try {
+      snapshot = JSON.parse(loadViewInput.value);
+    } catch {
+      alert('Could not parse that as JSON.');
+      return;
+    }
+    const targetLevel = snapshot.level;
+    if (typeof targetLevel !== 'string' || !(targetLevel in LEVELS)) {
+      alert('View JSON is missing a valid "level" field.');
+      return;
+    }
+    const { level: _level, ...rest } = snapshot;
+    // Same race as resetPositionButton: reload()/href fire beforeunload/
+    // pagehide on the page being torn down *before* the new one loads —
+    // persistSettings would otherwise immediately re-persist the current
+    // (unrelated) in-memory state and clobber the snapshot we just wrote a
+    // moment later. Doesn't apply in orbit mode — persistSettings is never
+    // registered there in the first place (see SavedSettings' comment).
+    if (level.cameraMode !== 'orbit') {
+      window.removeEventListener('beforeunload', persistSettings);
+      window.removeEventListener('pagehide', persistSettings);
+    }
+    saveSettings(targetLevel, rest);
+    if (targetLevel === levelKey) {
+      location.reload();
+    } else {
+      location.href = `?level=${targetLevel}`;
+    }
   });
 
   const gotoLat = document.getElementById('goto-lat') as HTMLInputElement;
@@ -452,9 +594,19 @@ async function main() {
 
   if (level.cameraMode === 'orbit') {
     // The original Phase 3/4 validation view — free orbit over the whole
-    // model, no player/collision involved.
+    // model, no player/collision involved. Orbit doesn't autosave (see
+    // SavedSettings' comment), but a loaded view snapshot writes these same
+    // fields into localStorage, so restoring them here if present is what
+    // makes "Load View" work for level 3.
     const worldWidth = (contract.bbox.maxX - contract.bbox.minX) * level.horizontalScale;
-    const orbitCamera = new ArcRotateCamera('orbitCamera', -Math.PI / 2, Math.PI / 3, worldWidth * 0.7, Vector3.Zero(), scene);
+    const orbitCamera = new ArcRotateCamera(
+      'orbitCamera',
+      savedSettings.orbitAlpha ?? -Math.PI / 2,
+      savedSettings.orbitBeta ?? Math.PI / 3,
+      savedSettings.orbitRadius ?? worldWidth * 0.7,
+      new Vector3(savedSettings.orbitTargetX ?? 0, savedSettings.orbitTargetY ?? 0, savedSettings.orbitTargetZ ?? 0),
+      scene,
+    );
     orbitCamera.attachControl(canvas, true);
     orbitCamera.lowerRadiusLimit = 20;
     orbitCamera.upperRadiusLimit = worldWidth * 2;
@@ -462,6 +614,20 @@ async function main() {
     orbitCamera.panningSensibility = 50;
     orbitCamera.maxZ = level.farClip;
     scene.activeCamera = orbitCamera;
+
+    const copyViewButton = document.getElementById('copy-view-button') as HTMLButtonElement;
+    copyViewButton.addEventListener('click', () => {
+      const snapshot: SavedSettings & { level: string } = {
+        level: levelKey,
+        orbitTargetX: orbitCamera.target.x, orbitTargetY: orbitCamera.target.y, orbitTargetZ: orbitCamera.target.z,
+        orbitAlpha: orbitCamera.alpha, orbitBeta: orbitCamera.beta, orbitRadius: orbitCamera.radius,
+        hScale, vExag, waterLevel, timeOfDay, fogDensity, fogColor, overcast, starCount, cloudCount, treeCount,
+      };
+      navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2));
+      const original = copyViewButton.textContent;
+      copyViewButton.textContent = 'Copied!';
+      setTimeout(() => { copyViewButton.textContent = original; }, 1200);
+    });
 
     gotoButton.addEventListener('click', () => {
       const lat = parseFloat(gotoLat.value);
@@ -521,6 +687,36 @@ async function main() {
   });
   drive.setTerrain(terrain);
 
+  // Autosave never restored look direction even before the Copy/Load View
+  // mechanism existed (only position) — a real gap, since "the same spot,
+  // facing the default direction" isn't the same view at all. Applied to
+  // all three controllers so whichever mode ends up active (see
+  // switchMode's own restore below) already has the right look direction.
+  if (savedSettings.rotationX !== undefined && savedSettings.rotationY !== undefined) {
+    const savedRotation = new Vector3(savedSettings.rotationX, savedSettings.rotationY, 0);
+    player.camera.rotation.copyFrom(savedRotation);
+    flight.camera.rotation.copyFrom(savedRotation);
+    drive.camera.rotation.copyFrom(savedRotation);
+  }
+
+  const copyViewButton = document.getElementById('copy-view-button') as HTMLButtonElement;
+  copyViewButton.addEventListener('click', () => {
+    const activeCamera = controllers[activeMode].camera;
+    const pos = controllers[activeMode].getPosition();
+    const snapshot: SavedSettings & { level: string } = {
+      level: levelKey,
+      activeMode,
+      x: pos.x, y: pos.y, z: pos.z,
+      rotationX: activeCamera.rotation.x, rotationY: activeCamera.rotation.y,
+      hScale, vExag, waterLevel, cameraHeightOffset,
+      timeOfDay, fogDensity, fogColor, overcast, starCount, cloudCount, treeCount,
+    };
+    navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2));
+    const original = copyViewButton.textContent;
+    copyViewButton.textContent = 'Copied!';
+    setTimeout(() => { copyViewButton.textContent = original; }, 1200);
+  });
+
   // Forest fire game mechanic — press F (or the HUD button) to ignite the
   // nearest tree; fire spreads through neighboring trees over time. Reuses
   // the same treePoints the forest was scattered from, rather than any
@@ -572,6 +768,12 @@ async function main() {
     cameraHeightValue.textContent = cameraHeightOffset.toFixed(1);
     player.setHeightOffset(cameraHeightOffset);
     drive.setHeightOffset(cameraHeightOffset);
+  });
+
+  const worldBoundedToggle = document.getElementById('toggle-world-bounded') as HTMLInputElement;
+  worldBoundedToggle.checked = worldBounded;
+  worldBoundedToggle.addEventListener('change', () => {
+    worldBounded = worldBoundedToggle.checked;
   });
 
   const switchMode = (newMode: ActiveMode) => {
@@ -672,10 +874,7 @@ async function main() {
 
       // Positions are cached (treePoints), so this just re-scatters the
       // same forest at the new scale rather than re-rolling placement.
-      trees.dispose();
-      trees = new ThinInstanceTrees(scene);
-      trees.scatter(treePoints, hScale, vExag);
-      trees.setVisible(treesToggle.checked);
+      rebuildTrees();
       forestFire.setScale(hScale, vExag);
 
       const newRenderX = realX * hScale;
@@ -728,14 +927,16 @@ async function main() {
   const SAVE_INTERVAL_SECONDS = 2;
   let timeSinceSave = 0;
   const persistSettings = () => {
+    const activeCamera = controllers[activeMode].camera;
     const pos = controllers[activeMode].getPosition();
     saveSettings(levelKey, {
       x: pos.x, y: pos.y, z: pos.z,
+      rotationX: activeCamera.rotation.x, rotationY: activeCamera.rotation.y,
       activeMode,
       hScale, vExag, waterLevel,
       cameraHeightOffset,
-      timeOfDay, fogDensity, starCount, cloudCount,
-      hudVisible,
+      timeOfDay, fogDensity, fogColor, overcast, starCount, cloudCount, treeCount,
+      hudVisible, worldBounded,
     });
   };
   window.addEventListener('beforeunload', persistSettings);
@@ -743,6 +944,7 @@ async function main() {
 
   const gameLoop = new GameLoop(engine, (dt) => {
     controllers[activeMode].update(dt);
+    clampToWorldBounds(controllers[activeMode]);
     clouds.update(dt);
     forestFire.update(dt);
     const pos = controllers[activeMode].getPosition();
