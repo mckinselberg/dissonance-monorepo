@@ -64,6 +64,15 @@ importers:
         specifier: ^5.2.0
         version: 5.4.21
 
+  apps/home:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vite:
+        specifier: ^5.2.0
+        version: 5.4.21
+
   apps/trail-viewer:
     dependencies:
       '@babylonjs/core':

@@ -2,19 +2,25 @@ services:
   - type: web
     name: dont-turn-around
     env: static
-    # Builds both apps, then stitches their dist/ outputs into one publish dir so
-    # they share this service's domain: dont-turn-around at /, trail-viewer at /trail-viewer/.
+    # Builds three apps, then stitches their dist/ outputs into one publish dir so
+    # they share this service's domain: home at /, don't turn around at
+    # /dont-turn-around/, and trail-viewer at /trail-viewer/.
     buildCommand: >-
-      pnpm turbo build --filter=dont-turn-around --filter=trail-viewer &&
+      pnpm turbo build --filter=home --filter=dont-turn-around --filter=trail-viewer &&
       rm -rf dist &&
+      mkdir -p dist/dont-turn-around &&
       mkdir -p dist/trail-viewer &&
-      cp -r apps/dont-turn-around/dist/. dist/ &&
+      cp -r apps/home/dist/. dist/ &&
+      cp -r apps/dont-turn-around/dist/. dist/dont-turn-around/ &&
       cp -r apps/trail-viewer/dist/. dist/trail-viewer/
     staticPublishPath: ./dist
     branch: main
     autoDeploy: true
     routes:
-      # Order matters: the trail-viewer rule must come before the catch-all below.
+      # Order matters: more specific routes must come before the catch-all below.
+      - type: rewrite
+        source: /dont-turn-around/*
+        destination: /dont-turn-around/index.html
       - type: rewrite
         source: /trail-viewer/*
         destination: /trail-viewer/index.html

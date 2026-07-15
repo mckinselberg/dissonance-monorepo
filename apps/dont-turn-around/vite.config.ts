@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // Served at /dont-turn-around/ on the shared Render static site.
+  // Dev uses the same base so the home app can proxy this route locally.
+  base: '/dont-turn-around/',
   resolve: {
     alias: {
       '@dissonance/shared-types': path.resolve(__dirname, '../../packages/shared-types/src'),
@@ -19,6 +22,8 @@ export default defineConfig({
     dedupe: ['@babylonjs/core', '@babylonjs/loaders', 'tone'],
   },
   server: {
+    port: 5174,
+    strictPort: true,
     fs: {
       allow: [path.resolve(__dirname, '../../')],
     },
@@ -29,4 +34,4 @@ export default defineConfig({
     exclude: ['@babylonjs/core', '@babylonjs/loaders'],
     include: ['tone'],
   },
-});
+}));

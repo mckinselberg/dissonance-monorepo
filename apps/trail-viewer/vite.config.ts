@@ -3,8 +3,8 @@ import path from 'path';
 
 export default defineConfig(({ command }) => ({
   // Served at /trail-viewer/ on the shared Render static site (see render.yaml).
-  // Keep dev server at '/' so `pnpm dev` still works at localhost:5173/.
-  base: command === 'build' ? '/trail-viewer/' : '/',
+  // Dev uses the same base so the home app can proxy this route locally.
+  base: '/trail-viewer/',
   resolve: {
     alias: {
       '@dissonance/engine': path.resolve(__dirname, '../../packages/engine/src'),
@@ -16,6 +16,8 @@ export default defineConfig(({ command }) => ({
     dedupe: ['@babylonjs/core'],
   },
   server: {
+    port: 5175,
+    strictPort: true,
     fs: {
       allow: [path.resolve(__dirname, '../../')],
     },
