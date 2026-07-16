@@ -40,25 +40,7 @@
       <label><input type="checkbox" id="toggle-water" checked /> Water</label>
       <label><input type="checkbox" id="toggle-clouds" checked /> Clouds</label>
       <label><input type="checkbox" id="toggle-trees" checked /> Trees</label>
-      <div id="atmosphere-row" style="margin-top:4px;">
-        <label style="display:flex; align-items:center; gap:6px;">
-          Time of day <input type="range" id="time-of-day" min="0" max="24" step="0.1" style="flex:1" /> <span id="time-of-day-value"></span>h
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
-          Fog <input type="range" id="fog-density" min="0" max="0.002" step="0.00005" style="flex:1" /> <span id="fog-density-value"></span>
-          <input type="color" id="fog-color" style="width:28px; height:20px; padding:0; border:1px solid #555; border-radius:3px; background:none; cursor:pointer;" />
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
-          Stars <input type="range" id="star-count" min="0" max="3000" step="100" style="flex:1" /> <span id="star-count-value"></span>
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
-          Cloud density <input type="range" id="cloud-count" min="0" max="60" step="2" style="flex:1" /> <span id="cloud-count-value"></span>
-        </label>
-        <label style="margin-top:4px;"><input type="checkbox" id="toggle-overcast" /> Overcast</label>
-        <label style="display:flex; align-items:center; gap:6px; margin-top:4px;">
-          # Trees <input type="range" id="tree-count" min="0" step="1" style="flex:1" /> <span id="tree-count-value"></span>
-        </label>
-      </div>
+      <div id="atmosphere-root"></div>
       <div id="movement-mode-row" style="display:none; margin-top:4px;">
         Mode:
         <select id="movement-mode">
@@ -103,6 +85,6 @@
         if (a.getAttribute('href') === `?level=${activeLevel}`) a.classList.add('active');
       });
     </script>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

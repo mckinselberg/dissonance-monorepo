@@ -1,10 +1,14 @@
 import { defineConfig } from 'vite';
+import preact from '@preact/preset-vite';
 import path from 'path';
 
 export default defineConfig(({ command }) => ({
   // Served at /trail-viewer/ on the shared Render static site (see render.yaml).
   // Dev uses the same base so the home app can proxy this route locally.
   base: '/trail-viewer/',
+  // Scoped to this app only — the atmosphere-row control panel pilot is the
+  // first (and so far only) use of Preact in this monorepo.
+  plugins: [preact()],
   resolve: {
     alias: {
       '@dissonance/engine': path.resolve(__dirname, '../../packages/engine/src'),

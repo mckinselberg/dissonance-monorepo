@@ -28,6 +28,10 @@ import {
   type GeoPolyline,
   type UtmCoordinate,
 } from '@dissonance/geo';
+import { render } from 'preact';
+import { signal, effect } from '@preact/signals';
+import { createAtmosphereSignals } from './state/atmosphere';
+import { AtmosphereRow } from './ui/AtmosphereRow';
 
 const OSM_TRAIL_Y_LIFT = 0.5;
 // Slightly higher than the OSM trails so the recorded track sits visibly on
@@ -222,38 +226,53 @@ async function main() {
   const level = LEVELS[levelKey];
   const savedSettings = loadSavedSettings(levelKey);
 
+  // Atmosphere-row pilot (see docs/THREADS.md) — these 6 signals back the
+  // Preact-rendered #atmosphere-root panel mounted further down. treeCount
+  // isn't among them; its default depends on maxTreeCount, which isn't
+  // known until the tree-candidate pool below is built (see there).
+  const atmosphere = createAtmosphereSignals({
+    timeOfDay: savedSettings.timeOfDay ?? 12,
+    fogDensity: savedSettings.fogDensity ?? 0,
+    fogColor: savedSettings.fogColor ?? '#8ca6c7',
+    overcast: savedSettings.overcast ?? false,
+    starCount: savedSettings.starCount ?? 800,
+    cloudCount: savedSettings.cloudCount ?? 16,
+  });
+
   const light = new HemisphericLight('light', new Vector3(0.3, 1, 0.2), scene);
-  let timeOfDay = savedSettings.timeOfDay ?? 12;
-  const sun = new Sun(scene, { hour: timeOfDay });
-  let starCount = savedSettings.starCount ?? 800;
-  let stars = new StarField(scene, { count: starCount });
+  const sun = new Sun(scene, { hour: atmosphere.timeOfDay.value });
+  let stars = new StarField(scene, { count: atmosphere.starCount.value });
 
   const SKY_DAY = new Color4(0.55, 0.65, 0.78, 1);
   const SKY_NIGHT = new Color4(0.02, 0.03, 0.08, 1);
   // Overcast dims both the sun and the ambient fill — a real overcast sky
   // is heavily diffused light (soft, flat, no strong directional shadow),
   // not just "clouds added on top" while the lighting stays sunny.
-  let overcast = savedSettings.overcast ?? false;
   const OVERCAST_DIMMING = 0.6;
   // Ambient fill dims at night too (Sun's own directional light already
   // does this internally) — a bright hemispheric fill at midnight would
-  // fight the dark sky/sun color instead of reading as night.
+  // fight the dark sky/sun color instead of reading as night. sun.setTimeOfDay
+  // always resets light.intensity to an absolute value first, so the *=
+  // below is safe to run more than once for the same hour/overcast pair —
+  // it never compounds.
   const applyTimeOfDay = (hour: number) => {
     sun.setTimeOfDay(hour);
     const dayFactor = Math.max(0, sunHeightForHour(hour));
-    const overcastFactor = overcast ? OVERCAST_DIMMING : 1;
+    const overcastFactor = atmosphere.overcast.value ? OVERCAST_DIMMING : 1;
     sun.light.intensity *= overcastFactor;
     light.intensity = (0.15 + dayFactor * 0.4) * overcastFactor;
     scene.clearColor = Color4.Lerp(SKY_NIGHT, SKY_DAY, dayFactor);
     stars.setNightFactor(1 - dayFactor);
   };
-  applyTimeOfDay(timeOfDay);
+  // Reads atmosphere.overcast.value too (inside applyTimeOfDay), so this
+  // effect also re-runs on an overcast toggle — the overcast checkbox's own
+  // commit handler below only needs to trigger rebuildClouds(), not repeat
+  // this call itself.
+  effect(() => applyTimeOfDay(atmosphere.timeOfDay.value));
 
-  let fogDensity = savedSettings.fogDensity ?? 0;
-  let fogColor = savedSettings.fogColor ?? '#8ca6c7';
   scene.fogMode = Scene.FOGMODE_EXP2;
-  scene.fogColor = Color3.FromHexString(fogColor);
-  scene.fogDensity = fogDensity;
+  effect(() => { scene.fogDensity = atmosphere.fogDensity.value; });
+  effect(() => { scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value); });
 
   // Mutable — level 1 exposes live HUD sliders that rebuild the terrain
   // and trail/GPX overlays with new scale values (see the scale-tuning
@@ -348,13 +367,16 @@ async function main() {
     treePoints.push({ x, z, groundY });
   }
   const maxTreeCount = Math.min(treePoints.length, MAX_TREE_COUNT);
-  let treeCount = Math.min(savedSettings.treeCount ?? maxTreeCount, maxTreeCount);
+  // Created here rather than in state/atmosphere.ts's factory — its default
+  // depends on maxTreeCount, which is only known now (see AtmosphereRow's
+  // props, where this is merged back in alongside the other 6 signals).
+  const treeCount = signal(Math.min(savedSettings.treeCount ?? maxTreeCount, maxTreeCount));
   let trees = new ThinInstanceTrees(scene);
-  trees.scatter(treePoints.slice(0, treeCount), hScale, vExag);
+  trees.scatter(treePoints.slice(0, treeCount.value), hScale, vExag);
   const rebuildTrees = () => {
     trees.dispose();
     trees = new ThinInstanceTrees(scene);
-    trees.scatter(treePoints.slice(0, treeCount), hScale, vExag);
+    trees.scatter(treePoints.slice(0, treeCount.value), hScale, vExag);
     trees.setVisible(treesToggle.checked);
   };
 
@@ -364,22 +386,21 @@ async function main() {
   // which fits this real-world-scale DEM viewer). Sized in real meters,
   // then converted the same way terrain/water are: X/Z by horizontalScale,
   // Y by verticalExaggeration.
-  let cloudCount = savedSettings.cloudCount ?? 16;
-  // Overcast reads from the closure `overcast` flag rather than taking a
+  // Overcast reads from atmosphere.overcast.value rather than taking a
   // parameter — it's a scene-wide toggle, not something callers pick per
   // call, same as `contract`/`hScale` already being closed over here.
   const cloudOptionsFor = (currentHScale: number, currentVExag: number, count: number) => ({
-    count: overcast ? Math.max(count, 60) : count,
+    count: atmosphere.overcast.value ? Math.max(count, 60) : count,
     spread: (contract.bbox.maxX - contract.bbox.minX) * currentHScale * 1.3,
-    altitudeMin: (overcast ? contract.elevation.max + 150 : contract.elevation.max + 250) * currentVExag,
-    altitudeMax: (overcast ? contract.elevation.max + 220 : contract.elevation.max + 450) * currentVExag,
-    diameterMin: (overcast ? 600 : 300) * currentHScale,
-    diameterMax: (overcast ? 1400 : 800) * currentHScale,
+    altitudeMin: (atmosphere.overcast.value ? contract.elevation.max + 150 : contract.elevation.max + 250) * currentVExag,
+    altitudeMax: (atmosphere.overcast.value ? contract.elevation.max + 220 : contract.elevation.max + 450) * currentVExag,
+    diameterMin: (atmosphere.overcast.value ? 600 : 300) * currentHScale,
+    diameterMax: (atmosphere.overcast.value ? 1400 : 800) * currentHScale,
     driftSpeed: 5 * currentHScale,
-    color: overcast ? new Color3(0.55, 0.56, 0.58) : undefined,
-    alpha: overcast ? 0.95 : undefined,
+    color: atmosphere.overcast.value ? new Color3(0.55, 0.56, 0.58) : undefined,
+    alpha: atmosphere.overcast.value ? 0.95 : undefined,
   });
-  let clouds = new DriftingClouds(scene, cloudOptionsFor(hScale, vExag, cloudCount));
+  let clouds = new DriftingClouds(scene, cloudOptionsFor(hScale, vExag, atmosphere.cloudCount.value));
   clouds.getMeshes().forEach((m) => water.addToRenderList(m));
   water.addToRenderList(sun.getMesh());
 
@@ -391,7 +412,7 @@ async function main() {
   const rebuildClouds = () => {
     clouds.getMeshes().forEach((m) => water.removeFromRenderList(m));
     clouds.dispose();
-    clouds = new DriftingClouds(scene, cloudOptionsFor(hScale, vExag, cloudCount));
+    clouds = new DriftingClouds(scene, cloudOptionsFor(hScale, vExag, atmosphere.cloudCount.value));
     clouds.getMeshes().forEach((m) => water.addToRenderList(m));
     clouds.setVisible(cloudsToggle.checked);
   };
@@ -427,86 +448,27 @@ async function main() {
   cloudsToggle.addEventListener('change', () => clouds.setVisible(cloudsToggle.checked));
   treesToggle.addEventListener('change', () => trees.setVisible(treesToggle.checked));
 
-  // Atmosphere controls — wired here (before the orbit early-return below)
-  // rather than alongside movement-mode/camera-height, since fog/time-of-
-  // day/stars/clouds all render in orbit mode (level 3) too, unlike
-  // Walk/Fly/Drive which orbit has no equivalent of.
-  const timeOfDaySlider = document.getElementById('time-of-day') as HTMLInputElement;
-  const timeOfDayValue = document.getElementById('time-of-day-value') as HTMLSpanElement;
-  timeOfDaySlider.value = String(timeOfDay);
-  timeOfDayValue.textContent = timeOfDay.toFixed(1);
-  timeOfDaySlider.addEventListener('input', () => {
-    timeOfDay = parseFloat(timeOfDaySlider.value);
-    timeOfDayValue.textContent = timeOfDay.toFixed(1);
-    applyTimeOfDay(timeOfDay);
-  });
-
-  const fogSlider = document.getElementById('fog-density') as HTMLInputElement;
-  const fogValue = document.getElementById('fog-density-value') as HTMLSpanElement;
-  fogSlider.value = String(fogDensity);
-  fogValue.textContent = fogDensity.toFixed(5);
-  fogSlider.addEventListener('input', () => {
-    fogDensity = parseFloat(fogSlider.value);
-    fogValue.textContent = fogDensity.toFixed(5);
-    scene.fogDensity = fogDensity;
-  });
-
-  const fogColorPicker = document.getElementById('fog-color') as HTMLInputElement;
-  fogColorPicker.value = fogColor;
-  fogColorPicker.addEventListener('input', () => {
-    fogColor = fogColorPicker.value;
-    scene.fogColor = Color3.FromHexString(fogColor);
-  });
-
-  const starCountSlider = document.getElementById('star-count') as HTMLInputElement;
-  const starCountValue = document.getElementById('star-count-value') as HTMLSpanElement;
-  starCountSlider.value = String(starCount);
-  starCountValue.textContent = String(starCount);
-  starCountSlider.addEventListener('change', () => {
-    starCount = parseFloat(starCountSlider.value);
-    starCountValue.textContent = String(starCount);
-    stars.dispose();
-    stars = new StarField(scene, { count: starCount });
-    stars.setNightFactor(1 - Math.max(0, sunHeightForHour(timeOfDay)));
-  });
-
-  const cloudCountSlider = document.getElementById('cloud-count') as HTMLInputElement;
-  const cloudCountValue = document.getElementById('cloud-count-value') as HTMLSpanElement;
-  cloudCountSlider.value = String(cloudCount);
-  cloudCountValue.textContent = String(cloudCount);
-  cloudCountSlider.addEventListener('change', () => {
-    cloudCount = parseFloat(cloudCountSlider.value);
-    cloudCountValue.textContent = String(cloudCount);
-    rebuildClouds();
-  });
-
-  const overcastToggle = document.getElementById('toggle-overcast') as HTMLInputElement;
-  overcastToggle.checked = overcast;
-  overcastToggle.addEventListener('change', () => {
-    overcast = overcastToggle.checked;
-    rebuildClouds();
-    // Re-dims/undims the sun+ambient for the current time of day rather
-    // than just the cloud layer — see applyTimeOfDay's own comment on why
-    // overcast touches lighting too, not just cloud appearance.
-    applyTimeOfDay(timeOfDay);
-  });
-
-  const treeCountSlider = document.getElementById('tree-count') as HTMLInputElement;
-  const treeCountValue = document.getElementById('tree-count-value') as HTMLSpanElement;
-  // max is set at runtime, not in the HTML — it depends on maxTreeCount
-  // (candidate pool after the elevation filter, capped by the hardware
-  // ceiling), which isn't known until the heightmap has loaded. step stays
-  // 1 (not some coarser computed value) — a range input snaps .value to
-  // the nearest step boundary when set via JS, so a coarse step here would
-  // silently move the thumb away from the exact default/restored count.
-  treeCountSlider.max = String(maxTreeCount);
-  treeCountSlider.value = String(treeCount);
-  treeCountValue.textContent = String(treeCount);
-  treeCountSlider.addEventListener('change', () => {
-    treeCount = parseFloat(treeCountSlider.value);
-    treeCountValue.textContent = String(treeCount);
-    rebuildTrees();
-  });
+  // Atmosphere controls — mounted here (before the orbit early-return
+  // below) rather than alongside movement-mode/camera-height, since fog/
+  // time-of-day/stars/clouds all render in orbit mode (level 3) too, unlike
+  // Walk/Fly/Drive which orbit has no equivalent of. Preact-rendered pilot
+  // (see docs/THREADS.md); commit handlers below mirror the dispose/
+  // recreate bodies the old change-listeners used 1:1.
+  render(
+    <AtmosphereRow
+      signals={{ ...atmosphere, treeCount }}
+      maxTreeCount={maxTreeCount}
+      onStarCountCommit={() => {
+        stars.dispose();
+        stars = new StarField(scene, { count: atmosphere.starCount.value });
+        stars.setNightFactor(1 - Math.max(0, sunHeightForHour(atmosphere.timeOfDay.value)));
+      }}
+      onCloudCountCommit={() => rebuildClouds()}
+      onOvercastCommit={() => rebuildClouds()}
+      onTreeCountCommit={() => rebuildTrees()}
+    />,
+    document.getElementById('atmosphere-root') as HTMLDivElement,
+  );
 
   const hudToggleButton = document.getElementById('toggle-hud-button') as HTMLButtonElement;
   const uiPanel = document.getElementById('ui') as HTMLDivElement;
@@ -621,7 +583,10 @@ async function main() {
         level: levelKey,
         orbitTargetX: orbitCamera.target.x, orbitTargetY: orbitCamera.target.y, orbitTargetZ: orbitCamera.target.z,
         orbitAlpha: orbitCamera.alpha, orbitBeta: orbitCamera.beta, orbitRadius: orbitCamera.radius,
-        hScale, vExag, waterLevel, timeOfDay, fogDensity, fogColor, overcast, starCount, cloudCount, treeCount,
+        hScale, vExag, waterLevel,
+        timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
+        overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
+        treeCount: treeCount.value,
       };
       navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2));
       const original = copyViewButton.textContent;
@@ -709,7 +674,9 @@ async function main() {
       x: pos.x, y: pos.y, z: pos.z,
       rotationX: activeCamera.rotation.x, rotationY: activeCamera.rotation.y,
       hScale, vExag, waterLevel, cameraHeightOffset,
-      timeOfDay, fogDensity, fogColor, overcast, starCount, cloudCount, treeCount,
+      timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
+      overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
+      treeCount: treeCount.value,
     };
     navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2));
     const original = copyViewButton.textContent;
@@ -935,7 +902,9 @@ async function main() {
       activeMode,
       hScale, vExag, waterLevel,
       cameraHeightOffset,
-      timeOfDay, fogDensity, fogColor, overcast, starCount, cloudCount, treeCount,
+      timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
+      overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
+      treeCount: treeCount.value,
       hudVisible, worldBounded,
     });
   };
