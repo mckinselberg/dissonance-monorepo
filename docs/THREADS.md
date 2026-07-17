@@ -1,7 +1,7 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.15
-**Date:** 2026-07-15
+**Version:** 9.16
+**Date:** 2026-07-17
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
 
 > **North star:** Audio is the key element of this game. Sound and music are not a subsystem — they are a first-class simulated world force woven through every system: ecology, bodies, behavior, institutions, identity, navigation, threat, and play. Every thread below either produces sound, consumes it, or is shaped by it. When in doubt, decide in favor of the dream: a world you learn by listening.
@@ -15,7 +15,7 @@
 | ID | Thread | State |
 |---|---|---|
 | T1/T2 | Environment profiles / Dev HUD (profile pattern + authoring loop) | active |
-| T3 | Pursuer extraction | active — blocker |
+| T3 | Pursuer extraction | partially landed (A/B done pre-existing; C deliberately deferred) — see entry for open sign-offs |
 | T4 | Pursuer embodiment / profile system | blocked on T3 |
 | T5 | Reactive environment seam | parked — shares transition seam with T23 |
 | T6 | Landscape profiles (targets list) | parked — targets become T23 regions |
@@ -43,11 +43,19 @@
 
 ## Active threads
 
-### T3 — Pursuer extraction ⛔ BLOCKER
-Extract `PursuerSystem.ts`, `PursuerBody.ts`, `PursuerAudio.ts` into monorepo packages. Sole integration blocker for downstream pursuer work.
-- **Handoff:** `pursuer-extraction-prompt-v2.md`
-- **Sequencing note:** the four-bus audio scaffold (D1) should be stood up during T3's audio phase even if three buses start empty — route extracted pursuer audio correctly now rather than re-plumbing later.
-- **Status:** ready to run locally
+### T3 — Pursuer extraction 🔄 AUDITED 2026-07-17
+Extract `PursuerSystem.ts`, `PursuerBody.ts`, `PursuerAudio.ts` into monorepo packages.
+- **Handoff:** `pursuer-extraction-prompt-v3.md` (superseded v2 — **neither v2 nor v3 exist as committed files**; only the original unversioned `docs/monorepo-docs/pursuer-extraction-prompt.md` is in the repo. v3 was pasted into a local session directly, not saved. If this thread runs again, decide whether to commit v3 as a file first — P7 says handoff prompts are the primary artifact.)
+- **Phase 0 audit (local session, 2026-07-17) — actual state found, contradicting this entry's prior "ready to run" status:**
+  - **Phase A (PursuerSystem → package): already fully done**, and not recently — `packages/pursuit/src/PursuerSystem.ts` is config-injected (constructor takes `PursuerConfig`, app supplies it via app-local `buildPursuerConfig()` at the call site, zero implicit config import), imports `PursuerState`/`PursuerModel` from `@dissonance/shared-types` rather than redeclaring them, `update()`/`getModel()`/`reset()` all present. Build-green gate confirmed (`turbo build --filter=dont-turn-around`, cache hit — no test runner exists in this repo, so "tests pass" is vacuous).
+  - **Phase B (PursuerBody split): already done to spec.** `packages/glow/src/HeartbeatGlow.ts` holds the pure BPM-pulse math; `apps/dont-turn-around/src/pursuer/PursuerBody.ts` stays app-local for the procedural mesh build, gait animation, and illumination reaction — which matches this phase's own "render wiring stays app-side for now" scope, it isn't a gap. No code changed this session (nothing to visually regression-check).
+  - **Phase C (PursuerAudio → `@dissonance/audio`): deliberately NOT done.** `PursuerAudio.ts` still carries its own `// EXTRACTION CANDIDATE` comment verbatim, which explicitly argues against extracting now: *"Revisit extraction when a second app... needs the same scheduling shape."* No second consumer exists yet. **Decided this session (Dan): honor the marker's own reasoning over the handoff prompt's literal instruction — do not extract a single-consumer "reusable" package.** This is the standing rule restated (P1 extend-don't-rewrite / CLAUDE.md "do not over-extract"), not a new one.
+- **Contradiction found and surfaced, not resolved: package naming.** Every package in this repo is `@dissonance/*`; no `@dta/*` scope exists anywhere. The v3 handoff prompt (and this doc's own D-series/T-series text, e.g. `@dta/audio`, `@dta/pursuit`, `@dta/input`, `@dta/persistence` throughout) uses `@dta/*` as if it were real. Read every `@dta/*` reference in this document and any pursuer-extraction prompt as `@dissonance/*` until someone does the actual find-replace. **Not fixed here — surfacing per conflict rules, this doc is single-writer per session and a blanket rename touches too much to do as a side effect of a Phase-0 audit.**
+- **Contradiction found and surfaced, not resolved: HeartbeatGlow/HeartbeatAudio BPM sync doesn't currently exist.** `HeartbeatGlow.ts`'s comment claims its pulse constants are "matched to HeartbeatAudio's BPM curve," but `packages/audio/src/HeartbeatAudio.ts`'s `setStressLevel()` is a no-op — `bpm` is hardcoded at 65 and never varies. There is no `'heartbeat-v1'`-addressable constant anywhere (the v3 prompt's Phase C asked for one). Whoever picks up stress-driven heartbeat audio next (T9, or a future pass on this thread) needs to either wire `setStressLevel` for real or correct the comment — left open.
+- **Open (needs Dan sign-off, not resolved here):**
+  1. Does T4 (embodiment) actually need Phase C (PursuerAudio extraction) to start, or only A/B (both already done)? T4's own text wants an `AudioProfile` composable axis, which may or may not require `PursuerAudio` to already be a package. If T4 only needs A/B, it may already be unblocked.
+  2. Does T20's "Phases 2+ queue behind T3" (O8) still hold, given T3's audio-touching phase (C) isn't happening now? If T3 is never going to touch `@dissonance/audio` on its current trajectory, O8's queueing logic may need revisiting.
+- **Sequencing note (unchanged):** the four-bus audio scaffold (D1) should be stood up whenever the audio phase does happen, even if three buses start empty — route pursuer audio correctly the first time rather than re-plumbing later. Not yet relevant since Phase C didn't run.
 
 ### T4 — Pursuer embodiment / profile system
 Three composable axes — `BehaviorProfile`, `EmbodimentProfile`, `AudioProfile` — composing into a frozen `ResolvedPursuerProfile` at load time.
@@ -56,7 +64,7 @@ Three composable axes — `BehaviorProfile`, `EmbodimentProfile`, `AudioProfile`
 - **Perceptual identity resolution:** the dog ambiguity ladder now has a data structure — `PerceptualLODProfile`, *independent of geometric LOD*: far = shared silhouette (+ audio profile), medium = behavior tell + animation divergence, near = material/anatomy truth, inspect = provenance. Identity is never resolved through labels; hacked-dog tells (holds distance, head-tracks too long, delays patrol return, listens to nothing audible) live in `BehaviorProfile`.
 - **Dog silhouette ambiguity ladder (design scope):** one silhouette, five readings — (1) live dog (comic relief), (2) acoustically damaged animal (ties to creature-damage canon proposal), (3) mech pursuer (threat), (4) broken mech — dead actuator, damaged gait, ignoring player, walking an unmaintained patrol route forever (decayed-system storytelling; one extra gait clip), (5) hacked mech — surveillance asset watching the player; plugs into `applyDisruption` + break-and-hack seeds. Resolution requires closing distance. Hacked variant needs a subtle behavioral tell (holds distance; head-tracks a half-second too long) — a `BehaviorProfile` difference, same skeleton. **"Hacked by whom" stays deliberately unanswered** pending resistance open question. *Note: the ghost-of-you resolves-toward-player arc applies to the primary DTA pursuer; ladder variants are separate entities.*
 - **Depends on:** T3
-- **Status:** designed, blocked on T3
+- **Status:** designed, blocked on T3 — **but see T3's 2026-07-17 audit: Phases A/B (the parts T4 most plausibly needs) are already done; whether T4 can start now or genuinely needs Phase C (PursuerAudio extraction, deliberately deferred) first is an open question (T3's open item 1), not yet resolved either way**
 
 ### T18 — Throw & distraction system 🔄 UPDATED
 **Pivoted from melee to strictly nonviolent.** The stick-as-stagger-weapon concept is cut (see D2). Throwables — rock, stick, bottle, pinecone — are sound-making distractors only: analytic ballistic arcs (no physics engine), one optional bounce max, impacts resolve `(profile × surface)` → noise event on the existing bus + spatialized one-shot via the existing wind/water/foliage audio pattern (Phase 0 recon gate).
@@ -233,23 +241,25 @@ Surveillance Boulevard PoC mined for: boulevard axial layout (urban-edge level d
 5. **O5. First-encounter jump-scare flag persistence** — persisted across sessions (decided in web session, restated for sign-off): first real consumer of `@dta/persistence`.
 6. **O6. Bus naming collision — RESOLVED (Dan, 2026-07-14):** D1 names stand (`spatial / ambient-beds / interior / music-synth`); `acoustic-world-systems-prompt-v1.md` conforms to D1 before use. Reopen only with a compelling reason per standing D-series rule — closed, not welded shut.
 7. **O7. `SensorProfile` as fourth profile axis** — schema change to the resolved pursuer/mech-dog profile; `pursuer-embodiment-prompt-v1.md` needs a v2 incorporating it before that session runs.
-8. **O8. Acoustic-world sequencing vs. audio single-writer** — Phase 1 (pure types) parallel to T3; Phases 2+ queue behind extraction. *Decided in the web session and already stated as settled in T20’s text — restated here for formal sign-off (same pattern as O5), so the doc stops contradicting its own P4.*
+8. **O8. Acoustic-world sequencing vs. audio single-writer** — Phase 1 (pure types) parallel to T3; Phases 2+ queue behind extraction. *Decided in the web session and already stated as settled in T20’s text — restated here for formal sign-off (same pattern as O5), so the doc stops contradicting its own P4.* **Reopened by the 2026-07-17 T3 audit (not resolved unilaterally):** T3's audio-touching phase (C, PursuerAudio → `@dissonance/audio`) was deliberately deferred, not landed — if T3 isn't going to touch `@dissonance/audio` on its current trajectory, this queueing logic may no longer apply as written. See O11.
 9. **O9. Transition compose rule (T25/T5/T23)** — proposed: region selects profile family; clock interpolates keyed variants (base); detection grading overlays with named blend weights. One lerp system, three drivers. Confirm or amend before the T1 schema session.
+10. **O10. Does T4 need T3 Phase C?** (added 2026-07-17) — T3's Phases A/B (PursuerSystem, HeartbeatGlow split) are already done; only Phase C (PursuerAudio extraction) was deliberately deferred pending a second consumer. T4 wants an `AudioProfile` composable axis — does that requirement actually need `PursuerAudio` to already be a package, or can T4 start now? Unblocks T4 immediately if the answer is "A/B is enough."
+11. **O11. Does O8's audio single-writer queue still apply?** (added 2026-07-17) — O8 queues T20 Phases 2+ behind T3's audio-touching work. T3's audio phase (C) isn't happening on its current trajectory (see T3 entry). Either re-scope O8 to whatever eventually does Phase C, or confirm T20 Phases 2+ can proceed now that nothing is actively about to write `@dissonance/audio` under T3's name.
 
 ---
 
-## Execution plan (snapshot, last touched v9.7 when T24 was added — regenerate when T3 lands)
+## Execution plan (snapshot, last touched v9.7 when T24 was added; T3 rows updated 2026-07-17 per audit — rest still needs a full regenerate)
 
 ### Critical path
 ```
 T3 pursuer extraction → T4 embodiment → T23 region system → T5 reactive seam
 ```
-T3 is the single biggest unlock: it owns `@dta/audio` (single-writer), gates T4, T9 implementation, T18/T19 audible halves, and T20 Phases 2+. **Nothing accelerates the project more than running `pursuer-extraction-prompt-v2.md` locally.**
+T3 was believed to be the single biggest unlock still to run. **2026-07-17 audit found most of it already landed** (Phases A/B — PursuerSystem, HeartbeatGlow split — both done, not recently; only Phase C, PursuerAudio extraction, remains, and it's deliberately deferred, see T3's entry and O10/O11). The "run the prompt, unlock everything downstream" framing below is stale — read T3's own entry before assuming anything here is still blocked on it.
 
 ### 🟢 Ready now (parallel-safe, no blockers)
 | Thread | Next action | Who/where |
 |---|---|---|
-| **T3** | Run `pursuer-extraction-prompt-v2.md` | local Claude Code — **do this first** |
+| **T3** | Nothing to run — Phases A/B already landed. Remaining: sign-off on O10 (does T4 need Phase C?) and O11 (does O8's audio queue still apply?). No local session needed until those resolve. | Dan (sign-off only) |
 | **T1/T2** | Continue HUD work; add agent-route visualization toggle (from T13) | local session |
 | **T17** | Attempt Tier 1 (three-cube arm round trip) | Dan, Blender |
 | **T10** | Lore/AGENTS.md passes; Synod geographic scope question | web session |
@@ -261,22 +271,23 @@ T3 is the single biggest unlock: it owns `@dta/audio` (single-writer), gates T4,
 ### 🟡 Ready with caveats
 | Thread | Caveat |
 |---|---|
-| **T18 throw & distraction** | Kinematic-arc half is parallel-safe; the impact→noise-event half touches `@dta/audio` → that portion queues behind T3. Either split the session or run the whole thing after T3. |
-| **T19 wildlife** | Same split: fauna state machines parallel-safe; audio-primary birds/flush events queue behind T3. |
+| **T18 throw & distraction** | Kinematic-arc half is parallel-safe; the impact→noise-event half touches `@dissonance/audio` → that portion queues behind whatever ends up doing T3 Phase C (see O11 — the queue's premise changed 2026-07-17). Either split the session or wait for O11 sign-off. |
+| **T19 wildlife** | Same split: fauna state machines parallel-safe; audio-primary birds/flush events queue behind T3 Phase C / O11. |
 | **T13** | Blocked on **Dan**, not code: needs 5–10 stills + three hand-timed numbers from the Godot PoC. Twenty minutes of capture unblocks the analysis pass. |
 
 ### 🔴 Blocked
 | Thread | Blocked by |
 |---|---|
-| **T4** | T3 + mech-dog `.glb` (T17 Tier 2) + **O7** (embodiment prompt needs v2 for SensorProfile before running) |
+| **T4** | **T3's blocking status is now unclear — see O10** (Phases A/B it may actually need are done; only Phase C, deferred, is outstanding) + mech-dog `.glb` (T17 Tier 2) + **O7** (embodiment prompt needs v2 for SensorProfile before running) |
 | **T23** | T3/T4; interior regions additionally gated on the interiors schema pass |
 | **T5** | T3 + stable profiles; build jointly with T23's transition seam (one system) |
 | **T9 impl.** | T3 (D1 scaffold) + T20 Phase 1 types |
-| **T20 Phases 2+** | T3 (`@dta/audio` single-writer) |
+| **T20 Phases 2+** | T3 (`@dissonance/audio` single-writer) — **see O11, this may no longer be a real blocker** |
 | **T6/T7** | T23 + interiors schema pass |
 | **T11/T14 impl.** | Aspirational — no sessions |
 
 ### Decision gates on the critical path (Dan-only, cheap to clear)
+- **O10, O11** (added 2026-07-17) — cheapest gates on the board right now: one word each potentially unblocks T4 and T20 Phases 2+ immediately, since the code-side work they gate (T3 Phases A/B) already happened
 - **O7** — SensorProfile as 4th axis → unblocks writing embodiment prompt v2 *now*, so T4 starts the day T3 lands
 - **O1** — vertical exaggeration → couples to `walkableSlopeAngle` → navmesh bake (O2-decided) → T23
 - **O3** — terrain stamps ride tile-bake or separate → T23 interiors
@@ -319,6 +330,7 @@ T3 is the single biggest unlock: it owns `@dta/audio` (single-writer), gates T4,
 
 | Version | Date | Change |
 |---|---|---|
+| 9.16 | 2026-07-17 | T3 Phase 0 audit run (local session, `pursuer-extraction-prompt-v3.md`, pasted not committed). Found Phases A (PursuerSystem) and B (HeartbeatGlow split) already fully landed, not recently — T3's "ready to run"/blocker status was stale. Phase C (PursuerAudio → `@dissonance/audio`) deliberately left undone: its own `// EXTRACTION CANDIDATE` comment argues against extracting with only one consumer, and Dan confirmed honoring that over the handoff prompt's literal instruction (P1/CLAUDE.md's "don't over-extract," restated not reopened). Two contradictions surfaced, not resolved: (1) this doc and the extraction prompts use `@dta/*` throughout but no such scope exists — everything is `@dissonance/*`; (2) `HeartbeatGlow`'s comment claims BPM sync with `HeartbeatAudio` that doesn't currently exist (`setStressLevel` is a no-op, bpm hardcoded at 65). Added **O10** (does T4 actually need Phase C, or is A/B enough?) and **O11** (does O8's audio-single-writer queue still apply, given Phase C isn't happening on T3's current trajectory?) — both cheap, both potentially unblock downstream work immediately. T4 and execution-plan T3/T18/T19/T20-Phases-2+ rows annotated to point at O10/O11 instead of asserting still-blocked. |
 | 9.15 | 2026-07-15 | Execution-plan "Ready now" table now carries T24's serial-with-T21 concurrency advisory inline on both rows (previously only in T24's own full entry — the table itself gave no warning). |
 | 9.14 | 2026-07-15 | Contradiction-pass fixes (Dan): flashlight correction — T24's "T15/P5 forbid flashlight" was wrong (P5 is firefly-color exclusivity only); current `dont-turn-around` flashlight system stays in both the live app and its museum-piece copy, flagged as a reuse candidate for DTA-onto-TrailViewer work. T21 gained a **Downstream** line backlinking T24/T25/landmark-manifest (previously only discoverable by reading those threads). Execution-plan header's stale "v9.5 snapshot" label corrected to note it was last touched at v9.7. |
 | 9.13 | 2026-07-15 | T25 atmosphere grading + time-of-day added (side-session spec, placed as new thread): dawn look as post-stack data via T1 schema extension; ColorCurves-over-LUT for interpolation with LUT both/and for fixed-mood interiors (mutually exclusive per profile, loud validation); three-driver transition seam named (region × clock × detection — build once); compose rule proposed as O9; trail-viewer’s existing setTimeOfDay noted as prior art (P1). |
