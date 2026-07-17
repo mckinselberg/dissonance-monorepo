@@ -1,0 +1,1 @@
+when I view the trail viewer on a mac, the vertical elevation is completely absent/broken. also, can we add a toggleable lat/long overlay to the map? this way I can start making a manifest for placement of our thin instance library.
