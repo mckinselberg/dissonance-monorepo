@@ -59,5 +59,26 @@
     "starCount": 800,
     "cloudCount": 46,
     "treeCount": 7713
+  },
+  {
+    "name": "dissonance-forest-scale",
+    "level": "1",
+    "activeMode": "walk",
+    "x": 534.4556997263878,
+    "y": 1446.066033119774,
+    "z": 1154.6172966192828,
+    "rotationX": -0.19841473683722324,
+    "rotationY": 1.540435805305485,
+    "hScale": 1,
+    "vExag": 10,
+    "waterLevel": 32.3480801582337,
+    "cameraHeightOffset": 1.5,
+    "timeOfDay": 20.9,
+    "fogDensity": 0.0014,
+    "fogColor": "#8ca6c7",
+    "overcast": false,
+    "starCount": 800,
+    "cloudCount": 16,
+    "treeCount": 7657
   }
 ]

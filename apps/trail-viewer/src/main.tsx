@@ -38,8 +38,13 @@ import { AtmosphereRow } from './ui/AtmosphereRow';
 import { VisibilityToggles } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
-import { ViewToolsRow } from './ui/ViewToolsRow';
+import { ViewToolsRow, type SavedView } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
+// Curated, committed alternative to pasting Copy View's clipboard output by
+// hand — see ViewToolsRow's own comment. Same shape Copy View produces,
+// plus a human-readable "name". Edited directly by Dan; not written by the
+// app.
+import savedViews from '../docs/views.json';
 
 const OSM_TRAIL_Y_LIFT = 0.5;
 // Slightly higher than the OSM trails so the recorded track sits visibly on
@@ -551,6 +556,7 @@ async function main() {
           validLevelKeys={Object.keys(LEVELS)}
           saveSettings={saveSettings}
           onBeforeNavigate={unregisterAutosave}
+          savedViews={savedViews as SavedView[]}
         />
         <GotoRow
           onGo={(lat, lon) => {
@@ -805,6 +811,7 @@ async function main() {
           saveSettings(levelKey, withoutPosition);
           location.reload();
         }}
+        savedViews={savedViews as SavedView[]}
       />
       <GotoRow
         onGo={(lat, lon) => {
