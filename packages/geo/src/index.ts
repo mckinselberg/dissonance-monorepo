@@ -13,5 +13,8 @@ export {
 export { parseGeoJsonTrails } from './geojson';
 export { parseGpxTrack } from './gpx';
 
+export type { GraticuleAxis, GraticuleLine } from './graticule';
+export { graticuleLines } from './graticule';
+
 export type { HeightmapContract, HeightmapBoundingBox } from './heightmap';
 export { decodeHeightmapPng, HeightmapSampler } from './heightmap';

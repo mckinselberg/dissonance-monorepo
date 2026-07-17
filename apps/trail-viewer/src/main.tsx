@@ -17,6 +17,7 @@ import {
   type ITerrain, type TreePoint,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
+import { preventAccidentalClose } from '@dissonance/utils';
 import {
   decodeHeightmapPng,
   HeightmapSampler,
@@ -24,9 +25,11 @@ import {
   latLonToWorld,
   parseGeoJsonTrails,
   parseGpxTrack,
+  graticuleLines,
   type HeightmapContract,
   type GeoPolyline,
   type UtmCoordinate,
+  type GraticuleLine,
 } from '@dissonance/geo';
 import { render } from 'preact';
 import { signal, effect } from '@preact/signals';
@@ -38,6 +41,21 @@ const OSM_TRAIL_Y_LIFT = 0.5;
 // top of them instead of z-fighting where the two coincide.
 const GPX_TRACK_Y_LIFT = 0.7;
 const GPX_TRACK_COLOR = new Color3(1.0, 0.1, 0.1);
+
+// Highest of the three drape lifts — the grid is a measurement layer that
+// should read as sitting "above" both trail layers, not fighting either for
+// z-order where they cross.
+const GRID_Y_LIFT = 0.9;
+// ~111m lat / ~84m lon at 40.7°N. Must match (or cleanly derive from) the
+// placement-manifest cell interval once that lands in packages/geo — see
+// the handoff prompt (latlong-grid-overlay-prompt-v1.md).
+const GRID_INTERVAL_DEG = 0.001;
+// Sampled through the projection rather than drawn as 2-point lines — at
+// SMR's scale the curvature is sub-visual, but sampling is itself the
+// validation (a kinked/skewed line here would mean a projection bug).
+const GRID_LINE_SAMPLES = 64;
+const GRID_LINE_COLOR = new Color3(0.4, 0.75, 0.8);
+const GRID_LINE_ALPHA = 0.35;
 
 type LevelConfig = {
   label: string;
@@ -217,7 +235,36 @@ function setMeshesEnabled(meshes: Mesh[], enabled: boolean): void {
   meshes.forEach((m) => m.setEnabled(enabled));
 }
 
+// Same drape path as buildPolylineMeshes (project -> scale -> getHeightAt +
+// lift), kept as a separate function rather than folded into it because a
+// GraticuleLine's points are plain LatLon (no tags/elevation/source), so
+// there's nothing for options.colorFor to branch on — every grid line is
+// the same color.
+function buildGridMeshes(
+  scene: Scene,
+  lines: GraticuleLine[],
+  terrain: ITerrain,
+  origin: UtmCoordinate,
+  horizontalScale: number,
+): Mesh[] {
+  return lines.map((line, i) => {
+    const path = line.points.map((p) => {
+      const real = latLonToWorld(p, origin);
+      const renderX = real.x * horizontalScale;
+      const renderZ = real.z * horizontalScale;
+      const y = terrain.getHeightAt(renderX, renderZ) + GRID_Y_LIFT;
+      return new Vector3(renderX, y, renderZ);
+    });
+    const mesh = MeshBuilder.CreateLines(`grid_${line.axis}_${i}`, { points: path }, scene);
+    mesh.color = GRID_LINE_COLOR;
+    mesh.alpha = GRID_LINE_ALPHA;
+    return mesh;
+  });
+}
+
 async function main() {
+  preventAccidentalClose();
+
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
   const engine = new Engine(canvas, true);
   const scene = new Scene(engine);
@@ -431,15 +478,28 @@ async function main() {
     colorFor: () => GPX_TRACK_COLOR,
   });
 
+  // Generated once from the heightmap's real (unscaled) UTM bbox — the
+  // lat/lon line values themselves don't depend on hScale/vExag, only the
+  // meshes built from them do (see rebuildWorld below, which rebuilds
+  // gridMeshes from this same `gridLines` array rather than regenerating it).
+  const gridLines = graticuleLines(contract.bbox, GRID_INTERVAL_DEG, GRID_LINE_SAMPLES);
+  let gridMeshes = buildGridMeshes(scene, gridLines, terrain, origin, hScale);
+
   const terrainToggle = document.getElementById('toggle-terrain') as HTMLInputElement;
   const osmToggle = document.getElementById('toggle-osm') as HTMLInputElement;
   const gpxToggle = document.getElementById('toggle-gpx') as HTMLInputElement;
   const waterToggle = document.getElementById('toggle-water') as HTMLInputElement;
   const cloudsToggle = document.getElementById('toggle-clouds') as HTMLInputElement;
   const treesToggle = document.getElementById('toggle-trees') as HTMLInputElement;
+  const gridToggle = document.getElementById('toggle-grid') as HTMLInputElement;
   const readout = document.getElementById('readout') as HTMLDivElement;
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
   levelLabel.textContent = level.label;
+
+  // Default off (see gridToggle's unchecked default in index.html) — the
+  // grid is a measurement layer, not something a session should always pay
+  // rendering cost for.
+  setMeshesEnabled(gridMeshes, gridToggle.checked);
 
   terrainToggle.addEventListener('change', () => terrain.setVisible(terrainToggle.checked));
   osmToggle.addEventListener('change', () => setMeshesEnabled(trailMeshes, osmToggle.checked));
@@ -447,6 +507,7 @@ async function main() {
   waterToggle.addEventListener('change', () => water.setVisible(waterToggle.checked));
   cloudsToggle.addEventListener('change', () => clouds.setVisible(cloudsToggle.checked));
   treesToggle.addEventListener('change', () => trees.setVisible(treesToggle.checked));
+  gridToggle.addEventListener('change', () => setMeshesEnabled(gridMeshes, gridToggle.checked));
 
   // Atmosphere controls — mounted here (before the orbit early-return
   // below) rather than alongside movement-mode/camera-height, since fog/
@@ -814,6 +875,7 @@ async function main() {
       terrain.dispose();
       trailMeshes.forEach((m) => m.dispose());
       gpxMeshes.forEach((m) => m.dispose());
+      gridMeshes.forEach((m) => m.dispose());
 
       hScale = newHScale;
       vExag = newVExag;
@@ -829,9 +891,11 @@ async function main() {
       gpxMeshes = buildPolylineMeshes(scene, gpxTrack, terrain, origin, {
         namePrefix: 'gpxTrack', yLift: GPX_TRACK_Y_LIFT, horizontalScale: hScale, colorFor: () => GPX_TRACK_COLOR,
       });
+      gridMeshes = buildGridMeshes(scene, gridLines, terrain, origin, hScale);
       terrain.setVisible(terrainToggle.checked);
       setMeshesEnabled(trailMeshes, osmToggle.checked);
       setMeshesEnabled(gpxMeshes, gpxToggle.checked);
+      setMeshesEnabled(gridMeshes, gridToggle.checked);
       player.setTerrain(terrain);
       drive.setTerrain(terrain);
       water.setScale(hScale, vExag, waterLevel);

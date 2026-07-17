@@ -12,6 +12,7 @@
     "@dissonance/engine": "workspace:*",
     "@dissonance/geo": "workspace:*",
     "@dissonance/player": "workspace:*",
+    "@dissonance/utils": "workspace:*",
     "@dissonance/world": "workspace:*",
     "@preact/signals": "^1.3.0",
     "preact": "^10.24.0"
