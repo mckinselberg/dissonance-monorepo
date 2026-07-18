@@ -93,6 +93,9 @@ importers:
       '@dissonance/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
+      '@dissonance/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@dissonance/world':
         specifier: workspace:*
         version: link:../../packages/world
@@ -190,6 +193,8 @@ importers:
         version: link:../shared-types
 
   packages/shared-types: {}
+
+  packages/utils: {}
 
   packages/world:
     dependencies:

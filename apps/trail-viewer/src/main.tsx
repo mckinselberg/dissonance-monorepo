@@ -19,6 +19,7 @@ import {
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
 import { AmbientAudio, AudioEngine, HeartbeatAudio, TrailPlayerAudio } from '@dissonance/audio';
 import type { WeatherMode } from '@dissonance/shared-types';
+import { preventAccidentalClose } from '@dissonance/utils';
 import {
   decodeHeightmapPng,
   HeightmapSampler,
@@ -27,9 +28,11 @@ import {
   worldToLatLon,
   parseGeoJsonTrails,
   parseGpxTrack,
+  graticuleLines,
   type HeightmapContract,
   type GeoPolyline,
   type UtmCoordinate,
+  type GraticuleLine,
 } from '@dissonance/geo';
 import { render } from 'preact';
 import type { JSX } from 'preact';
@@ -54,6 +57,20 @@ const OSM_TRAIL_Y_LIFT = 0.5;
 // top of them instead of z-fighting where the two coincide.
 const GPX_TRACK_Y_LIFT = 0.7;
 const GPX_TRACK_COLOR = new Color3(1.0, 0.1, 0.1);
+
+// Highest of the three drape lifts — the grid is a measurement layer that
+// should read as sitting "above" both trail layers, not fighting either for
+// z-order where they cross.
+const GRID_Y_LIFT = 0.9;
+// ~111m lat / ~84m lon at 40.7°N. Must match (or cleanly derive from) the
+// placement-manifest cell interval once that lands in packages/geo.
+const GRID_INTERVAL_DEG = 0.001;
+// Sampled through the projection rather than drawn as 2-point lines — at
+// SMR's scale the curvature is sub-visual, but sampling is itself the
+// validation (a kinked/skewed line here would mean a projection bug).
+const GRID_LINE_SAMPLES = 64;
+const GRID_LINE_COLOR = new Color3(0.4, 0.75, 0.8);
+const GRID_LINE_ALPHA = 0.35;
 
 type LevelConfig = {
   label: string;
@@ -251,6 +268,31 @@ function setMeshesEnabled(meshes: Mesh[], enabled: boolean): void {
   meshes.forEach((m) => m.setEnabled(enabled));
 }
 
+// Same drape path as buildPolylineMeshes (project -> scale -> getHeightAt +
+// lift), kept separate because every grid line shares one visual treatment
+// and GraticuleLine has no tags/elevation metadata to branch on.
+function buildGridMeshes(
+  scene: Scene,
+  lines: GraticuleLine[],
+  terrain: ITerrain,
+  origin: UtmCoordinate,
+  horizontalScale: number,
+): Mesh[] {
+  return lines.map((line, i) => {
+    const path = line.points.map((p) => {
+      const real = latLonToWorld(p, origin);
+      const renderX = real.x * horizontalScale;
+      const renderZ = real.z * horizontalScale;
+      const y = terrain.getHeightAt(renderX, renderZ) + GRID_Y_LIFT;
+      return new Vector3(renderX, y, renderZ);
+    });
+    const mesh = MeshBuilder.CreateLines(`grid_${line.axis}_${i}`, { points: path }, scene);
+    mesh.color = GRID_LINE_COLOR;
+    mesh.alpha = GRID_LINE_ALPHA;
+    return mesh;
+  });
+}
+
 // Covers the black screen during initial load and during the several
 // reload()/href navigations this app does on purpose (Load View,
 // reset-position, the saved-views dropdown) — hidden once the scene is
@@ -261,6 +303,8 @@ function hideLoadingOverlay(): void {
 }
 
 async function main() {
+  const removeAccidentalCloseGuard = preventAccidentalClose();
+
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
   const engine = new Engine(canvas, true);
   const scene = new Scene(engine);
@@ -528,12 +572,17 @@ async function main() {
     horizontalScale: scaleTuning.hScale.value,
     colorFor: () => GPX_TRACK_COLOR,
   });
+  // Generated once from the heightmap's real (unscaled) UTM bbox — the
+  // lat/lon line values themselves don't depend on hScale/vExag, only the
+  // meshes built from them do (see rebuildWorld below).
+  const gridLines = graticuleLines(contract.bbox, GRID_INTERVAL_DEG, GRID_LINE_SAMPLES);
+  let gridMeshes = buildGridMeshes(scene, gridLines, terrain, origin, scaleTuning.hScale.value);
 
   const readout = document.getElementById('readout') as HTMLDivElement;
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
   levelLabel.textContent = level.label;
 
-  // All toggle checkboxes in one place — visibility (6) + Overcast (was in
+  // All toggle checkboxes in one place — visibility (7) + Overcast (was in
   // AtmosphereRow) + Bounded world (was in MovementRow, player-mode only).
   // Grid instead of one-per-line: that stacked layout was the whole reason
   // this pass started (see THREADS.md). VisibilityToggles returns a
@@ -550,6 +599,7 @@ async function main() {
           onWaterCommit={(checked) => water.setVisible(checked)}
           onCloudsCommit={(checked) => clouds.setVisible(checked)}
           onTreesCommit={(checked) => trees.setVisible(checked)}
+          onGridCommit={(checked) => setMeshesEnabled(gridMeshes, checked)}
         />
         <ToggleLabel label="Overcast" signal={atmosphere.overcast} onCommit={() => rebuildClouds()} />
         {/* Not a ToggleLabel — weatherMode is 'clear'|'windy', not a plain
@@ -598,6 +648,10 @@ async function main() {
     </Section>,
     document.getElementById('world-root') as HTMLDivElement,
   );
+
+  // Default off — the grid is a measurement layer, not something every
+  // session should pay rendering cost for unless explicitly enabled.
+  setMeshesEnabled(gridMeshes, visibility.grid.value);
 
   // Sky controls — mounted here (before the orbit early-return below)
   // rather than alongside movement-mode/camera-height, since time-of-day/
@@ -666,20 +720,21 @@ async function main() {
     if (level.cameraMode !== 'orbit') persistSettings();
   });
 
-  // Unregisters the beforeunload/pagehide autosave listeners right before a
-  // reload/navigate — used by both ViewToolsRow's Load View handler and its
-  // reset-position button. reload()/href fire beforeunload/pagehide on the
-  // page being torn down *before* the new one loads; persistSettings would
-  // otherwise immediately re-persist the current (unrelated/stranded)
-  // in-memory state and clobber whatever was just written a moment later.
-  // A no-op in orbit mode, where persistSettings is never registered in the
-  // first place (see SavedSettings' own comment).
-  const unregisterAutosave = () => {
+  // Unregisters app-owned unload hooks right before a reload/navigate:
+  // autosave in player mode plus the accidental-close guard. reload()/href
+  // fire beforeunload/pagehide on the page being torn down *before* the new
+  // one loads; persistSettings would otherwise immediately re-persist the
+  // current in-memory state and clobber whatever was just written.
+  const unregisterBeforeNavigate = () => {
+    removeAccidentalCloseGuard();
     if (level.cameraMode !== 'orbit') {
       window.removeEventListener('beforeunload', persistSettings);
       window.removeEventListener('pagehide', persistSettings);
     }
   };
+  document.querySelectorAll<HTMLAnchorElement>('#level-links a').forEach((link) => {
+    link.addEventListener('click', () => unregisterBeforeNavigate());
+  });
 
   if (level.cameraMode === 'orbit') {
     // The original Phase 3/4 validation view — free orbit over the whole
@@ -722,7 +777,7 @@ async function main() {
           levelKey={levelKey}
           validLevelKeys={Object.keys(LEVELS)}
           saveSettings={saveSettings}
-          onBeforeNavigate={unregisterAutosave}
+          onBeforeNavigate={unregisterBeforeNavigate}
           savedViews={savedViews}
         />
         <GotoRow
@@ -888,6 +943,7 @@ async function main() {
     terrain.dispose();
     trailMeshes.forEach((m) => m.dispose());
     gpxMeshes.forEach((m) => m.dispose());
+    gridMeshes.forEach((m) => m.dispose());
 
     scaleTuning.hScale.value = newHScale;
     scaleTuning.vExag.value = newVExag;
@@ -903,9 +959,11 @@ async function main() {
     gpxMeshes = buildPolylineMeshes(scene, gpxTrack, terrain, origin, {
       namePrefix: 'gpxTrack', yLift: GPX_TRACK_Y_LIFT, horizontalScale: scaleTuning.hScale.value, colorFor: () => GPX_TRACK_COLOR,
     });
+    gridMeshes = buildGridMeshes(scene, gridLines, terrain, origin, scaleTuning.hScale.value);
     terrain.setVisible(visibility.terrain.value);
     setMeshesEnabled(trailMeshes, visibility.osm.value);
     setMeshesEnabled(gpxMeshes, visibility.gpx.value);
+    setMeshesEnabled(gridMeshes, visibility.grid.value);
     player.setTerrain(terrain);
     drive.setTerrain(terrain);
     water.setScale(scaleTuning.hScale.value, scaleTuning.vExag.value, scaleTuning.waterLevel.value);
@@ -976,7 +1034,7 @@ async function main() {
           levelKey={levelKey}
           validLevelKeys={Object.keys(LEVELS)}
           saveSettings={saveSettings}
-          onBeforeNavigate={unregisterAutosave}
+          onBeforeNavigate={unregisterBeforeNavigate}
           onResetPosition={() => {
             // Fly Mode has no bounds clamping, so it's easy to end up saved
             // somewhere far outside the DEM's real footprint (nothing but
@@ -984,7 +1042,7 @@ async function main() {
             // position for the current level (keeping scale/water/camera-
             // height tuning intact) and reloads back to the recorded hike's
             // trailhead.
-            unregisterAutosave();
+            unregisterBeforeNavigate();
             const withoutPosition = loadSavedSettings(levelKey);
             delete withoutPosition.x;
             delete withoutPosition.y;

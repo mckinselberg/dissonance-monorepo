@@ -20,9 +20,10 @@ export type ViewToolsRowProps = {
   levelKey: string;
   validLevelKeys: string[];
   saveSettings: (levelKey: string, settings: SavedSettings) => void;
-  // Unregisters the beforeunload/pagehide autosave listeners right before a
-  // reload/navigate — a no-op in orbit mode, where persistSettings is never
-  // registered in the first place (see SavedSettings' own comment in main.tsx).
+  // Unregisters app-owned unload hooks right before a reload/navigate:
+  // autosave in player mode plus the accidental-close guard. In orbit mode
+  // that's effectively just the guard, since persistSettings is never
+  // registered there (see SavedSettings' own comment in main.tsx).
   onBeforeNavigate: () => void;
   // Absent in orbit mode — no meaningful position is ever saved there (see
   // SavedSettings' comment) — rather than render a button whose handler

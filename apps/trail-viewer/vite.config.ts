@@ -17,6 +17,7 @@ export default defineConfig(({ command }) => ({
       '@dissonance/geo':    path.resolve(__dirname, '../../packages/geo/src'),
       '@dissonance/player': path.resolve(__dirname, '../../packages/player/src'),
       '@dissonance/shared-types': path.resolve(__dirname, '../../packages/shared-types/src'),
+      '@dissonance/utils': path.resolve(__dirname, '../../packages/utils/src'),
     },
     // pnpm creates separate symlinks per workspace package; force single instance
     dedupe: ['@babylonjs/core'],

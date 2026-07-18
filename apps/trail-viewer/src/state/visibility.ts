@@ -12,6 +12,7 @@ export type VisibilitySignals = {
   water: Signal<boolean>;
   clouds: Signal<boolean>;
   trees: Signal<boolean>;
+  grid: Signal<boolean>;
 };
 
 export function createVisibilitySignals(): VisibilitySignals {
@@ -22,5 +23,6 @@ export function createVisibilitySignals(): VisibilitySignals {
     water: signal(true),
     clouds: signal(true),
     trees: signal(true),
+    grid: signal(false),
   };
 }
