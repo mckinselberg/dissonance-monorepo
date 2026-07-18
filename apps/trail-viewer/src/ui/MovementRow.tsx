@@ -1,4 +1,3 @@
-import type { Signal } from '@preact/signals';
 import type { JSX } from 'preact';
 import type { ActiveMode, MovementSignals } from '../state/movement';
 
@@ -6,9 +5,6 @@ const rowStyle: JSX.CSSProperties = { display: 'flex', alignItems: 'center', gap
 
 export type MovementRowProps = {
   signals: MovementSignals;
-  // Not part of MovementSignals — see state/movement.ts's comment on why
-  // worldBounded is created separately, earlier, in main.tsx.
-  worldBounded: Signal<boolean>;
   onModeChange: (mode: ActiveMode) => void;
   onCameraHeightInput: (value: number) => void;
   onIgniteFire: () => void;
@@ -16,9 +12,11 @@ export type MovementRowProps = {
 };
 
 // Player-mode only (levels 1/2) — orbit (level 3) has no equivalent of any
-// of these, see main.tsx's cameraMode branch.
+// of these, see main.tsx's cameraMode branch. Bounded-world moved to the
+// shared "Toggles" section (main.tsx) — it's a toggle, not a movement
+// control per se, same reasoning as Overcast leaving AtmosphereRow.
 export function MovementRow({
-  signals, worldBounded, onModeChange, onCameraHeightInput, onIgniteFire, onResetFire,
+  signals, onModeChange, onCameraHeightInput, onIgniteFire, onResetFire,
 }: MovementRowProps) {
   return (
     <div style={{ marginTop: '4px' }}>
@@ -46,12 +44,6 @@ export function MovementRow({
           }}
         />{' '}
         <span>{signals.cameraHeightOffset.value.toFixed(1)}</span>m
-      </label>
-      <label style={{ marginTop: '4px' }}>
-        <input
-          type="checkbox" checked={worldBounded.value}
-          onChange={(e: JSX.TargetedEvent<HTMLInputElement>) => { worldBounded.value = e.currentTarget.checked; }}
-        /> Bounded world (clamp to map edge)
       </label>
       <div style={{ marginTop: '4px' }}>
         <button type="button" style={{ font: 'inherit', cursor: 'pointer' }} onClick={onIgniteFire}>🔥 Ignite fire (F)</button>{' '}

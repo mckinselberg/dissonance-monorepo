@@ -87,6 +87,9 @@ importers:
       '@dissonance/player':
         specifier: workspace:*
         version: link:../../packages/player
+      '@dissonance/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
       '@dissonance/world':
         specifier: workspace:*
         version: link:../../packages/world

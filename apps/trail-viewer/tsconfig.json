@@ -7,7 +7,8 @@
       "@dissonance/engine": ["../../packages/engine/src/index.ts"],
       "@dissonance/world": ["../../packages/world/src/index.ts"],
       "@dissonance/geo": ["../../packages/geo/src/index.ts"],
-      "@dissonance/player": ["../../packages/player/src/index.ts"]
+      "@dissonance/player": ["../../packages/player/src/index.ts"],
+      "@dissonance/shared-types": ["../../packages/shared-types/src/index.ts"]
     }
   },
   "include": ["src"]

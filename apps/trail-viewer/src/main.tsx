@@ -13,15 +13,17 @@ import {
 import { GameLoop } from '@dissonance/engine';
 import {
   HeightmapTerrain, WaterPlane, defaultWaterLevel, DriftingClouds, Sun, sunHeightForHour, StarField,
-  ThinInstanceTrees, ForestFire,
+  ThinInstanceTrees, ForestFire, WeatherSystem,
   type ITerrain, type TreePoint,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
+import type { WeatherMode } from '@dissonance/shared-types';
 import {
   decodeHeightmapPng,
   HeightmapSampler,
   originFromBoundingBox,
   latLonToWorld,
+  worldToLatLon,
   parseGeoJsonTrails,
   parseGpxTrack,
   type HeightmapContract,
@@ -29,22 +31,20 @@ import {
   type UtmCoordinate,
 } from '@dissonance/geo';
 import { render } from 'preact';
+import type { JSX } from 'preact';
 import { signal, effect } from '@preact/signals';
 import { createAtmosphereSignals } from './state/atmosphere';
 import { createMovementSignals, type ActiveMode } from './state/movement';
 import { createScaleTuningSignals } from './state/scaleTuning';
 import { createVisibilitySignals } from './state/visibility';
 import { AtmosphereRow } from './ui/AtmosphereRow';
-import { VisibilityToggles } from './ui/VisibilityToggles';
+import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
+import { TreeCountRow } from './ui/TreeCountRow';
 import { ViewToolsRow, type SavedView } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
-// Curated, committed alternative to pasting Copy View's clipboard output by
-// hand — see ViewToolsRow's own comment. Same shape Copy View produces,
-// plus a human-readable "name". Edited directly by Dan; not written by the
-// app.
-import savedViews from '../docs/views.json';
+import { Section } from './ui/Section';
 
 const OSM_TRAIL_Y_LIFT = 0.5;
 // Slightly higher than the OSM trails so the recorded track sits visibly on
@@ -129,6 +129,7 @@ export type SavedSettings = {
   fogDensity?: number;
   fogColor?: string;
   overcast?: boolean;
+  weatherMode?: WeatherMode;
   starCount?: number;
   cloudCount?: number;
   treeCount?: number;
@@ -200,6 +201,17 @@ async function loadGpxTrack(): Promise<GeoPolyline[]> {
   return parseGpxTrack(gpxXml);
 }
 
+// Curated, committed alternative to pasting Copy View's clipboard output by
+// hand — see ViewToolsRow's own comment. Same shape Copy View produces,
+// plus a human-readable "name". Edited directly by Dan; not written by the
+// app. Lives in public/data/ (fetched at runtime) rather than a static
+// import from docs/ — consistent with every other data file this app loads
+// (heightmap, trails, gpx track), and means editing it doesn't require a
+// rebuild to see reflected, just a page reload.
+async function loadSavedViews(): Promise<SavedView[]> {
+  return fetch(`${import.meta.env.BASE_URL}data/views.json`).then((r) => r.json());
+}
+
 function buildPolylineMeshes(
   scene: Scene,
   polylines: GeoPolyline[],
@@ -228,6 +240,15 @@ function buildPolylineMeshes(
 
 function setMeshesEnabled(meshes: Mesh[], enabled: boolean): void {
   meshes.forEach((m) => m.setEnabled(enabled));
+}
+
+// Covers the black screen during initial load and during the several
+// reload()/href navigations this app does on purpose (Load View,
+// reset-position, the saved-views dropdown) — hidden once the scene is
+// actually ready to render, right before each branch's gameLoop.start().
+function hideLoadingOverlay(): void {
+  const overlay = document.getElementById('loading-overlay');
+  if (overlay) overlay.style.display = 'none';
 }
 
 async function main() {
@@ -366,6 +387,23 @@ async function main() {
   // equivalent at all — done here app-locally instead of extending the
   // shared player package for a rectangular case it doesn't need yet.
   const worldBounded = signal(savedSettings.worldBounded ?? false);
+
+  // Ported directly from dont-turn-around (@dissonance/world) rather than
+  // rebuilt — it's already fully decoupled from ExperienceProfile/DTA's
+  // world scale (the Scene param is unused, kept only for future particle
+  // systems), so unlike Sun/DriftingClouds/StarField this needed no
+  // trail-viewer-local sibling. update() runs every frame in both game
+  // loops below to keep its internal gust dynamics alive for future
+  // consumers (e.g. tree sway, ambient wind audio — neither exists in this
+  // app yet); the driftSpeed bump on cloud rebuild below reads the toggle
+  // directly rather than the live windIntensity, since clouds only rebuild
+  // occasionally (density/overcast/windy changes) and windIntensity ramps in
+  // over ~2.5s (see WeatherSystem.update) — reading it at one rebuild moment
+  // would usually show almost no change right when the toggle is flipped.
+  const weatherMode = signal<WeatherMode>(savedSettings.weatherMode ?? 'clear');
+  const weatherSystem = new WeatherSystem(scene);
+  weatherSystem.setMode(weatherMode.value);
+
   const clampToWorldBounds = (controller: { getPosition(): Vector3; setPosition(pos: Vector3): void }) => {
     if (!worldBounded.value) return;
     const pos = controller.getPosition();
@@ -415,7 +453,7 @@ async function main() {
     altitudeMax: (atmosphere.overcast.value ? contract.elevation.max + 220 : contract.elevation.max + 450) * currentVExag,
     diameterMin: (atmosphere.overcast.value ? 600 : 300) * currentHScale,
     diameterMax: (atmosphere.overcast.value ? 1400 : 800) * currentHScale,
-    driftSpeed: 5 * currentHScale,
+    driftSpeed: (weatherMode.value === 'windy' ? 15 : 5) * currentHScale,
     color: atmosphere.overcast.value ? new Color3(0.55, 0.56, 0.58) : undefined,
     alpha: atmosphere.overcast.value ? 0.95 : undefined,
   });
@@ -436,7 +474,7 @@ async function main() {
     clouds.setVisible(visibility.clouds.value);
   };
 
-  const [trails, gpxTrack] = await Promise.all([loadTrails(), loadGpxTrack()]);
+  const [trails, gpxTrack, savedViews] = await Promise.all([loadTrails(), loadGpxTrack(), loadSavedViews()]);
   let trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
     namePrefix: 'osmTrail',
     yLift: OSM_TRAIL_Y_LIFT,
@@ -454,38 +492,90 @@ async function main() {
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
   levelLabel.textContent = level.label;
 
+  // All toggle checkboxes in one place — visibility (6) + Overcast (was in
+  // AtmosphereRow) + Bounded world (was in MovementRow, player-mode only).
+  // Grid instead of one-per-line: that stacked layout was the whole reason
+  // this pass started (see THREADS.md). VisibilityToggles returns a
+  // Fragment, so its <label> children land as direct grid-item siblings of
+  // the Overcast/Bounded-world labels below — one flat grid, not nested.
   render(
-    <VisibilityToggles
-      signals={visibility}
-      onTerrainCommit={(checked) => terrain.setVisible(checked)}
-      onOsmCommit={(checked) => setMeshesEnabled(trailMeshes, checked)}
-      onGpxCommit={(checked) => setMeshesEnabled(gpxMeshes, checked)}
-      onWaterCommit={(checked) => water.setVisible(checked)}
-      onCloudsCommit={(checked) => clouds.setVisible(checked)}
-      onTreesCommit={(checked) => trees.setVisible(checked)}
-    />,
-    document.getElementById('visibility-root') as HTMLDivElement,
+    <Section title="Toggles">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', columnGap: '10px' }}>
+        <VisibilityToggles
+          signals={visibility}
+          onTerrainCommit={(checked) => terrain.setVisible(checked)}
+          onOsmCommit={(checked) => setMeshesEnabled(trailMeshes, checked)}
+          onGpxCommit={(checked) => setMeshesEnabled(gpxMeshes, checked)}
+          onWaterCommit={(checked) => water.setVisible(checked)}
+          onCloudsCommit={(checked) => clouds.setVisible(checked)}
+          onTreesCommit={(checked) => trees.setVisible(checked)}
+        />
+        <ToggleLabel label="Overcast" signal={atmosphere.overcast} onCommit={() => rebuildClouds()} />
+        {/* Not a ToggleLabel — weatherMode is 'clear'|'windy', not a plain
+            boolean signal, so it needs its own checked/onChange conversion
+            rather than ToggleLabel's Signal<boolean> contract. */}
+        <label>
+          <input
+            type="checkbox"
+            checked={weatherMode.value === 'windy'}
+            onChange={(e: JSX.TargetedEvent<HTMLInputElement>) => {
+              weatherMode.value = e.currentTarget.checked ? 'windy' : 'clear';
+              weatherSystem.setMode(weatherMode.value);
+              rebuildClouds();
+            }}
+          /> Windy
+        </label>
+        {level.cameraMode !== 'orbit' && (
+          <ToggleLabel label="Bounded world" signal={worldBounded} onCommit={() => {}} />
+        )}
+      </div>
+    </Section>,
+    document.getElementById('toggles-root') as HTMLDivElement,
   );
 
-  // Atmosphere controls — mounted here (before the orbit early-return
-  // below) rather than alongside movement-mode/camera-height, since fog/
-  // time-of-day/stars/clouds all render in orbit mode (level 3) too, unlike
+  // World — level-1-only scale-tuning (H-scale/V-exagg/water-level) plus
+  // tree count, which (unlike H/V/water) applies on every level, so it
+  // mounts unconditionally while ScaleTuningRow stays gated beneath it.
+  // Tree count moved here from Sky/Atmosphere — it's world/terrain density,
+  // not a sky control (see TreeCountRow's own comment). Mounted into its
+  // own root (right after Toggles in index.html's DOM order) so "what the
+  // terrain looks like" controls read as one group, even though the
+  // underlying signals (created earlier) and the rebuild logic they
+  // trigger stay exactly where they were.
+  render(
+    <Section title="World">
+      <TreeCountRow signal={treeCount} max={maxTreeCount} onCommit={() => rebuildTrees()} />
+      {levelKey === '1' && (
+        <ScaleTuningRow
+          signals={scaleTuning}
+          waterMin={contract.elevation.min}
+          waterMax={contract.elevation.max}
+          waterStep={(contract.elevation.max - contract.elevation.min) / 200}
+          onScaleCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
+        />
+      )}
+    </Section>,
+    document.getElementById('world-root') as HTMLDivElement,
+  );
+
+  // Sky controls — mounted here (before the orbit early-return below)
+  // rather than alongside movement-mode/camera-height, since time-of-day/
+  // fog/stars/clouds all render in orbit mode (level 3) too, unlike
   // Walk/Fly/Drive which orbit has no equivalent of. Preact-rendered pilot
   // (see docs/THREADS.md); commit handlers below mirror the dispose/
   // recreate bodies the old change-listeners used 1:1.
   render(
-    <AtmosphereRow
-      signals={{ ...atmosphere, treeCount }}
-      maxTreeCount={maxTreeCount}
-      onStarCountCommit={() => {
-        stars.dispose();
-        stars = new StarField(scene, { count: atmosphere.starCount.value });
-        stars.setNightFactor(1 - Math.max(0, sunHeightForHour(atmosphere.timeOfDay.value)));
-      }}
-      onCloudCountCommit={() => rebuildClouds()}
-      onOvercastCommit={() => rebuildClouds()}
-      onTreeCountCommit={() => rebuildTrees()}
-    />,
+    <Section title="Sky">
+      <AtmosphereRow
+        signals={atmosphere}
+        onStarCountCommit={() => {
+          stars.dispose();
+          stars = new StarField(scene, { count: atmosphere.starCount.value });
+          stars.setNightFactor(1 - Math.max(0, sunHeightForHour(atmosphere.timeOfDay.value)));
+        }}
+        onCloudCountCommit={() => rebuildClouds()}
+      />
+    </Section>,
     document.getElementById('atmosphere-root') as HTMLDivElement,
   );
 
@@ -541,7 +631,7 @@ async function main() {
     scene.activeCamera = orbitCamera;
 
     render(
-      <>
+      <Section title="Navigation & Views">
         <ViewToolsRow
           buildSnapshot={() => ({
             level: levelKey,
@@ -550,13 +640,13 @@ async function main() {
             hScale: scaleTuning.hScale.value, vExag: scaleTuning.vExag.value, waterLevel: scaleTuning.waterLevel.value,
             timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
             overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
-            treeCount: treeCount.value,
+            treeCount: treeCount.value, weatherMode: weatherMode.value,
           })}
           levelKey={levelKey}
           validLevelKeys={Object.keys(LEVELS)}
           saveSettings={saveSettings}
           onBeforeNavigate={unregisterAutosave}
-          savedViews={savedViews as SavedView[]}
+          savedViews={savedViews}
         />
         <GotoRow
           onGo={(lat, lon) => {
@@ -568,13 +658,19 @@ async function main() {
             // current alpha/beta/radius (viewing angle/zoom) unchanged.
             orbitCamera.target = new Vector3(renderX, groundY, renderZ);
           }}
+          getCurrentLatLon={() => {
+            const pos = orbitCamera.position;
+            const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
+            return worldToLatLon(real, origin);
+          }}
         />
-      </>,
+      </Section>,
       document.getElementById('mode-controls-root') as HTMLDivElement,
     );
 
     const gameLoop = new GameLoop(engine, (dt) => {
       clouds.update(dt);
+      weatherSystem.update(dt, () => {});
       const pos = orbitCamera.position;
       const groundY = terrain.getHeightAt(pos.x, pos.z);
       readout.textContent =
@@ -583,6 +679,7 @@ async function main() {
         `left-drag to orbit, scroll to zoom, right-drag to pan`;
       scene.render();
     });
+    hideLoadingOverlay();
     gameLoop.start();
     return;
   }
@@ -765,80 +862,79 @@ async function main() {
 
   render(
     <>
-      <MovementRow
-        signals={movement}
-        worldBounded={worldBounded}
-        onModeChange={(mode) => { switchMode(mode); persistSettings(); }}
-        onCameraHeightInput={(value) => {
-          player.setHeightOffset(value);
-          drive.setHeightOffset(value);
-        }}
-        onIgniteFire={igniteAtActiveController}
-        onResetFire={() => forestFire.reset()}
-      />
-      <ViewToolsRow
-        buildSnapshot={() => {
-          const activeCamera = controllers[movement.activeMode.value].camera;
-          const pos = controllers[movement.activeMode.value].getPosition();
-          return {
-            level: levelKey,
-            activeMode: movement.activeMode.value,
-            x: pos.x, y: pos.y, z: pos.z,
-            rotationX: activeCamera.rotation.x, rotationY: activeCamera.rotation.y,
-            hScale: scaleTuning.hScale.value, vExag: scaleTuning.vExag.value, waterLevel: scaleTuning.waterLevel.value,
-            cameraHeightOffset: movement.cameraHeightOffset.value,
-            timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
-            overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
-            treeCount: treeCount.value,
-          };
-        }}
-        levelKey={levelKey}
-        validLevelKeys={Object.keys(LEVELS)}
-        saveSettings={saveSettings}
-        onBeforeNavigate={unregisterAutosave}
-        onResetPosition={() => {
-          // Fly Mode has no bounds clamping, so it's easy to end up saved
-          // somewhere far outside the DEM's real footprint (nothing but
-          // sky, a distant sliver of terrain). This drops just the saved
-          // position for the current level (keeping scale/water/camera-
-          // height tuning intact) and reloads back to the recorded hike's
-          // trailhead.
-          unregisterAutosave();
-          const withoutPosition = loadSavedSettings(levelKey);
-          delete withoutPosition.x;
-          delete withoutPosition.y;
-          delete withoutPosition.z;
-          saveSettings(levelKey, withoutPosition);
-          location.reload();
-        }}
-        savedViews={savedViews as SavedView[]}
-      />
-      <GotoRow
-        onGo={(lat, lon) => {
-          const real = latLonToWorld({ lat, lon }, origin);
-          const renderX = real.x * scaleTuning.hScale.value;
-          const renderZ = real.z * scaleTuning.hScale.value;
-          const groundY = terrain.getHeightAt(renderX, renderZ);
-          const activeController = controllers[movement.activeMode.value];
-          if (movement.activeMode.value === 'fly') {
-            // Hover well above ground so the destination is actually
-            // visible, rather than dropping you right at ground level
-            // facing who-knows-where.
-            activeController.setPosition(new Vector3(renderX, groundY + 50, renderZ));
-          } else {
-            activeController.setPosition(new Vector3(renderX, groundY, renderZ));
-          }
-        }}
-      />
-      {levelKey === '1' && (
-        <ScaleTuningRow
-          signals={scaleTuning}
-          waterMin={contract.elevation.min}
-          waterMax={contract.elevation.max}
-          waterStep={(contract.elevation.max - contract.elevation.min) / 200}
-          onScaleCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
+      <Section title="Movement">
+        <MovementRow
+          signals={movement}
+          onModeChange={(mode) => { switchMode(mode); persistSettings(); }}
+          onCameraHeightInput={(value) => {
+            player.setHeightOffset(value);
+            drive.setHeightOffset(value);
+          }}
+          onIgniteFire={igniteAtActiveController}
+          onResetFire={() => forestFire.reset()}
         />
-      )}
+      </Section>
+      <Section title="Navigation & Views">
+        <ViewToolsRow
+          buildSnapshot={() => {
+            const activeCamera = controllers[movement.activeMode.value].camera;
+            const pos = controllers[movement.activeMode.value].getPosition();
+            return {
+              level: levelKey,
+              activeMode: movement.activeMode.value,
+              x: pos.x, y: pos.y, z: pos.z,
+              rotationX: activeCamera.rotation.x, rotationY: activeCamera.rotation.y,
+              hScale: scaleTuning.hScale.value, vExag: scaleTuning.vExag.value, waterLevel: scaleTuning.waterLevel.value,
+              cameraHeightOffset: movement.cameraHeightOffset.value,
+              timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
+              overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
+              treeCount: treeCount.value, weatherMode: weatherMode.value,
+            };
+          }}
+          levelKey={levelKey}
+          validLevelKeys={Object.keys(LEVELS)}
+          saveSettings={saveSettings}
+          onBeforeNavigate={unregisterAutosave}
+          onResetPosition={() => {
+            // Fly Mode has no bounds clamping, so it's easy to end up saved
+            // somewhere far outside the DEM's real footprint (nothing but
+            // sky, a distant sliver of terrain). This drops just the saved
+            // position for the current level (keeping scale/water/camera-
+            // height tuning intact) and reloads back to the recorded hike's
+            // trailhead.
+            unregisterAutosave();
+            const withoutPosition = loadSavedSettings(levelKey);
+            delete withoutPosition.x;
+            delete withoutPosition.y;
+            delete withoutPosition.z;
+            saveSettings(levelKey, withoutPosition);
+            location.reload();
+          }}
+          savedViews={savedViews}
+        />
+        <GotoRow
+          onGo={(lat, lon) => {
+            const real = latLonToWorld({ lat, lon }, origin);
+            const renderX = real.x * scaleTuning.hScale.value;
+            const renderZ = real.z * scaleTuning.hScale.value;
+            const groundY = terrain.getHeightAt(renderX, renderZ);
+            const activeController = controllers[movement.activeMode.value];
+            if (movement.activeMode.value === 'fly') {
+              // Hover well above ground so the destination is actually
+              // visible, rather than dropping you right at ground level
+              // facing who-knows-where.
+              activeController.setPosition(new Vector3(renderX, groundY + 50, renderZ));
+            } else {
+              activeController.setPosition(new Vector3(renderX, groundY, renderZ));
+            }
+          }}
+          getCurrentLatLon={() => {
+            const pos = controllers[movement.activeMode.value].getPosition();
+            const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
+            return worldToLatLon(real, origin);
+          }}
+        />
+      </Section>
     </>,
     document.getElementById('mode-controls-root') as HTMLDivElement,
   );
@@ -856,7 +952,7 @@ async function main() {
       cameraHeightOffset: movement.cameraHeightOffset.value,
       timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
       overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
-      treeCount: treeCount.value,
+      treeCount: treeCount.value, weatherMode: weatherMode.value,
       hudVisible, worldBounded: worldBounded.value,
     });
   };
@@ -867,6 +963,7 @@ async function main() {
     controllers[movement.activeMode.value].update(dt);
     clampToWorldBounds(controllers[movement.activeMode.value]);
     clouds.update(dt);
+    weatherSystem.update(dt, () => {});
     forestFire.update(dt);
     const pos = controllers[movement.activeMode.value].getPosition();
     const groundY = terrain.getHeightAt(pos.x, pos.z);
@@ -888,6 +985,7 @@ async function main() {
       persistSettings();
     }
   });
+  hideLoadingOverlay();
   gameLoop.start();
 }
 

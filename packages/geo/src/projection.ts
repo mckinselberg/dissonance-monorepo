@@ -44,6 +44,13 @@ export function latLonToWorld(latLon: LatLon, origin: UtmCoordinate): WorldXZ {
   return utmToWorld(latLonToUtm(latLon), origin);
 }
 
+// Mirror of latLonToWorld — for displaying/copying the current position as
+// lat/lon (e.g. for hand-building a landmark manifest) rather than only
+// ever consuming pasted lat/lon to navigate somewhere.
+export function worldToLatLon(world: WorldXZ, origin: UtmCoordinate): LatLon {
+  return utmToLatLon(worldToUtm(world, origin));
+}
+
 export type UtmBoundingBox = { minX: number; minZ: number; maxX: number; maxZ: number };
 
 // Center of a UTM bounding box, used as the shared world-space origin so

@@ -7,6 +7,7 @@ export {
   utmToWorld,
   worldToUtm,
   latLonToWorld,
+  worldToLatLon,
   originFromBoundingBox,
 } from './projection';
 

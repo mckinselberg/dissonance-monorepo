@@ -11,7 +11,18 @@
         background: rgba(0, 0, 0, 0.6); color: #eee;
         font: 12px/1.5 monospace; padding: 10px 12px; border-radius: 6px;
         user-select: none;
+        /* Cheapest possible "window size monitor": vh recalculates on every
+           resize natively, no JS listener needed. Scrollbar shows/hides on
+           its own via overflow-y: auto exactly when content exceeds what's
+           left of the viewport below the panel's top offset. */
+        max-height: calc(100vh - 56px);
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
       }
+      #ui::-webkit-scrollbar { width: 8px; }
+      #ui::-webkit-scrollbar-track { background: transparent; }
+      #ui::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 4px; }
       #toggle-hud-button {
         position: fixed; top: 8px; left: 12px; z-index: 11;
         font: 12px monospace; cursor: pointer; padding: 3px 8px;
@@ -21,13 +32,24 @@
       #level-label { margin-top: 8px; font-weight: bold; }
       #level-links a { color: #9cf; margin-right: 8px; }
       #level-links a.active { color: #fff; text-decoration: none; font-weight: bold; }
+      /* Covers the black screen during initial load AND during the several
+         reload()/href navigations this app does on purpose (Load View,
+         reset-position, the saved-views dropdown) — same overlay either
+         way, hidden once main.tsx reaches "the scene is ready to render". */
+      #loading-overlay {
+        position: fixed; inset: 0; z-index: 20;
+        display: flex; align-items: center; justify-content: center;
+        background: #000; color: #eee; font: 16px/1.5 monospace;
+      }
     </style>
   </head>
   <body>
     <canvas id="renderCanvas"></canvas>
+    <div id="loading-overlay">Loading trail data…</div>
     <button id="toggle-hud-button" type="button">☰ HUD</button>
     <div id="ui">
-      <div id="visibility-root"></div>
+      <div id="toggles-root"></div>
+      <div id="world-root"></div>
       <div id="atmosphere-root"></div>
       <div id="mode-controls-root"></div>
       <div id="level-links">Level: <a href="?level=1">1</a> <a href="?level=2">2</a> <a href="?level=3">3 (orbit)</a></div>

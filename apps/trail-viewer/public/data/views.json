@@ -80,5 +80,26 @@
     "starCount": 800,
     "cloudCount": 16,
     "treeCount": 7657
+  },
+  {
+    "name": "spooky night",
+    "level": "1",
+    "activeMode": "drive",
+    "x": -483.89723585224397,
+    "y": 453.8286970403447,
+    "z": -1310.3369077800498,
+    "rotationX": 0.3146,
+    "rotationY": 64.56100317256742,
+    "hScale": 2,
+    "vExag": 3,
+    "waterLevel": 99.3006310462935,
+    "cameraHeightOffset": 3,
+    "timeOfDay": 24,
+    "fogDensity": 0.0014,
+    "fogColor": "#000000",
+    "overcast": false,
+    "starCount": 200,
+    "cloudCount": 4,
+    "treeCount": 726
   }
 ]

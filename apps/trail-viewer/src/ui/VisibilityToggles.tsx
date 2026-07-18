@@ -2,7 +2,9 @@ import type { Signal } from '@preact/signals';
 import type { JSX } from 'preact';
 import type { VisibilitySignals } from '../state/visibility';
 
-function ToggleLabel({ label, signal: sig, onCommit }: { label: string; signal: Signal<boolean>; onCommit: (checked: boolean) => void }) {
+// Exported so main.tsx can render Overcast/Bounded-world alongside these as
+// siblings in one shared toggle grid — see the "Toggles" section there.
+export function ToggleLabel({ label, signal: sig, onCommit }: { label: string; signal: Signal<boolean>; onCommit: (checked: boolean) => void }) {
   const handleChange = (e: JSX.TargetedEvent<HTMLInputElement>) => {
     const checked = e.currentTarget.checked;
     sig.value = checked;
