@@ -78,6 +78,9 @@ importers:
       '@babylonjs/core':
         specifier: ^7.0.0
         version: 7.54.3
+      '@dissonance/audio':
+        specifier: workspace:*
+        version: link:../../packages/audio
       '@dissonance/engine':
         specifier: workspace:*
         version: link:../../packages/engine

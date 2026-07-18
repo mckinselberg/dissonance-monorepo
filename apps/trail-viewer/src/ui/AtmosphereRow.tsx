@@ -49,15 +49,24 @@ export function SliderRow({ label, signal: sig, min, max, step, suffix, format, 
   );
 }
 
-function ColorPicker({ signal: sig }: { signal: Signal<string> }) {
-  return (
-    <input
-      type="color"
-      value={sig.value}
-      style={colorInputStyle}
-      onInput={(e: JSX.TargetedEvent<HTMLInputElement>) => { sig.value = e.currentTarget.value; }}
-    />
-  );
+type ColorPickerProps = {
+  signal: Signal<string>;
+  // Fog color applies live (scene.fogColor = ... is a cheap direct set);
+  // cloud color/opacity require a full dispose/recreate (DriftingClouds
+  // bakes them in at construction, same as count/altitude/diameter — no
+  // live-update method), so cloud color commits on 'change' instead.
+  commitOn?: 'input' | 'change';
+  onCommit?: (value: string) => void;
+};
+
+function ColorPicker({ signal: sig, commitOn = 'input', onCommit }: ColorPickerProps) {
+  const handleValue = (e: JSX.TargetedEvent<HTMLInputElement>) => {
+    const value = e.currentTarget.value;
+    sig.value = value;
+    if (commitOn === 'change') onCommit?.(value);
+  };
+  const eventProp = commitOn === 'change' ? { onChange: handleValue } : { onInput: handleValue };
+  return <input type="color" value={sig.value} style={colorInputStyle} {...eventProp} />;
 }
 
 // Overcast moved to the shared "Toggles" section (main.tsx) and tree count
@@ -69,9 +78,13 @@ export type AtmosphereRowProps = {
   signals: AtmosphereSignals;
   onStarCountCommit: (value: number) => void;
   onCloudCountCommit: (value: number) => void;
+  onCloudColorCommit: (value: string) => void;
+  onCloudOpacityCommit: (value: number) => void;
 };
 
-export function AtmosphereRow({ signals, onStarCountCommit, onCloudCountCommit }: AtmosphereRowProps) {
+export function AtmosphereRow({
+  signals, onStarCountCommit, onCloudCountCommit, onCloudColorCommit, onCloudOpacityCommit,
+}: AtmosphereRowProps) {
   return (
     <div id="atmosphere-row" style={{ marginTop: '4px' }}>
       <SliderRow
@@ -93,6 +106,19 @@ export function AtmosphereRow({ signals, onStarCountCommit, onCloudCountCommit }
       </label>
       <SliderRow label="Stars" signal={signals.starCount} min={0} max={3000} step={100} commitOn="change" onCommit={onStarCountCommit} />
       <SliderRow label="Cloud density" signal={signals.cloudCount} min={0} max={60} step={2} commitOn="change" onCommit={onCloudCountCommit} />
+      <label style={rowStyle}>
+        Cloud opacity{' '}
+        <input
+          type="range" min={0} max={1} step={0.05} value={signals.cloudOpacity.value} style={{ flex: 1 }}
+          onChange={(e: JSX.TargetedEvent<HTMLInputElement>) => {
+            const value = parseFloat(e.currentTarget.value);
+            signals.cloudOpacity.value = value;
+            onCloudOpacityCommit(value);
+          }}
+        />{' '}
+        <span>{signals.cloudOpacity.value.toFixed(2)}</span>
+        <ColorPicker signal={signals.cloudColor} commitOn="change" onCommit={onCloudColorCommit} />
+      </label>
     </div>
   );
 }

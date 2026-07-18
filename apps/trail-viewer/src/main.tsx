@@ -17,6 +17,7 @@ import {
   type ITerrain, type TreePoint,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
+import { AmbientAudio, AudioEngine, HeartbeatAudio, TrailPlayerAudio } from '@dissonance/audio';
 import type { WeatherMode } from '@dissonance/shared-types';
 import {
   decodeHeightmapPng,
@@ -37,6 +38,7 @@ import { createAtmosphereSignals } from './state/atmosphere';
 import { createMovementSignals, type ActiveMode } from './state/movement';
 import { createScaleTuningSignals } from './state/scaleTuning';
 import { createVisibilitySignals } from './state/visibility';
+import { createAudioSignals } from './state/audio';
 import { AtmosphereRow } from './ui/AtmosphereRow';
 import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
@@ -45,6 +47,7 @@ import { TreeCountRow } from './ui/TreeCountRow';
 import { ViewToolsRow, type SavedView } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
 import { Section } from './ui/Section';
+import { AudioRow } from './ui/AudioRow';
 
 const OSM_TRAIL_Y_LIFT = 0.5;
 // Slightly higher than the OSM trails so the recorded track sits visibly on
@@ -132,9 +135,15 @@ export type SavedSettings = {
   weatherMode?: WeatherMode;
   starCount?: number;
   cloudCount?: number;
+  cloudColor?: string;
+  cloudOpacity?: number;
   treeCount?: number;
   hudVisible?: boolean;
   worldBounded?: boolean;
+  masterMuted?: boolean;
+  windVolume?: number;
+  footstepMuted?: boolean;
+  breathMuted?: boolean;
   orbitTargetX?: number;
   orbitTargetY?: number;
   orbitTargetZ?: number;
@@ -275,7 +284,34 @@ async function main() {
     overcast: savedSettings.overcast ?? false,
     starCount: savedSettings.starCount ?? 800,
     cloudCount: savedSettings.cloudCount ?? 16,
+    cloudColor: savedSettings.cloudColor ?? '#e6e6eb',
+    cloudOpacity: savedSettings.cloudOpacity ?? 0.75,
   });
+
+  // Ported from dont-turn-around (@dissonance/audio) — AmbientAudio and
+  // HeartbeatAudio are already fully generic (no ExperienceProfile/DTA
+  // coupling), reused as-is. TrailPlayerAudio is a decoupled sibling of
+  // DTA's PlayerAudio: same breath-handling logic, but calls
+  // AudioEngine.playTrailStep() (open dirt/gravel) instead of
+  // playForestStep() for footsteps. All three construct with zero args
+  // (matches DTA's own Game.ts constructor pattern) — real playback only
+  // starts once the Enable Audio button fires a genuine user gesture
+  // (browsers require this for AudioContext unlock; trail-viewer has no
+  // menu/start-screen gesture to piggyback on the way DTA's "Begin" button
+  // does, hence the dedicated button — see index.html).
+  const audio = createAudioSignals({
+    masterMuted: savedSettings.masterMuted ?? false,
+    windVolume: savedSettings.windVolume ?? 0.7,
+    footstepMuted: savedSettings.footstepMuted ?? false,
+    breathMuted: savedSettings.breathMuted ?? false,
+  });
+  const ambientAudio = new AmbientAudio();
+  const heartbeatAudio = new HeartbeatAudio();
+  const trailPlayerAudio = new TrailPlayerAudio();
+  AudioEngine.setMuted(audio.masterMuted.value);
+  trailPlayerAudio.setFootstepMuted(audio.footstepMuted.value);
+  trailPlayerAudio.setBreathMuted(audio.breathMuted.value);
+  let audioStarted = false;
 
   const light = new HemisphericLight('light', new Vector3(0.3, 1, 0.2), scene);
   const sun = new Sun(scene, { hour: atmosphere.timeOfDay.value });
@@ -301,6 +337,7 @@ async function main() {
     light.intensity = (0.15 + dayFactor * 0.4) * overcastFactor;
     scene.clearColor = Color4.Lerp(SKY_NIGHT, SKY_DAY, dayFactor);
     stars.setNightFactor(1 - dayFactor);
+    ambientAudio.setNightLevel(1 - dayFactor);
   };
   // Reads atmosphere.overcast.value too (inside applyTimeOfDay), so this
   // effect also re-runs on an overcast toggle — the overcast checkbox's own
@@ -454,8 +491,12 @@ async function main() {
     diameterMin: (atmosphere.overcast.value ? 600 : 300) * currentHScale,
     diameterMax: (atmosphere.overcast.value ? 1400 : 800) * currentHScale,
     driftSpeed: (weatherMode.value === 'windy' ? 15 : 5) * currentHScale,
-    color: atmosphere.overcast.value ? new Color3(0.55, 0.56, 0.58) : undefined,
-    alpha: atmosphere.overcast.value ? 0.95 : undefined,
+    // Manually controlled (Sky section's color picker + opacity slider) —
+    // overcast used to auto-shift these too, but now that there's direct
+    // user control it no longer overrides color/alpha, only the
+    // count/altitude/diameter density feel above.
+    color: Color3.FromHexString(atmosphere.cloudColor.value),
+    alpha: atmosphere.cloudOpacity.value,
   });
   let clouds = new DriftingClouds(scene, cloudOptionsFor(scaleTuning.hScale.value, scaleTuning.vExag.value, atmosphere.cloudCount.value));
   clouds.getMeshes().forEach((m) => water.addToRenderList(m));
@@ -574,10 +615,43 @@ async function main() {
           stars.setNightFactor(1 - Math.max(0, sunHeightForHour(atmosphere.timeOfDay.value)));
         }}
         onCloudCountCommit={() => rebuildClouds()}
+        onCloudColorCommit={() => rebuildClouds()}
+        onCloudOpacityCommit={() => rebuildClouds()}
       />
     </Section>,
     document.getElementById('atmosphere-root') as HTMLDivElement,
   );
+
+  render(
+    <Section title="Audio">
+      <AudioRow
+        signals={audio}
+        showPlayerControls={level.cameraMode !== 'orbit'}
+        onMasterMutedCommit={(muted) => AudioEngine.setMuted(muted)}
+        onWindVolumeInput={() => {}}
+        onFootstepMutedCommit={(muted) => trailPlayerAudio.setFootstepMuted(muted)}
+        onBreathMutedCommit={(muted) => trailPlayerAudio.setBreathMuted(muted)}
+      />
+    </Section>,
+    document.getElementById('audio-root') as HTMLDivElement,
+  );
+
+  // Real playback only starts from here — a genuine click, satisfying the
+  // browser's AudioContext-unlock gesture requirement (see the block near
+  // audio/ambientAudio's construction above for why trail-viewer needs its
+  // own dedicated button rather than piggybacking a menu gesture the way
+  // DTA's Game.start() does).
+  const audioToggleButton = document.getElementById('toggle-audio-button') as HTMLButtonElement;
+  audioToggleButton.addEventListener('click', async () => {
+    if (audioStarted) return;
+    audioStarted = true;
+    audioToggleButton.textContent = '🔊 Audio on';
+    audioToggleButton.disabled = true;
+    await AudioEngine.start();
+    ambientAudio.start();
+    heartbeatAudio.start();
+    if (level.cameraMode !== 'orbit') trailPlayerAudio.start();
+  });
 
   const hudToggleButton = document.getElementById('toggle-hud-button') as HTMLButtonElement;
   const uiPanel = document.getElementById('ui') as HTMLDivElement;
@@ -640,7 +714,10 @@ async function main() {
             hScale: scaleTuning.hScale.value, vExag: scaleTuning.vExag.value, waterLevel: scaleTuning.waterLevel.value,
             timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
             overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
+            cloudColor: atmosphere.cloudColor.value, cloudOpacity: atmosphere.cloudOpacity.value,
             treeCount: treeCount.value, weatherMode: weatherMode.value,
+            masterMuted: audio.masterMuted.value, windVolume: audio.windVolume.value,
+            footstepMuted: audio.footstepMuted.value, breathMuted: audio.breathMuted.value,
           })}
           levelKey={levelKey}
           validLevelKeys={Object.keys(LEVELS)}
@@ -670,7 +747,9 @@ async function main() {
 
     const gameLoop = new GameLoop(engine, (dt) => {
       clouds.update(dt);
-      weatherSystem.update(dt, () => {});
+      weatherSystem.update(dt, (windIntensity) => {
+        ambientAudio.setWeatherIntensity(windIntensity * audio.windVolume.value);
+      });
       const pos = orbitCamera.position;
       const groundY = terrain.getHeightAt(pos.x, pos.z);
       readout.textContent =
@@ -888,7 +967,10 @@ async function main() {
               cameraHeightOffset: movement.cameraHeightOffset.value,
               timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
               overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
+              cloudColor: atmosphere.cloudColor.value, cloudOpacity: atmosphere.cloudOpacity.value,
               treeCount: treeCount.value, weatherMode: weatherMode.value,
+              masterMuted: audio.masterMuted.value, windVolume: audio.windVolume.value,
+              footstepMuted: audio.footstepMuted.value, breathMuted: audio.breathMuted.value,
             };
           }}
           levelKey={levelKey}
@@ -952,8 +1034,11 @@ async function main() {
       cameraHeightOffset: movement.cameraHeightOffset.value,
       timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
       overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
+      cloudColor: atmosphere.cloudColor.value, cloudOpacity: atmosphere.cloudOpacity.value,
       treeCount: treeCount.value, weatherMode: weatherMode.value,
       hudVisible, worldBounded: worldBounded.value,
+      masterMuted: audio.masterMuted.value, windVolume: audio.windVolume.value,
+      footstepMuted: audio.footstepMuted.value, breathMuted: audio.breathMuted.value,
     });
   };
   window.addEventListener('beforeunload', persistSettings);
@@ -963,8 +1048,26 @@ async function main() {
     controllers[movement.activeMode.value].update(dt);
     clampToWorldBounds(controllers[movement.activeMode.value]);
     clouds.update(dt);
-    weatherSystem.update(dt, () => {});
+    weatherSystem.update(dt, (windIntensity) => {
+      ambientAudio.setWeatherIntensity(windIntensity * audio.windVolume.value);
+    });
     forestFire.update(dt);
+
+    // Breath/footsteps: PlayerController (walk) is the only controller with
+    // a BreathSystem — Fly/Drive are deliberately simpler traversal tools
+    // with no breath/adrenaline (see their own file comments) — so this
+    // only runs while walking, and stops footsteps immediately otherwise.
+    const breathReadout = document.getElementById('breath-load-value');
+    if (movement.activeMode.value === 'walk') {
+      const breathLoad = player.breath.getLoad();
+      trailPlayerAudio.updateBreath(breathLoad);
+      trailPlayerAudio.updateFootsteps(player.getSpeed());
+      if (breathReadout) breathReadout.textContent = `${Math.round(breathLoad * 100)}%`;
+    } else {
+      trailPlayerAudio.updateFootsteps(0);
+      if (breathReadout) breathReadout.textContent = '—';
+    }
+
     const pos = controllers[movement.activeMode.value].getPosition();
     const groundY = terrain.getHeightAt(pos.x, pos.z);
     const controlsHint = movement.activeMode.value === 'fly'

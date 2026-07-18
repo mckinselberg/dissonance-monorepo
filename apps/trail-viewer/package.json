@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@babylonjs/core": "^7.0.0",
+    "@dissonance/audio": "workspace:*",
     "@dissonance/engine": "workspace:*",
     "@dissonance/geo": "workspace:*",
     "@dissonance/player": "workspace:*",

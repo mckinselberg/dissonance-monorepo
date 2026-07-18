@@ -15,6 +15,13 @@ export class AudioEngine {
     return this.started;
   }
 
+  // Global mute — keeps Tone.js's destination node encapsulated in this
+  // package (per D1: Tone.js owns the AudioContext) rather than consumer
+  // apps importing `tone` directly just to reach getDestination().mute.
+  static setMuted(muted: boolean): void {
+    Tone.getDestination().mute = muted;
+  }
+
   static createWindLayer(): { start: () => void; stop: () => void; setIntensity: (v: number) => void } {
     const noise = new Tone.Noise('pink');
     const filter = new Tone.Filter(400, 'bandpass');
@@ -162,6 +169,56 @@ export class AudioEngine {
       weightFilter.dispose(); weightEnv.dispose(); weightGain.dispose();
       panner.dispose();
     }, 400);
+  }
+
+  // Trail footstep (trail-viewer): open dirt/gravel character — brighter and
+  // more percussive than playForestStep's damp-soil squelch, no sub-bass
+  // weight layer (that read as "heavy forest floor," wrong for an open
+  // trail). The optional crack is a bright pebble click, not a leaf snap.
+  static playTrailStep(panValue: number = 0, volumeDb: number = -20, withCrack: boolean = false): void {
+    const panner = new Tone.Panner(panValue);
+    panner.toDestination();
+
+    const gritFreq = 420 + Math.random() * 260;
+    const gritNoise = new Tone.Noise('pink');
+    const gritFilter = new Tone.Filter(gritFreq, 'bandpass');
+    (gritFilter as unknown as { Q: { value: number } }).Q.value = 1.4;
+    const gritEnv = new Tone.AmplitudeEnvelope({
+      attack: 0.001, decay: 0.045 + Math.random() * 0.025, sustain: 0, release: 0.03,
+    });
+    const gritGain = new Tone.Gain(Tone.dbToGain(volumeDb));
+    gritNoise.connect(gritFilter);
+    gritFilter.connect(gritEnv);
+    gritEnv.connect(gritGain);
+    gritGain.connect(panner);
+    gritNoise.start();
+    gritEnv.triggerAttackRelease(0.07);
+
+    if (withCrack) {
+      // Pebble/twig click underfoot — bright and brief.
+      const crackNoise = new Tone.Noise('white');
+      const crackFilter = new Tone.Filter(3000 + Math.random() * 900, 'highpass');
+      const crackEnv = new Tone.AmplitudeEnvelope({
+        attack: 0.0005, decay: 0.009 + Math.random() * 0.006, sustain: 0, release: 0.005,
+      });
+      const crackGain = new Tone.Gain(Tone.dbToGain(volumeDb - 2));
+      crackNoise.connect(crackFilter);
+      crackFilter.connect(crackEnv);
+      crackEnv.connect(crackGain);
+      crackGain.connect(panner);
+      crackNoise.start();
+      crackEnv.triggerAttackRelease(0.014);
+      setTimeout(() => {
+        crackNoise.stop(); crackNoise.dispose();
+        crackFilter.dispose(); crackEnv.dispose(); crackGain.dispose();
+      }, 300);
+    }
+
+    setTimeout(() => {
+      gritNoise.stop(); gritNoise.dispose();
+      gritFilter.dispose(); gritEnv.dispose(); gritGain.dispose();
+      panner.dispose();
+    }, 300);
   }
 
   // Pursuer footstep: heavier and darker than the player's squelch.

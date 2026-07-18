@@ -27,6 +27,10 @@
         position: fixed; top: 8px; left: 12px; z-index: 11;
         font: 12px monospace; cursor: pointer; padding: 3px 8px;
       }
+      #toggle-audio-button {
+        position: fixed; top: 8px; left: 78px; z-index: 11;
+        font: 12px monospace; cursor: pointer; padding: 3px 8px;
+      }
       #ui label { display: block; cursor: pointer; }
       #readout { margin-top: 8px; white-space: pre; }
       #level-label { margin-top: 8px; font-weight: bold; }
@@ -47,10 +51,12 @@
     <canvas id="renderCanvas"></canvas>
     <div id="loading-overlay">Loading trail data…</div>
     <button id="toggle-hud-button" type="button">☰ HUD</button>
+    <button id="toggle-audio-button" type="button">🔊 Enable Audio</button>
     <div id="ui">
       <div id="toggles-root"></div>
       <div id="world-root"></div>
       <div id="atmosphere-root"></div>
+      <div id="audio-root"></div>
       <div id="mode-controls-root"></div>
       <div id="level-links">Level: <a href="?level=1">1</a> <a href="?level=2">2</a> <a href="?level=3">3 (orbit)</a></div>
       <div id="level-label"></div>

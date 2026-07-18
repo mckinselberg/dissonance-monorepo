@@ -14,6 +14,8 @@ export type AtmosphereSignals = {
   overcast: Signal<boolean>;
   starCount: Signal<number>;
   cloudCount: Signal<number>;
+  cloudColor: Signal<string>;
+  cloudOpacity: Signal<number>;
 };
 
 export function createAtmosphereSignals(defaults: {
@@ -23,6 +25,8 @@ export function createAtmosphereSignals(defaults: {
   overcast: boolean;
   starCount: number;
   cloudCount: number;
+  cloudColor: string;
+  cloudOpacity: number;
 }): AtmosphereSignals {
   return {
     timeOfDay: signal(defaults.timeOfDay),
@@ -31,5 +35,7 @@ export function createAtmosphereSignals(defaults: {
     overcast: signal(defaults.overcast),
     starCount: signal(defaults.starCount),
     cloudCount: signal(defaults.cloudCount),
+    cloudColor: signal(defaults.cloudColor),
+    cloudOpacity: signal(defaults.cloudOpacity),
   };
 }

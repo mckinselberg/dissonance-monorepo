@@ -11,6 +11,7 @@ export default defineConfig(({ command }) => ({
   plugins: [preact()],
   resolve: {
     alias: {
+      '@dissonance/audio':  path.resolve(__dirname, '../../packages/audio/src'),
       '@dissonance/engine': path.resolve(__dirname, '../../packages/engine/src'),
       '@dissonance/world':  path.resolve(__dirname, '../../packages/world/src'),
       '@dissonance/geo':    path.resolve(__dirname, '../../packages/geo/src'),
