@@ -106,9 +106,18 @@ importers:
         specifier: ^10.24.0
         version: 10.29.7
     devDependencies:
+      '@babel/plugin-transform-react-jsx':
+        specifier: ^7.22.15
+        version: 7.29.7(@babel/core@7.29.7)
+      '@babel/plugin-transform-react-jsx-development':
+        specifier: ^7.22.5
+        version: 7.29.7(@babel/core@7.29.7)
       '@preact/preset-vite':
         specifier: 2.9.0
         version: 2.9.0(@babel/core@7.29.7)(preact@10.29.7)(vite@5.4.21)
+      babel-plugin-transform-hook-names:
+        specifier: ^1.0.2
+        version: 1.0.2(@babel/core@7.29.7)
       typescript:
         specifier: ^5.4.0
         version: 5.9.3

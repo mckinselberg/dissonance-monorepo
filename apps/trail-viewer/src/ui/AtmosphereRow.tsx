@@ -49,7 +49,7 @@ export function SliderRow({ label, signal: sig, min, max, step, suffix, format, 
   );
 }
 
-type ColorPickerProps = {
+export type ColorPickerProps = {
   signal: Signal<string>;
   // Fog color applies live (scene.fogColor = ... is a cheap direct set);
   // cloud color/opacity require a full dispose/recreate (DriftingClouds
@@ -59,7 +59,10 @@ type ColorPickerProps = {
   onCommit?: (value: string) => void;
 };
 
-function ColorPicker({ signal: sig, commitOn = 'input', onCommit }: ColorPickerProps) {
+// Exported — ScaleTuningRow reuses this for water/terrain color pickers
+// rather than duplicating the input/change commit-timing logic, same reason
+// SliderRow is exported for TreeCountRow.
+export function ColorPicker({ signal: sig, commitOn = 'input', onCommit }: ColorPickerProps) {
   const handleValue = (e: JSX.TargetedEvent<HTMLInputElement>) => {
     const value = e.currentTarget.value;
     sig.value = value;
@@ -96,6 +99,12 @@ export function AtmosphereRow({
         style={firstRowStyle}
       />
       <label style={rowStyle}>
+        Sky (night/day){' '}
+        <ColorPicker signal={signals.skyNightColor} />
+        <ColorPicker signal={signals.skyDayColor} />
+        {' '}Sun tint <ColorPicker signal={signals.sunTint} />
+      </label>
+      <label style={rowStyle}>
         Fog{' '}
         <input
           type="range" min={0} max={0.002} step={0.00005} value={signals.fogDensity.value} style={{ flex: 1 }}
@@ -104,7 +113,10 @@ export function AtmosphereRow({
         <span>{signals.fogDensity.value.toFixed(5)}</span>
         <ColorPicker signal={signals.fogColor} />
       </label>
-      <SliderRow label="Stars" signal={signals.starCount} min={0} max={3000} step={100} commitOn="change" onCommit={onStarCountCommit} />
+      <div style={rowStyle}>
+        <SliderRow label="Stars" signal={signals.starCount} min={0} max={3000} step={100} commitOn="change" onCommit={onStarCountCommit} style={firstRowStyle} />
+        <ColorPicker signal={signals.starColor} />
+      </div>
       <SliderRow label="Cloud density" signal={signals.cloudCount} min={0} max={60} step={2} commitOn="change" onCommit={onCloudCountCommit} />
       <label style={rowStyle}>
         Cloud opacity{' '}

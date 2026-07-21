@@ -1,5 +1,7 @@
 import type { JSX } from 'preact';
 import type { ScaleTuningSignals } from '../state/scaleTuning';
+import type { AtmosphereSignals } from '../state/atmosphere';
+import { ColorPicker } from './AtmosphereRow';
 
 const labelStyle: JSX.CSSProperties = { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' };
 const valueStyle: JSX.CSSProperties = { width: '34px', textAlign: 'right' };
@@ -15,11 +17,20 @@ export type ScaleTuningRowProps = {
   // callback here: it's live (input-cadence), handled by an effect in
   // main.tsx watching scaleTuning.waterLevel.value directly.
   onScaleCommit: () => void;
+  atmosphere: AtmosphereSignals;
+  // Water color is a cheap shader-uniform set — commits live (input-cadence).
+  onWaterColorCommit: (value: string) => void;
+  // Terrain's elevation-gradient colors are baked into the mesh at build
+  // time, same as H-scale/V-exagg — commits on release via a full
+  // rebuildWorld(), not a dedicated rebuild path.
+  onTerrainColorCommit: () => void;
 };
 
 // Rendered only when levelKey === '1' (see main.tsx) — levels 2/3 have no
 // equivalent UI, though the underlying signals exist for every level.
-export function ScaleTuningRow({ signals, waterMin, waterMax, waterStep, onScaleCommit }: ScaleTuningRowProps) {
+export function ScaleTuningRow({
+  signals, waterMin, waterMax, waterStep, onScaleCommit, atmosphere, onWaterColorCommit, onTerrainColorCommit,
+}: ScaleTuningRowProps) {
   return (
     <div style={{ marginTop: '8px' }}>
       <label style={labelStyle}>
@@ -50,7 +61,13 @@ export function ScaleTuningRow({ signals, waterMin, waterMax, waterStep, onScale
           type="range" min={waterMin} max={waterMax} step={waterStep} value={signals.waterLevel.value} style={{ flex: 1 }}
           onInput={(e: JSX.TargetedEvent<HTMLInputElement>) => { signals.waterLevel.value = parseFloat(e.currentTarget.value); }}
         />{' '}
-        <span style={valueStyle}>{signals.waterLevel.value.toFixed(1)}</span>m
+        <span style={valueStyle}>{signals.waterLevel.value.toFixed(1)}</span>m{' '}
+        <ColorPicker signal={atmosphere.waterColor} onCommit={onWaterColorCommit} />
+      </label>
+      <label style={labelStyle}>
+        Terrain (low/high){' '}
+        <ColorPicker signal={atmosphere.terrainLowColor} commitOn="change" onCommit={onTerrainColorCommit} />
+        <ColorPicker signal={atmosphere.terrainHighColor} commitOn="change" onCommit={onTerrainColorCommit} />
       </label>
     </div>
   );

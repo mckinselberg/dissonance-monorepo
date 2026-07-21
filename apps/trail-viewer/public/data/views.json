@@ -101,5 +101,33 @@
     "starCount": 200,
     "cloudCount": 4,
     "treeCount": 726
+  },
+  {
+    "name": "dissonance forbidden zone",
+    "level": "1",
+    "activeMode": "fly",
+    "x": -196.65888794674004,
+    "y": 324.8845756405121,
+    "z": -179.3897689635209,
+    "rotationX": 0.15180000000000068,
+    "rotationY": 27.763925690106724,
+    "hScale": 1,
+    "vExag": 1.5,
+    "waterLevel": 52.1295156478877,
+    "cameraHeightOffset": 1.5,
+    "timeOfDay": 18.1,
+    "fogDensity": 0.00065,
+    "fogColor": "#bd5151",
+    "overcast": true,
+    "starCount": 2600,
+    "cloudCount": 36,
+    "cloudColor": "#e6e6eb",
+    "cloudOpacity": 0.75,
+    "treeCount": 7651,
+    "weatherMode": "windy",
+    "masterMuted": false,
+    "windVolume": 0.7,
+    "footstepMuted": false,
+    "breathMuted": false
   }
 ]

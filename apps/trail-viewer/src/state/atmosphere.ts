@@ -16,6 +16,13 @@ export type AtmosphereSignals = {
   cloudCount: Signal<number>;
   cloudColor: Signal<string>;
   cloudOpacity: Signal<number>;
+  waterColor: Signal<string>;
+  starColor: Signal<string>;
+  skyDayColor: Signal<string>;
+  skyNightColor: Signal<string>;
+  terrainLowColor: Signal<string>;
+  terrainHighColor: Signal<string>;
+  sunTint: Signal<string>;
 };
 
 export function createAtmosphereSignals(defaults: {
@@ -27,6 +34,13 @@ export function createAtmosphereSignals(defaults: {
   cloudCount: number;
   cloudColor: string;
   cloudOpacity: number;
+  waterColor: string;
+  starColor: string;
+  skyDayColor: string;
+  skyNightColor: string;
+  terrainLowColor: string;
+  terrainHighColor: string;
+  sunTint: string;
 }): AtmosphereSignals {
   return {
     timeOfDay: signal(defaults.timeOfDay),
@@ -37,5 +51,12 @@ export function createAtmosphereSignals(defaults: {
     cloudCount: signal(defaults.cloudCount),
     cloudColor: signal(defaults.cloudColor),
     cloudOpacity: signal(defaults.cloudOpacity),
+    waterColor: signal(defaults.waterColor),
+    starColor: signal(defaults.starColor),
+    skyDayColor: signal(defaults.skyDayColor),
+    skyNightColor: signal(defaults.skyNightColor),
+    terrainLowColor: signal(defaults.terrainLowColor),
+    terrainHighColor: signal(defaults.terrainHighColor),
+    sunTint: signal(defaults.sunTint),
   };
 }

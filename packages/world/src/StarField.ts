@@ -6,6 +6,7 @@ export type StarFieldOptions = {
   // Sun's disc) — fixed regardless of world scale, same reasoning as Sun.
   radius?: number;
   size?: number;
+  color?: Color3;
 };
 
 const DEFAULTS = { count: 800, radius: 3000, size: 4 };
@@ -17,6 +18,7 @@ const DEFAULTS = { count: 800, radius: 3000, size: 4 };
 // over the day/night cycle is one assignment regardless of star count.
 export class StarField {
   private readonly stars: Mesh;
+  private readonly mat: StandardMaterial;
 
   constructor(scene: Scene, options: StarFieldOptions = {}) {
     const count = options.count ?? DEFAULTS.count;
@@ -24,10 +26,11 @@ export class StarField {
     const size = options.size ?? DEFAULTS.size;
 
     const mat = new StandardMaterial('starFieldMat', scene);
-    mat.emissiveColor = new Color3(1, 1, 1);
+    mat.emissiveColor = options.color ?? new Color3(1, 1, 1);
     mat.disableLighting = true;
     mat.backFaceCulling = false;
     mat.disableDepthWrite = true;
+    this.mat = mat;
 
     this.stars = MeshBuilder.CreatePlane('starTemplate', { size }, scene);
     this.stars.material = mat;
@@ -54,6 +57,10 @@ export class StarField {
   // 0 (fully hidden, daytime) .. 1 (fully visible, night).
   setNightFactor(factor: number): void {
     this.stars.visibility = Math.max(0, Math.min(1, factor));
+  }
+
+  setColor(color: Color3): void {
+    this.mat.emissiveColor = color;
   }
 
   dispose(): void {

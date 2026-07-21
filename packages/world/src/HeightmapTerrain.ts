@@ -29,6 +29,8 @@ export type HeightmapTerrainOptions = {
   verticalExaggeration?: number;
   // Uniform scale on X/Z only. 1.0 = true scale (1 world unit = 1 meter).
   horizontalScale?: number;
+  lowElevationColor?: Color3;
+  highElevationColor?: Color3;
 };
 
 const DEFAULT_GRID_RESOLUTION = 128;
@@ -58,7 +60,11 @@ export class HeightmapTerrain implements ITerrain {
     this.sampler = sampler;
     this.verticalExaggeration = options.verticalExaggeration ?? 1.0;
     this.horizontalScale = options.horizontalScale ?? 1.0;
-    this.ground = this.buildMesh(scene, contract, origin, options.gridResolution ?? DEFAULT_GRID_RESOLUTION);
+    this.ground = this.buildMesh(
+      scene, contract, origin, options.gridResolution ?? DEFAULT_GRID_RESOLUTION,
+      options.lowElevationColor ?? LOW_ELEVATION_COLOR,
+      options.highElevationColor ?? HIGH_ELEVATION_COLOR,
+    );
   }
 
   // x, z are in this terrain's *rendered* world space — i.e. already
@@ -70,7 +76,10 @@ export class HeightmapTerrain implements ITerrain {
     return this.sampler.sampleHeight(real) * this.verticalExaggeration;
   }
 
-  private buildMesh(scene: Scene, contract: HeightmapContract, origin: UtmCoordinate, gridResolution: number): Mesh {
+  private buildMesh(
+    scene: Scene, contract: HeightmapContract, origin: UtmCoordinate, gridResolution: number,
+    lowElevationColor: Color3, highElevationColor: Color3,
+  ): Mesh {
     const { bbox, elevation } = contract;
     const worldMin = utmToWorld({ x: bbox.minX, y: bbox.minZ }, origin);
     const worldMax = utmToWorld({ x: bbox.maxX, y: bbox.maxZ }, origin);
@@ -108,9 +117,9 @@ export class HeightmapTerrain implements ITerrain {
 
       const t = elevationRange > 0 ? clamp01((rawElevation - elevation.min) / elevationRange) : 0;
       colors.push(
-        LOW_ELEVATION_COLOR.r + (HIGH_ELEVATION_COLOR.r - LOW_ELEVATION_COLOR.r) * t,
-        LOW_ELEVATION_COLOR.g + (HIGH_ELEVATION_COLOR.g - LOW_ELEVATION_COLOR.g) * t,
-        LOW_ELEVATION_COLOR.b + (HIGH_ELEVATION_COLOR.b - LOW_ELEVATION_COLOR.b) * t,
+        lowElevationColor.r + (highElevationColor.r - lowElevationColor.r) * t,
+        lowElevationColor.g + (highElevationColor.g - lowElevationColor.g) * t,
+        lowElevationColor.b + (highElevationColor.b - lowElevationColor.b) * t,
         1,
       );
     }

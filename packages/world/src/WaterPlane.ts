@@ -10,6 +10,7 @@ export type WaterPlaneOptions = {
   verticalExaggeration?: number;
   horizontalScale?: number;
   gridResolution?: number;
+  color?: Color3;
 };
 
 const DEFAULT_GRID_RESOLUTION = 32;
@@ -74,7 +75,7 @@ export class WaterPlane {
     this.material.waveHeight = 0.12;
     this.material.bumpHeight = 0.15;
     this.material.waveLength = 0.2;
-    this.material.waterColor = WATER_COLOR;
+    this.material.waterColor = options.color ?? WATER_COLOR;
     this.material.colorBlendFactor = 0.6;
     this.mesh.material = this.material;
 
@@ -116,6 +117,11 @@ export class WaterPlane {
     this.underside.position.x = this.centerX * horizontalScale;
     this.underside.position.z = this.centerZ * horizontalScale;
     this.underside.position.y = (level - UNDERSIDE_OFFSET) * verticalExaggeration;
+  }
+
+  // Cheap: waterColor is just a shader uniform, no rebuild needed.
+  setColor(color: Color3): void {
+    this.material.waterColor = color;
   }
 
   setVisible(visible: boolean): void {

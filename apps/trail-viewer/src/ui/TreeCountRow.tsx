@@ -3,7 +3,12 @@ import { SliderRow } from './AtmosphereRow';
 
 export type TreeCountRowProps = {
   signal: Signal<number>;
-  max: number;
+  // A Signal, not a plain number — its pool shrinks/grows as the tree
+  // region radius changes (main.tsx), and passing the signal itself (read
+  // via .value below, during this component's own render) is what lets
+  // @preact/signals auto-re-render this row when that happens, without
+  // main.tsx re-invoking render() for the whole "World" Section.
+  max: Signal<number>;
   onCommit: (value: number) => void;
 };
 
@@ -18,7 +23,7 @@ export function TreeCountRow({ signal, max, onCommit }: TreeCountRowProps) {
       {/* step stays 1 unconditionally — see main.ts's tree-count comment:
           setting .value via JS snaps to the nearest step boundary, so a
           coarser step would silently desync the shown count from the thumb. */}
-      <SliderRow label="# Trees" signal={signal} min={0} max={max} step={1} commitOn="change" onCommit={onCommit} />
+      <SliderRow label="# Trees" signal={signal} min={0} max={max.value} step={1} commitOn="change" onCommit={onCommit} />
     </div>
   );
 }

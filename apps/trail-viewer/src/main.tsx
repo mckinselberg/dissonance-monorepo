@@ -40,9 +40,10 @@ import { signal, effect } from '@preact/signals';
 import { createAtmosphereSignals } from './state/atmosphere';
 import { createMovementSignals, type ActiveMode } from './state/movement';
 import { createScaleTuningSignals } from './state/scaleTuning';
+import { createTreeScaleSignals } from './state/treeScale';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
-import { AtmosphereRow } from './ui/AtmosphereRow';
+import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
 import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
@@ -155,6 +156,16 @@ export type SavedSettings = {
   cloudColor?: string;
   cloudOpacity?: number;
   treeCount?: number;
+  treeRegionRadius?: number;
+  treeHScale?: number;
+  treeVScale?: number;
+  waterColor?: string;
+  starColor?: string;
+  skyDayColor?: string;
+  skyNightColor?: string;
+  terrainLowColor?: string;
+  terrainHighColor?: string;
+  sunTint?: string;
   hudVisible?: boolean;
   worldBounded?: boolean;
   masterMuted?: boolean;
@@ -330,6 +341,13 @@ async function main() {
     cloudCount: savedSettings.cloudCount ?? 16,
     cloudColor: savedSettings.cloudColor ?? '#e6e6eb',
     cloudOpacity: savedSettings.cloudOpacity ?? 0.75,
+    waterColor: savedSettings.waterColor ?? '#0d2e3d',
+    starColor: savedSettings.starColor ?? '#ffffff',
+    skyDayColor: savedSettings.skyDayColor ?? '#8ca6c7',
+    skyNightColor: savedSettings.skyNightColor ?? '#050814',
+    terrainLowColor: savedSettings.terrainLowColor ?? '#241c12',
+    terrainHighColor: savedSettings.terrainHighColor ?? '#8c8c85',
+    sunTint: savedSettings.sunTint ?? '#ffffff',
   });
 
   // Ported from dont-turn-around (@dissonance/audio) — AmbientAudio and
@@ -358,11 +376,16 @@ async function main() {
   let audioStarted = false;
 
   const light = new HemisphericLight('light', new Vector3(0.3, 1, 0.2), scene);
-  const sun = new Sun(scene, { hour: atmosphere.timeOfDay.value });
-  let stars = new StarField(scene, { count: atmosphere.starCount.value });
+  const sun = new Sun(scene, {
+    hour: atmosphere.timeOfDay.value,
+    castShadows: true,
+    lensFlare: true,
+    colorTint: Color3.FromHexString(atmosphere.sunTint.value),
+  });
+  let stars = new StarField(scene, { count: atmosphere.starCount.value, color: Color3.FromHexString(atmosphere.starColor.value) });
+  effect(() => { stars.setColor(Color3.FromHexString(atmosphere.starColor.value)); });
+  effect(() => { sun.setColorTint(Color3.FromHexString(atmosphere.sunTint.value)); });
 
-  const SKY_DAY = new Color4(0.55, 0.65, 0.78, 1);
-  const SKY_NIGHT = new Color4(0.02, 0.03, 0.08, 1);
   // Overcast dims both the sun and the ambient fill — a real overcast sky
   // is heavily diffused light (soft, flat, no strong directional shadow),
   // not just "clouds added on top" while the lighting stays sunny.
@@ -379,7 +402,9 @@ async function main() {
     const overcastFactor = atmosphere.overcast.value ? OVERCAST_DIMMING : 1;
     sun.light.intensity *= overcastFactor;
     light.intensity = (0.15 + dayFactor * 0.4) * overcastFactor;
-    scene.clearColor = Color4.Lerp(SKY_NIGHT, SKY_DAY, dayFactor);
+    const skyNight = Color3.FromHexString(atmosphere.skyNightColor.value).toColor4(1);
+    const skyDay = Color3.FromHexString(atmosphere.skyDayColor.value).toColor4(1);
+    scene.clearColor = Color4.Lerp(skyNight, skyDay, dayFactor);
     stars.setNightFactor(1 - dayFactor);
     ambientAudio.setNightLevel(1 - dayFactor);
   };
@@ -422,6 +447,8 @@ async function main() {
     gridResolution: level.gridResolution,
     verticalExaggeration: scaleTuning.vExag.value,
     horizontalScale: scaleTuning.hScale.value,
+    lowElevationColor: Color3.FromHexString(atmosphere.terrainLowColor.value),
+    highElevationColor: Color3.FromHexString(atmosphere.terrainHighColor.value),
   });
 
   // Stand-in water: the DEM has no tagged lake/river geometry to trace (see
@@ -431,8 +458,10 @@ async function main() {
     level: scaleTuning.waterLevel.value,
     verticalExaggeration: scaleTuning.vExag.value,
     horizontalScale: scaleTuning.hScale.value,
+    color: Color3.FromHexString(atmosphere.waterColor.value),
   });
   water.addToRenderList(terrain.getMesh());
+  effect(() => { water.setColor(Color3.FromHexString(atmosphere.waterColor.value)); });
 
   // Scattered once in real (unscaled) world space, independent of hScale/
   // vExag, so a rescale re-renders the same forest instead of re-rolling
@@ -452,7 +481,7 @@ async function main() {
   // some headroom in the candidate pool above it since the elevation filter
   // below discards some fraction of attempts.
   const MAX_TREE_COUNT = 8000;
-  const TREE_CANDIDATE_COUNT = 10000;
+  const TREE_CANDIDATE_COUNT = 30000;
   const TREE_CLEARANCE_ABOVE_WATER = 20;
   const realWidth = contract.bbox.maxX - contract.bbox.minX;
   const realDepth = contract.bbox.maxZ - contract.bbox.minZ;
@@ -504,18 +533,53 @@ async function main() {
     if (groundY < scaleTuning.waterLevel.value + TREE_CLEARANCE_ABOVE_WATER) continue;
     treePoints.push({ x, z, groundY });
   }
-  const maxTreeCount = Math.min(treePoints.length, MAX_TREE_COUNT);
+  // Consolidates the scattered forest toward the map's center instead of
+  // covering the whole bbox corner-to-corner — a real forest reads as a
+  // region, not a uniform carpet over the entire DEM. Filters the same
+  // cached candidate pool rather than regenerating it, so tightening/
+  // loosening the radius doesn't re-roll which points get chosen, same
+  // property rebuildTrees already relies on for hScale/vExag changes.
+  const treeRegionRadiusMax = Math.hypot(realWidth, realDepth) / 2;
+  const treeRegionRadius = signal(savedSettings.treeRegionRadius ?? treeRegionRadiusMax * 0.4);
+  const treePointsInRegion = () => treePoints.filter((p) => Math.hypot(p.x, p.z) <= treeRegionRadius.value);
+
+  const maxTreeCount = signal(Math.min(treePointsInRegion().length, MAX_TREE_COUNT));
   // Created here rather than in state/atmosphere.ts's factory — its default
   // depends on maxTreeCount, which is only known now (see AtmosphereRow's
   // props, where this is merged back in alongside the other 6 signals).
-  const treeCount = signal(Math.min(savedSettings.treeCount ?? maxTreeCount, maxTreeCount));
-  let trees = new ThinInstanceTrees(scene);
-  trees.scatter(treePoints.slice(0, treeCount.value), scaleTuning.hScale.value, scaleTuning.vExag.value);
+  const treeCount = signal(Math.min(savedSettings.treeCount ?? maxTreeCount.value, maxTreeCount.value));
+  // Independent tree-size multipliers (canopy/trunk footprint + height) —
+  // separate from scaleTuning's hScale/vExag, which position/exaggerate the
+  // world itself (see ThinInstanceTrees.scatter's comment on why tree size
+  // deliberately doesn't track verticalExaggeration 1:1).
+  const treeScale = createTreeScaleSignals({
+    hScale: savedSettings.treeHScale ?? 1,
+    vScale: savedSettings.treeVScale ?? 1,
+  });
+  let trees = new ThinInstanceTrees(scene, { shadowGenerator: sun.getShadowGenerator() });
+  trees.scatter(
+    treePointsInRegion().slice(0, treeCount.value),
+    scaleTuning.hScale.value, scaleTuning.vExag.value,
+    treeScale.hScale.value, treeScale.vScale.value,
+  );
   const rebuildTrees = () => {
     trees.dispose();
-    trees = new ThinInstanceTrees(scene);
-    trees.scatter(treePoints.slice(0, treeCount.value), scaleTuning.hScale.value, scaleTuning.vExag.value);
+    trees = new ThinInstanceTrees(scene, { shadowGenerator: sun.getShadowGenerator() });
+    trees.scatter(
+      treePointsInRegion().slice(0, treeCount.value),
+      scaleTuning.hScale.value, scaleTuning.vExag.value,
+      treeScale.hScale.value, treeScale.vScale.value,
+    );
     trees.setVisible(visibility.trees.value);
+  };
+  // Fires only on region-radius commits — treeCount/hScale/vExag changes
+  // don't shrink/grow the underlying candidate pool, only how much of it is
+  // used, so they don't need to touch maxTreeCount or forestFire's points.
+  const rebuildTreeRegion = () => {
+    maxTreeCount.value = Math.min(treePointsInRegion().length, MAX_TREE_COUNT);
+    treeCount.value = Math.min(treeCount.value, maxTreeCount.value);
+    rebuildTrees();
+    rebuildForestFire();
   };
 
   // Same technique as @dissonance/world's CloudSystem (a decoupled sibling,
@@ -636,6 +700,33 @@ async function main() {
   render(
     <Section title="World">
       <TreeCountRow signal={treeCount} max={maxTreeCount} onCommit={() => rebuildTrees()} />
+      <SliderRow
+        label="Tree region radius"
+        signal={treeRegionRadius}
+        min={0} max={treeRegionRadiusMax} step={treeRegionRadiusMax / 100}
+        suffix="m"
+        format={(v) => v.toFixed(0)}
+        commitOn="change"
+        onCommit={() => { rebuildTreeRegion(); persistSettings(); }}
+      />
+      <SliderRow
+        label="Tree H-scale"
+        signal={treeScale.hScale}
+        min={0.25} max={3} step={0.25}
+        suffix="x"
+        format={(v) => v.toFixed(2)}
+        commitOn="change"
+        onCommit={() => rebuildTrees()}
+      />
+      <SliderRow
+        label="Tree V-scale"
+        signal={treeScale.vScale}
+        min={0.25} max={3} step={0.25}
+        suffix="x"
+        format={(v) => v.toFixed(2)}
+        commitOn="change"
+        onCommit={() => rebuildTrees()}
+      />
       {levelKey === '1' && (
         <ScaleTuningRow
           signals={scaleTuning}
@@ -643,6 +734,9 @@ async function main() {
           waterMax={contract.elevation.max}
           waterStep={(contract.elevation.max - contract.elevation.min) / 200}
           onScaleCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
+          atmosphere={atmosphere}
+          onWaterColorCommit={(value) => water.setColor(Color3.FromHexString(value))}
+          onTerrainColorCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
         />
       )}
     </Section>,
@@ -665,7 +759,7 @@ async function main() {
         signals={atmosphere}
         onStarCountCommit={() => {
           stars.dispose();
-          stars = new StarField(scene, { count: atmosphere.starCount.value });
+          stars = new StarField(scene, { count: atmosphere.starCount.value, color: Color3.FromHexString(atmosphere.starColor.value) });
           stars.setNightFactor(1 - Math.max(0, sunHeightForHour(atmosphere.timeOfDay.value)));
         }}
         onCloudCountCommit={() => rebuildClouds()}
@@ -770,7 +864,13 @@ async function main() {
             timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
             overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
             cloudColor: atmosphere.cloudColor.value, cloudOpacity: atmosphere.cloudOpacity.value,
-            treeCount: treeCount.value, weatherMode: weatherMode.value,
+            waterColor: atmosphere.waterColor.value, starColor: atmosphere.starColor.value,
+            skyDayColor: atmosphere.skyDayColor.value, skyNightColor: atmosphere.skyNightColor.value,
+            terrainLowColor: atmosphere.terrainLowColor.value, terrainHighColor: atmosphere.terrainHighColor.value,
+            sunTint: atmosphere.sunTint.value,
+            treeCount: treeCount.value, treeRegionRadius: treeRegionRadius.value,
+            treeHScale: treeScale.hScale.value, treeVScale: treeScale.vScale.value,
+            weatherMode: weatherMode.value,
             masterMuted: audio.masterMuted.value, windVolume: audio.windVolume.value,
             footstepMuted: audio.footstepMuted.value, breathMuted: audio.breathMuted.value,
           })}
@@ -863,10 +963,15 @@ async function main() {
 
   // Forest fire game mechanic — press F (or the HUD button) to ignite the
   // nearest tree; fire spreads through neighboring trees over time. Reuses
-  // the same treePoints the forest was scattered from, rather than any
-  // per-instance state on the tree meshes themselves (see ForestFire's own
-  // comment on why).
-  const forestFire = new ForestFire(scene, treePoints, { horizontalScale: scaleTuning.hScale.value, verticalExaggeration: scaleTuning.vExag.value });
+  // the same treePointsInRegion() the forest was scattered from (not the
+  // full candidate pool), so it can't ignite trees outside what's actually
+  // rendered — rebuilt (dispose + reconstruct) whenever the tree region
+  // radius changes, same as rebuildTrees.
+  let forestFire = new ForestFire(scene, treePointsInRegion(), { horizontalScale: scaleTuning.hScale.value, verticalExaggeration: scaleTuning.vExag.value });
+  const rebuildForestFire = () => {
+    forestFire.dispose();
+    forestFire = new ForestFire(scene, treePointsInRegion(), { horizontalScale: scaleTuning.hScale.value, verticalExaggeration: scaleTuning.vExag.value });
+  };
   const igniteAtActiveController = () => {
     const pos = controllers[movement.activeMode.value].getPosition();
     forestFire.ignite(pos.x / scaleTuning.hScale.value, pos.z / scaleTuning.hScale.value);
@@ -952,6 +1057,8 @@ async function main() {
       gridResolution: level.gridResolution,
       verticalExaggeration: scaleTuning.vExag.value,
       horizontalScale: scaleTuning.hScale.value,
+      lowElevationColor: Color3.FromHexString(atmosphere.terrainLowColor.value),
+      highElevationColor: Color3.FromHexString(atmosphere.terrainHighColor.value),
     });
     trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
       namePrefix: 'osmTrail', yLift: OSM_TRAIL_Y_LIFT, horizontalScale: scaleTuning.hScale.value, colorFor: blazeColorFromTags,
@@ -1026,7 +1133,13 @@ async function main() {
               timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
               overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
               cloudColor: atmosphere.cloudColor.value, cloudOpacity: atmosphere.cloudOpacity.value,
-              treeCount: treeCount.value, weatherMode: weatherMode.value,
+              waterColor: atmosphere.waterColor.value, starColor: atmosphere.starColor.value,
+              skyDayColor: atmosphere.skyDayColor.value, skyNightColor: atmosphere.skyNightColor.value,
+              terrainLowColor: atmosphere.terrainLowColor.value, terrainHighColor: atmosphere.terrainHighColor.value,
+              sunTint: atmosphere.sunTint.value,
+              treeCount: treeCount.value, treeRegionRadius: treeRegionRadius.value,
+              treeHScale: treeScale.hScale.value, treeVScale: treeScale.vScale.value,
+              weatherMode: weatherMode.value,
               masterMuted: audio.masterMuted.value, windVolume: audio.windVolume.value,
               footstepMuted: audio.footstepMuted.value, breathMuted: audio.breathMuted.value,
             };
@@ -1093,7 +1206,13 @@ async function main() {
       timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
       overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
       cloudColor: atmosphere.cloudColor.value, cloudOpacity: atmosphere.cloudOpacity.value,
-      treeCount: treeCount.value, weatherMode: weatherMode.value,
+      waterColor: atmosphere.waterColor.value, starColor: atmosphere.starColor.value,
+      skyDayColor: atmosphere.skyDayColor.value, skyNightColor: atmosphere.skyNightColor.value,
+      terrainLowColor: atmosphere.terrainLowColor.value, terrainHighColor: atmosphere.terrainHighColor.value,
+      sunTint: atmosphere.sunTint.value,
+      treeCount: treeCount.value, treeRegionRadius: treeRegionRadius.value,
+      treeHScale: treeScale.hScale.value, treeVScale: treeScale.vScale.value,
+      weatherMode: weatherMode.value,
       hudVisible, worldBounded: worldBounded.value,
       masterMuted: audio.masterMuted.value, windVolume: audio.windVolume.value,
       footstepMuted: audio.footstepMuted.value, breathMuted: audio.breathMuted.value,
