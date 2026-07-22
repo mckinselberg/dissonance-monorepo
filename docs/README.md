@@ -22,6 +22,55 @@
 - **[plans/dissonance-trail-data-poc-prompt.md](plans/dissonance-trail-data-poc-prompt.md)**
   — the original prompt/plan that kicked off the Trail Viewer POC.
 
+## Living tracker
+
+- **[THREADS.md](THREADS.md)** — the single living record of every active/parked/blocked
+  design-and-engineering thread across both games, frozen decisions, principles,
+  open decisions needing Dan's sign-off, and a revision log. Start here for
+  "what's the current state and what's next" before reading anything below —
+  most of the docs in this index are handoff prompts or reference material
+  that THREADS.md points to and summarizes.
+- **[NOTES.md](NOTES.md)** — Dan's raw scratch inbox; untriaged items get
+  logged into THREADS.md's parking lot, then this file's own copy is left
+  as-is (not deleted) as the original record.
+
+## Design & handoff prompts (`plans/`)
+
+Session handoff docs, one per topic. THREADS.md is the index of record for
+which of these are still open vs. already landed in code — check there
+first; several of the docs below describe work that has since shipped.
+
+- **[plans/geo-grid-engineering-prompt.md](plans/geo-grid-engineering-prompt.md)**
+  — lat/long grid system for trail-viewer. **Shipped** (`packages/geo/src/graticule.ts`
+  + a trail-viewer toggle) — see THREADS.md T21.
+- **[plans/instance-placement-prompt-v1.md](plans/instance-placement-prompt-v1.md)**
+  and **[plans/scatter-placement-prompt-v1.md](plans/scatter-placement-prompt-v1.md)**
+  — two related, ambitious designs for a manifest-driven placement/zone-field
+  substrate (anonymous + identified instance layers, cell LOD, QGIS-authored
+  zones). **Not built** — the code that shipped instead is simpler runtime
+  procedural scatter. See THREADS.md T23 for the surfaced design/implementation
+  gap between these docs and what actually exists.
+- **[plans/creature-silhouette-direction-v1.md](plans/creature-silhouette-direction-v1.md)**
+  — low-poly faceted-silhouette creature design direction (crystal material
+  rejected, language kept); paired reference sheet
+  **[plans/animals.webp](plans/animals.webp)**. See THREADS.md T4/T17.
+- **[plans/sound-as-control-prompt-v1.md](plans/sound-as-control-prompt-v1.md)**
+  — T9's actual handoff prompt (packages/sound-control, oscilloscope/vocoder
+  prototype), supersedes the old Godot `Oscilloscope_prompt` reference. Not
+  yet implemented — see THREADS.md T9 for its (narrower than "T3 lands") gate.
+- **[plans/t13-boulevard-extraction-v1.md](plans/t13-boulevard-extraction-v1.md)**
+  — analysis pass over the Godot Surveillance Boulevard PoC (reference only,
+  no code ports). See THREADS.md T13.
+- **plans/smr-shed.webp** — an on-trail photo of a fenced stone building
+  with a chimney; filename confirms it's SMR shed reference material for
+  T22's "Shed / comfort station" feature, though it doesn't fully match
+  photo 10's described corrugated roof/undergrowth state — see THREADS.md's
+  Doc inventory note.
+
+See also **[plans/dissonance-trail-data-poc-prompt.md](plans/dissonance-trail-data-poc-prompt.md)**
+under "Trail Viewer POC" above — the original prompt that kicked off that
+whole effort.
+
 ## Monorepo architecture & extraction history
 
 - **[monorepo-docs/260615 Monorepo Prompt.md](monorepo-docs/260615%20Monorepo%20Prompt.md)**
