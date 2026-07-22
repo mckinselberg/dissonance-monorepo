@@ -11,6 +11,9 @@ export type WaterPlaneOptions = {
   horizontalScale?: number;
   gridResolution?: number;
   color?: Color3;
+  // Pass null to keep the material entirely local/offline. Undefined retains
+  // the historical Babylon sample texture for existing consumers.
+  bumpTextureUrl?: string | null;
 };
 
 const DEFAULT_GRID_RESOLUTION = 32;
@@ -70,7 +73,10 @@ export class WaterPlane {
     }, scene);
 
     this.material = new WaterMaterial('waterMaterial', scene, new Vector2(512, 512));
-    this.material.bumpTexture = new Texture(BUMP_TEXTURE_URL, scene);
+    const bumpTextureUrl = options.bumpTextureUrl === undefined
+      ? BUMP_TEXTURE_URL
+      : options.bumpTextureUrl;
+    if (bumpTextureUrl) this.material.bumpTexture = new Texture(bumpTextureUrl, scene);
     this.material.windForce = -8;
     this.material.waveHeight = 0.12;
     this.material.bumpHeight = 0.15;
