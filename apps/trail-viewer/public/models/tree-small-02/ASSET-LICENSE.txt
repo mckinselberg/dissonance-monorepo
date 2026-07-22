@@ -1,0 +1,25 @@
+Tree Small 02
+=============
+
+Source: https://polyhaven.com/a/tree_small_02
+Author: Rico Cilliers
+License: CC0 1.0 Universal
+License details: https://polyhaven.com/license
+
+Runtime derivative
+------------------
+
+Generated from Poly Haven's 1K glTF with gltfpack 1.1:
+
+  gltfpack -i tree_small_02_1k.gltf -o tree_small_02_preview.glb -si 0.025 -sp -kn -km
+
+The pass preserves the original nine 1K JPEG textures. It reduces the model
+from 2,062,487 to 52,353 triangles and packages it as one GLB for the browser
+preview. This derivative is also available under CC0.
+
+Meshopt runtime compression is intentionally disabled for this preview so the
+Babylon client does not need to fetch a decoder from an external CDN.
+
+Uses meshoptimizer/gltfpack. Copyright (c) 2016-2026 Arseny Kapoulkine.
+meshoptimizer is distributed under the MIT License:
+https://github.com/zeux/meshoptimizer

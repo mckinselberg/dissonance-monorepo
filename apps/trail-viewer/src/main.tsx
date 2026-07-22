@@ -12,9 +12,18 @@ import {
 } from '@babylonjs/core';
 import { GameLoop } from '@dissonance/engine';
 import {
-  HeightmapTerrain, WaterPlane, defaultWaterLevel, DriftingClouds, Sun, sunHeightForHour, StarField,
-  ThinInstanceTrees, ForestFire, WeatherSystem,
-  type ITerrain, type TreePoint,
+  HeightmapTerrain,
+  WaterPlane,
+  defaultWaterLevel,
+  DriftingClouds,
+  Sun,
+  sunHeightForHour,
+  StarField,
+  ThinInstanceTrees,
+  ForestFire,
+  WeatherSystem,
+  type ITerrain,
+  type TreePoint,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
 import { AmbientAudio, AudioEngine, HeartbeatAudio, TrailPlayerAudio } from '@dissonance/audio';
@@ -52,6 +61,8 @@ import { ViewToolsRow, type SavedView } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
 import { Section } from './ui/Section';
 import { AudioRow } from './ui/AudioRow';
+import { loadTrailTreePreview, type TrailTreePreviewHandle } from './world/TreeAssetPreview';
+import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './world/HeroTreeInstances';
 
 const OSM_TRAIL_Y_LIFT = 0.5;
 // Slightly higher than the OSM trails so the recorded track sits visibly on
@@ -100,15 +111,42 @@ type LevelConfig = {
 // - Level 3: the original Phase 3/4 validation view — true scale, no
 //   player at all, just a free orbit camera over the whole model.
 const LEVELS: Record<string, LevelConfig> = {
-  '1': { label: 'Level 1: exaggerated relief, shrunk player', gridResolution: 700, verticalExaggeration: 10, horizontalScale: 1, playerScale: 0.1, farClip: 10000, cameraMode: 'player', flightSpeed: 30 },
+  '1': {
+    label: 'Level 1: exaggerated relief, shrunk player',
+    gridResolution: 700,
+    verticalExaggeration: 10,
+    horizontalScale: 1,
+    playerScale: 0.1,
+    farClip: 10000,
+    cameraMode: 'player',
+    flightSpeed: 30,
+  },
   // gridResolution bumped to partially offset horizontalScale stretching
   // each mesh quad ~7x wider once rendered (700 alone would make ~57m
   // quads — coarse enough up close to visibly diverge from getHeightAt's
   // precise DEM sampling; 1000 brings that down to ~40m, still coarser
   // than level 1 but less extreme). farClip raised well past the ~40km
   // rendered world diagonal so distant terrain doesn't just vanish.
-  '2': { label: 'Level 2: uniform 7x world scale', gridResolution: 1000, verticalExaggeration: 7, horizontalScale: 7, playerScale: 1, farClip: 60000, cameraMode: 'player', flightSpeed: 210 },
-  '3': { label: 'Level 3: true scale, orbit view', gridResolution: 700, verticalExaggeration: 1, horizontalScale: 1, playerScale: 1, farClip: 10000, cameraMode: 'orbit', flightSpeed: 30 },
+  '2': {
+    label: 'Level 2: uniform 7x world scale',
+    gridResolution: 1000,
+    verticalExaggeration: 7,
+    horizontalScale: 7,
+    playerScale: 1,
+    farClip: 60000,
+    cameraMode: 'player',
+    flightSpeed: 210,
+  },
+  '3': {
+    label: 'Level 3: true scale, orbit view',
+    gridResolution: 700,
+    verticalExaggeration: 1,
+    horizontalScale: 1,
+    playerScale: 1,
+    farClip: 10000,
+    cameraMode: 'orbit',
+    flightSpeed: 30,
+  },
 };
 
 function currentLevelKey(): string {
@@ -254,7 +292,12 @@ function buildPolylineMeshes(
   polylines: GeoPolyline[],
   terrain: ITerrain,
   origin: UtmCoordinate,
-  options: { namePrefix: string; yLift: number; horizontalScale: number; colorFor: (tags?: Record<string, string>) => Color3 },
+  options: {
+    namePrefix: string;
+    yLift: number;
+    horizontalScale: number;
+    colorFor: (tags?: Record<string, string>) => Color3;
+  },
 ): Mesh[] {
   const meshes: Mesh[] = [];
   polylines.forEach((polyline, i) => {
@@ -379,12 +422,21 @@ async function main() {
   const sun = new Sun(scene, {
     hour: atmosphere.timeOfDay.value,
     castShadows: true,
-    lensFlare: true,
+    // Sun's optional flare sprites currently live on Babylon's asset CDN.
+    // Leave the local sun disc enabled, but do not make runtime CDN requests.
+    lensFlare: false,
     colorTint: Color3.FromHexString(atmosphere.sunTint.value),
   });
-  let stars = new StarField(scene, { count: atmosphere.starCount.value, color: Color3.FromHexString(atmosphere.starColor.value) });
-  effect(() => { stars.setColor(Color3.FromHexString(atmosphere.starColor.value)); });
-  effect(() => { sun.setColorTint(Color3.FromHexString(atmosphere.sunTint.value)); });
+  let stars = new StarField(scene, {
+    count: atmosphere.starCount.value,
+    color: Color3.FromHexString(atmosphere.starColor.value),
+  });
+  effect(() => {
+    stars.setColor(Color3.FromHexString(atmosphere.starColor.value));
+  });
+  effect(() => {
+    sun.setColorTint(Color3.FromHexString(atmosphere.sunTint.value));
+  });
 
   // Overcast dims both the sun and the ambient fill — a real overcast sky
   // is heavily diffused light (soft, flat, no strong directional shadow),
@@ -415,8 +467,12 @@ async function main() {
   effect(() => applyTimeOfDay(atmosphere.timeOfDay.value));
 
   scene.fogMode = Scene.FOGMODE_EXP2;
-  effect(() => { scene.fogDensity = atmosphere.fogDensity.value; });
-  effect(() => { scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value); });
+  effect(() => {
+    scene.fogDensity = atmosphere.fogDensity.value;
+  });
+  effect(() => {
+    scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
+  });
 
   const { contract, pngBytes } = await loadHeightmap();
   // Mutable via signals — level 1 exposes live HUD sliders that rebuild the
@@ -459,9 +515,14 @@ async function main() {
     verticalExaggeration: scaleTuning.vExag.value,
     horizontalScale: scaleTuning.hScale.value,
     color: Color3.FromHexString(atmosphere.waterColor.value),
+    // WaterMaterial's historical default bump map is remote. The core water
+    // surface remains usable without it and the viewer stays fully local.
+    bumpTextureUrl: null,
   });
   water.addToRenderList(terrain.getMesh());
-  effect(() => { water.setColor(Color3.FromHexString(atmosphere.waterColor.value)); });
+  effect(() => {
+    water.setColor(Color3.FromHexString(atmosphere.waterColor.value));
+  });
 
   // Scattered once in real (unscaled) world space, independent of hScale/
   // vExag, so a rescale re-renders the same forest instead of re-rolling
@@ -475,12 +536,12 @@ async function main() {
   // Thin instancing keeps the GPU draw-call cost of *rendering* trees flat
   // regardless of count (a handful of draw calls per template — see
   // ThinInstanceTrees — however many instances ride along), so the real
-  // constraint is candidate generation + per-instance matrix upload, which
-  // stays cheap even at high counts on integrated graphics. 8000 is a
-  // deliberate ceiling picked for that reason (not an incidental one), with
-  // some headroom in the candidate pool above it since the elevation filter
-  // below discards some fraction of attempts.
-  const MAX_TREE_COUNT = 8000;
+  // constraint is candidate generation + per-instance matrix upload. 8000 was
+  // a guessed-not-measured ceiling; raised well past it (matching
+  // TREE_CANDIDATE_COUNT) so the "# Trees" slider can actually be dragged
+  // into the range needed to find the real one — watch the FPS readout while
+  // doing that, don't trust this number until it's been through that.
+  const MAX_TREE_COUNT = 30000;
   const TREE_CANDIDATE_COUNT = 30000;
   const TREE_CLEARANCE_ABOVE_WATER = 20;
   const realWidth = contract.bbox.maxX - contract.bbox.minX;
@@ -559,18 +620,28 @@ async function main() {
   let trees = new ThinInstanceTrees(scene, { shadowGenerator: sun.getShadowGenerator() });
   trees.scatter(
     treePointsInRegion().slice(0, treeCount.value),
-    scaleTuning.hScale.value, scaleTuning.vExag.value,
-    treeScale.hScale.value, treeScale.vScale.value,
+    scaleTuning.hScale.value,
+    scaleTuning.vExag.value,
+    treeScale.hScale.value,
+    treeScale.vScale.value,
   );
   const rebuildTrees = () => {
     trees.dispose();
     trees = new ThinInstanceTrees(scene, { shadowGenerator: sun.getShadowGenerator() });
     trees.scatter(
       treePointsInRegion().slice(0, treeCount.value),
-      scaleTuning.hScale.value, scaleTuning.vExag.value,
-      treeScale.hScale.value, treeScale.vScale.value,
+      scaleTuning.hScale.value,
+      scaleTuning.vExag.value,
+      treeScale.hScale.value,
+      treeScale.vScale.value,
     );
     trees.setVisible(visibility.trees.value);
+    // repositionHeroClusters is declared further down (after spawn/terrain
+    // setup) but this closure is only ever invoked later, via slider
+    // onCommit — by then it exists. Tree H/V-scale sliders only call
+    // rebuildTrees (not the heavier rebuildWorld), so this is the one place
+    // that needs to keep the hero-zone clusters in sync with them.
+    repositionHeroClusters();
   };
   // Fires only on region-radius commits — treeCount/hScale/vExag changes
   // don't shrink/grow the underlying candidate pool, only how much of it is
@@ -594,8 +665,10 @@ async function main() {
   const cloudOptionsFor = (currentHScale: number, currentVExag: number, count: number) => ({
     count: atmosphere.overcast.value ? Math.max(count, 60) : count,
     spread: (contract.bbox.maxX - contract.bbox.minX) * currentHScale * 1.3,
-    altitudeMin: (atmosphere.overcast.value ? contract.elevation.max + 150 : contract.elevation.max + 250) * currentVExag,
-    altitudeMax: (atmosphere.overcast.value ? contract.elevation.max + 220 : contract.elevation.max + 450) * currentVExag,
+    altitudeMin:
+      (atmosphere.overcast.value ? contract.elevation.max + 150 : contract.elevation.max + 250) * currentVExag,
+    altitudeMax:
+      (atmosphere.overcast.value ? contract.elevation.max + 220 : contract.elevation.max + 450) * currentVExag,
     diameterMin: (atmosphere.overcast.value ? 600 : 300) * currentHScale,
     diameterMax: (atmosphere.overcast.value ? 1400 : 800) * currentHScale,
     driftSpeed: (weatherMode.value === 'windy' ? 15 : 5) * currentHScale,
@@ -606,7 +679,10 @@ async function main() {
     color: Color3.FromHexString(atmosphere.cloudColor.value),
     alpha: atmosphere.cloudOpacity.value,
   });
-  let clouds = new DriftingClouds(scene, cloudOptionsFor(scaleTuning.hScale.value, scaleTuning.vExag.value, atmosphere.cloudCount.value));
+  let clouds = new DriftingClouds(
+    scene,
+    cloudOptionsFor(scaleTuning.hScale.value, scaleTuning.vExag.value, atmosphere.cloudCount.value),
+  );
   clouds.getMeshes().forEach((m) => water.addToRenderList(m));
   water.addToRenderList(sun.getMesh());
 
@@ -618,7 +694,10 @@ async function main() {
   const rebuildClouds = () => {
     clouds.getMeshes().forEach((m) => water.removeFromRenderList(m));
     clouds.dispose();
-    clouds = new DriftingClouds(scene, cloudOptionsFor(scaleTuning.hScale.value, scaleTuning.vExag.value, atmosphere.cloudCount.value));
+    clouds = new DriftingClouds(
+      scene,
+      cloudOptionsFor(scaleTuning.hScale.value, scaleTuning.vExag.value, atmosphere.cloudCount.value),
+    );
     clouds.getMeshes().forEach((m) => water.addToRenderList(m));
     clouds.setVisible(visibility.clouds.value);
   };
@@ -653,7 +732,7 @@ async function main() {
   // Fragment, so its <label> children land as direct grid-item siblings of
   // the Overcast/Bounded-world labels below — one flat grid, not nested.
   render(
-    <Section title="Toggles">
+    <Section title='Toggles'>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', columnGap: '10px' }}>
         <VisibilityToggles
           signals={visibility}
@@ -665,23 +744,24 @@ async function main() {
           onTreesCommit={(checked) => trees.setVisible(checked)}
           onGridCommit={(checked) => setMeshesEnabled(gridMeshes, checked)}
         />
-        <ToggleLabel label="Overcast" signal={atmosphere.overcast} onCommit={() => rebuildClouds()} />
+        <ToggleLabel label='Overcast' signal={atmosphere.overcast} onCommit={() => rebuildClouds()} />
         {/* Not a ToggleLabel — weatherMode is 'clear'|'windy', not a plain
             boolean signal, so it needs its own checked/onChange conversion
             rather than ToggleLabel's Signal<boolean> contract. */}
         <label>
           <input
-            type="checkbox"
+            type='checkbox'
             checked={weatherMode.value === 'windy'}
             onChange={(e: JSX.TargetedEvent<HTMLInputElement>) => {
               weatherMode.value = e.currentTarget.checked ? 'windy' : 'clear';
               weatherSystem.setMode(weatherMode.value);
               rebuildClouds();
             }}
-          /> Windy
+          />{' '}
+          Windy
         </label>
         {level.cameraMode !== 'orbit' && (
-          <ToggleLabel label="Bounded world" signal={worldBounded} onCommit={() => {}} />
+          <ToggleLabel label='Bounded world' signal={worldBounded} onCommit={() => {}} />
         )}
       </div>
     </Section>,
@@ -698,33 +778,42 @@ async function main() {
   // underlying signals (created earlier) and the rebuild logic they
   // trigger stay exactly where they were.
   render(
-    <Section title="World">
+    <Section title='World'>
       <TreeCountRow signal={treeCount} max={maxTreeCount} onCommit={() => rebuildTrees()} />
       <SliderRow
-        label="Tree region radius"
+        label='Tree region radius'
         signal={treeRegionRadius}
-        min={0} max={treeRegionRadiusMax} step={treeRegionRadiusMax / 100}
-        suffix="m"
+        min={0}
+        max={treeRegionRadiusMax}
+        step={treeRegionRadiusMax / 100}
+        suffix='m'
         format={(v) => v.toFixed(0)}
-        commitOn="change"
-        onCommit={() => { rebuildTreeRegion(); persistSettings(); }}
+        commitOn='change'
+        onCommit={() => {
+          rebuildTreeRegion();
+          persistSettings();
+        }}
       />
       <SliderRow
-        label="Tree H-scale"
+        label='Tree H-scale'
         signal={treeScale.hScale}
-        min={0.25} max={3} step={0.25}
-        suffix="x"
+        min={0.25}
+        max={3}
+        step={0.25}
+        suffix='x'
         format={(v) => v.toFixed(2)}
-        commitOn="change"
+        commitOn='change'
         onCommit={() => rebuildTrees()}
       />
       <SliderRow
-        label="Tree V-scale"
+        label='Tree V-scale'
         signal={treeScale.vScale}
-        min={0.25} max={3} step={0.25}
-        suffix="x"
+        min={0.25}
+        max={3}
+        step={0.25}
+        suffix='x'
         format={(v) => v.toFixed(2)}
-        commitOn="change"
+        commitOn='change'
         onCommit={() => rebuildTrees()}
       />
       {levelKey === '1' && (
@@ -754,12 +843,15 @@ async function main() {
   // (see docs/THREADS.md); commit handlers below mirror the dispose/
   // recreate bodies the old change-listeners used 1:1.
   render(
-    <Section title="Sky">
+    <Section title='Sky'>
       <AtmosphereRow
         signals={atmosphere}
         onStarCountCommit={() => {
           stars.dispose();
-          stars = new StarField(scene, { count: atmosphere.starCount.value, color: Color3.FromHexString(atmosphere.starColor.value) });
+          stars = new StarField(scene, {
+            count: atmosphere.starCount.value,
+            color: Color3.FromHexString(atmosphere.starColor.value),
+          });
           stars.setNightFactor(1 - Math.max(0, sunHeightForHour(atmosphere.timeOfDay.value)));
         }}
         onCloudCountCommit={() => rebuildClouds()}
@@ -771,7 +863,7 @@ async function main() {
   );
 
   render(
-    <Section title="Audio">
+    <Section title='Audio'>
       <AudioRow
         signals={audio}
         showPlayerControls={level.cameraMode !== 'orbit'}
@@ -804,7 +896,9 @@ async function main() {
   const hudToggleButton = document.getElementById('toggle-hud-button') as HTMLButtonElement;
   const uiPanel = document.getElementById('ui') as HTMLDivElement;
   let hudVisible = savedSettings.hudVisible ?? true;
-  const applyHudVisible = () => { uiPanel.style.display = hudVisible ? 'block' : 'none'; };
+  const applyHudVisible = () => {
+    uiPanel.style.display = hudVisible ? 'block' : 'none';
+  };
   applyHudVisible();
   hudToggleButton.addEventListener('click', () => {
     hudVisible = !hudVisible;
@@ -854,25 +948,43 @@ async function main() {
     scene.activeCamera = orbitCamera;
 
     render(
-      <Section title="Navigation & Views">
+      <Section title='Navigation & Views'>
         <ViewToolsRow
           buildSnapshot={() => ({
             level: levelKey,
-            orbitTargetX: orbitCamera.target.x, orbitTargetY: orbitCamera.target.y, orbitTargetZ: orbitCamera.target.z,
-            orbitAlpha: orbitCamera.alpha, orbitBeta: orbitCamera.beta, orbitRadius: orbitCamera.radius,
-            hScale: scaleTuning.hScale.value, vExag: scaleTuning.vExag.value, waterLevel: scaleTuning.waterLevel.value,
-            timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
-            overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
-            cloudColor: atmosphere.cloudColor.value, cloudOpacity: atmosphere.cloudOpacity.value,
-            waterColor: atmosphere.waterColor.value, starColor: atmosphere.starColor.value,
-            skyDayColor: atmosphere.skyDayColor.value, skyNightColor: atmosphere.skyNightColor.value,
-            terrainLowColor: atmosphere.terrainLowColor.value, terrainHighColor: atmosphere.terrainHighColor.value,
+            orbitTargetX: orbitCamera.target.x,
+            orbitTargetY: orbitCamera.target.y,
+            orbitTargetZ: orbitCamera.target.z,
+            orbitAlpha: orbitCamera.alpha,
+            orbitBeta: orbitCamera.beta,
+            orbitRadius: orbitCamera.radius,
+            hScale: scaleTuning.hScale.value,
+            vExag: scaleTuning.vExag.value,
+            waterLevel: scaleTuning.waterLevel.value,
+            timeOfDay: atmosphere.timeOfDay.value,
+            fogDensity: atmosphere.fogDensity.value,
+            fogColor: atmosphere.fogColor.value,
+            overcast: atmosphere.overcast.value,
+            starCount: atmosphere.starCount.value,
+            cloudCount: atmosphere.cloudCount.value,
+            cloudColor: atmosphere.cloudColor.value,
+            cloudOpacity: atmosphere.cloudOpacity.value,
+            waterColor: atmosphere.waterColor.value,
+            starColor: atmosphere.starColor.value,
+            skyDayColor: atmosphere.skyDayColor.value,
+            skyNightColor: atmosphere.skyNightColor.value,
+            terrainLowColor: atmosphere.terrainLowColor.value,
+            terrainHighColor: atmosphere.terrainHighColor.value,
             sunTint: atmosphere.sunTint.value,
-            treeCount: treeCount.value, treeRegionRadius: treeRegionRadius.value,
-            treeHScale: treeScale.hScale.value, treeVScale: treeScale.vScale.value,
+            treeCount: treeCount.value,
+            treeRegionRadius: treeRegionRadius.value,
+            treeHScale: treeScale.hScale.value,
+            treeVScale: treeScale.vScale.value,
             weatherMode: weatherMode.value,
-            masterMuted: audio.masterMuted.value, windVolume: audio.windVolume.value,
-            footstepMuted: audio.footstepMuted.value, breathMuted: audio.breathMuted.value,
+            masterMuted: audio.masterMuted.value,
+            windVolume: audio.windVolume.value,
+            footstepMuted: audio.footstepMuted.value,
+            breathMuted: audio.breathMuted.value,
           })}
           levelKey={levelKey}
           validLevelKeys={Object.keys(LEVELS)}
@@ -910,6 +1022,7 @@ async function main() {
       readout.textContent =
         `camera: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
         `ground under camera: ${groundY.toFixed(1)}m\n` +
+        `fps: ${engine.getFps().toFixed(0)}\n` +
         `left-drag to orbit, scroll to zoom, right-drag to pan`;
       scene.render();
     });
@@ -937,7 +1050,10 @@ async function main() {
   // map quickly, alongside walking. All three controllers stay alive
   // simultaneously (rather than being created/destroyed on toggle) so
   // switching between them is instant and position carries over cleanly.
-  const flight = new FlightController(scene, startPosition.clone(), { farClip: level.farClip, speed: level.flightSpeed });
+  const flight = new FlightController(scene, startPosition.clone(), {
+    farClip: level.farClip,
+    speed: level.flightSpeed,
+  });
 
   // Same idea as Fly, but grounded — WASD at flight-grade speed with Y
   // snapped to the terrain every frame, for players who want to cover
@@ -961,16 +1077,129 @@ async function main() {
     drive.camera.rotation.copyFrom(savedRotation);
   }
 
+  // Keep one real glTF tree close to this session's spawn as a foreground
+  // asset-quality check. The offset is stored in real metres, then scaled
+  // with the world so levels 1 and 2 frame it consistently. It is placed
+  // front-left of the starting view: close and obvious without blocking the
+  // trail directly under the crosshair.
+  const previewSpawnRealX = startPosition.x / scaleTuning.hScale.value;
+  const previewSpawnRealZ = startPosition.z / scaleTuning.hScale.value;
+  const previewYaw = player.camera.rotation.y;
+  const previewForwardX = Math.sin(previewYaw);
+  const previewForwardZ = Math.cos(previewYaw);
+  const previewRightX = Math.cos(previewYaw);
+  const previewRightZ = -Math.sin(previewYaw);
+  const previewRealX = previewSpawnRealX + previewForwardX * 5 - previewRightX * 2.5;
+  const previewRealZ = previewSpawnRealZ + previewForwardZ * 5 - previewRightZ * 2.5;
+  const treePreviewGroundPosition = () => {
+    const x = previewRealX * scaleTuning.hScale.value;
+    const z = previewRealZ * scaleTuning.hScale.value;
+    return new Vector3(x, terrain.getHeightAt(x, z), z);
+  };
+
+  let trailTreePreview: TrailTreePreviewHandle | null = null;
+  let treePreviewStatus = 'optimized tree: failed to load (see console)';
+  try {
+    const previewPosition = treePreviewGroundPosition();
+    trailTreePreview = await loadTrailTreePreview(
+      scene,
+      previewPosition,
+      scaleTuning.hScale.value,
+      sun.getShadowGenerator(),
+    );
+    treePreviewStatus = `optimized tree: ${trailTreePreview.triangleCount.toLocaleString()} tris, cyan ring near spawn`;
+    console.info(
+      `[TrailTreePreview] loaded ${trailTreePreview.meshCount} mesh(es), ${trailTreePreview.triangleCount.toLocaleString()} triangles at`,
+      previewPosition,
+    );
+  } catch (error) {
+    console.error('[TrailTreePreview] failed to load optimized tree', error);
+  }
+
+  // A small grove mixing the same real glTF tree as the single preview
+  // above with a few other Poly Haven hero-zone props (two sapling species,
+  // a dead trunk, a stump) — the hero-zone half of the two-tier plan in
+  // docs/THREADS-fold-in.260721.md (T8): full-detail real geometry close to
+  // the player, scattered instead of a single placeholder. Deliberately NOT
+  // a replacement for ThinInstanceTrees' forest-wide scatter (see
+  // HeroTreeInstances.ts for why these assets' tri counts only work at a
+  // small, near-field count). One shared annulus for every species, so they
+  // interleave naturally instead of forming separate rings — centered
+  // around the existing single-preview spot rather than on it, so it
+  // doesn't overlap that tree/its marker.
+  const HERO_ZONE_MIN_RADIUS = 10;
+  const HERO_ZONE_MAX_RADIUS = 28;
+  const heroZonePositions = (count: number): Vector3[] => {
+    const positions: Vector3[] = [];
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+      const radius = HERO_ZONE_MIN_RADIUS + Math.random() * (HERO_ZONE_MAX_RADIUS - HERO_ZONE_MIN_RADIUS);
+      const realX = previewRealX + Math.cos(angle) * radius;
+      const realZ = previewRealZ + Math.sin(angle) * radius;
+      const x = realX * scaleTuning.hScale.value;
+      const z = realZ * scaleTuning.hScale.value;
+      positions.push(new Vector3(x, terrain.getHeightAt(x, z), z));
+    }
+    return positions;
+  };
+
+  // Counts are lower for the understory/deadfall props than the tree
+  // canopy — a real forest floor has far fewer stumps and dead trunks
+  // underfoot than it has live trees overhead.
+  const HERO_ASSETS = [
+    { label: 'tree_small_02', url: `${import.meta.env.BASE_URL}models/tree-small-02/tree_small_02_preview.glb`, count: 100 },
+    { label: 'pine_sapling_medium', url: `${import.meta.env.BASE_URL}models/pine-sapling-medium/pine_sapling_medium_preview.glb`, count: 8 },
+    { label: 'fir_sapling_medium', url: `${import.meta.env.BASE_URL}models/fir-sapling-medium/fir_sapling_medium_preview.glb`, count: 8 },
+    { label: 'dead_tree_trunk_02', url: `${import.meta.env.BASE_URL}models/dead-tree-trunk-02/dead_tree_trunk_02_preview.glb`, count: 6 },
+    { label: 'tree_stump_01', url: `${import.meta.env.BASE_URL}models/tree-stump-01/tree_stump_01_preview.glb`, count: 8 },
+  ] as const;
+
+  const heroClusters: Array<{ count: number; handle: HeroTreeInstancesHandle }> = [];
+  await Promise.all(HERO_ASSETS.map(async ({ label, url, count }) => {
+    try {
+      const handle = await loadHeroTreeInstances(
+        scene,
+        url,
+        heroZonePositions(count),
+        scaleTuning.hScale.value * treeScale.hScale.value,
+        scaleTuning.hScale.value * treeScale.vScale.value,
+        sun.getShadowGenerator(),
+      );
+      heroClusters.push({ count, handle });
+      console.info(
+        `[HeroTreeInstances] loaded ${count} thin-instanced ${label}(s), ${handle.triangleCount.toLocaleString()} tris each near spawn`,
+      );
+    } catch (error) {
+      console.error(`[HeroTreeInstances] failed to load ${label} cluster`, error);
+    }
+  }));
+
+  const repositionHeroClusters = () => {
+    for (const { count, handle } of heroClusters) {
+      handle.setPlacements(
+        heroZonePositions(count),
+        scaleTuning.hScale.value * treeScale.hScale.value,
+        scaleTuning.hScale.value * treeScale.vScale.value,
+      );
+    }
+  };
+
   // Forest fire game mechanic — press F (or the HUD button) to ignite the
   // nearest tree; fire spreads through neighboring trees over time. Reuses
   // the same treePointsInRegion() the forest was scattered from (not the
   // full candidate pool), so it can't ignite trees outside what's actually
   // rendered — rebuilt (dispose + reconstruct) whenever the tree region
   // radius changes, same as rebuildTrees.
-  let forestFire = new ForestFire(scene, treePointsInRegion(), { horizontalScale: scaleTuning.hScale.value, verticalExaggeration: scaleTuning.vExag.value });
+  let forestFire = new ForestFire(scene, treePointsInRegion(), {
+    horizontalScale: scaleTuning.hScale.value,
+    verticalExaggeration: scaleTuning.vExag.value,
+  });
   const rebuildForestFire = () => {
     forestFire.dispose();
-    forestFire = new ForestFire(scene, treePointsInRegion(), { horizontalScale: scaleTuning.hScale.value, verticalExaggeration: scaleTuning.vExag.value });
+    forestFire = new ForestFire(scene, treePointsInRegion(), {
+      horizontalScale: scaleTuning.hScale.value,
+      verticalExaggeration: scaleTuning.vExag.value,
+    });
   };
   const igniteAtActiveController = () => {
     const pos = controllers[movement.activeMode.value].getPosition();
@@ -1061,10 +1290,16 @@ async function main() {
       highElevationColor: Color3.FromHexString(atmosphere.terrainHighColor.value),
     });
     trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
-      namePrefix: 'osmTrail', yLift: OSM_TRAIL_Y_LIFT, horizontalScale: scaleTuning.hScale.value, colorFor: blazeColorFromTags,
+      namePrefix: 'osmTrail',
+      yLift: OSM_TRAIL_Y_LIFT,
+      horizontalScale: scaleTuning.hScale.value,
+      colorFor: blazeColorFromTags,
     });
     gpxMeshes = buildPolylineMeshes(scene, gpxTrack, terrain, origin, {
-      namePrefix: 'gpxTrack', yLift: GPX_TRACK_Y_LIFT, horizontalScale: scaleTuning.hScale.value, colorFor: () => GPX_TRACK_COLOR,
+      namePrefix: 'gpxTrack',
+      yLift: GPX_TRACK_Y_LIFT,
+      horizontalScale: scaleTuning.hScale.value,
+      colorFor: () => GPX_TRACK_COLOR,
     });
     gridMeshes = buildGridMeshes(scene, gridLines, terrain, origin, scaleTuning.hScale.value);
     terrain.setVisible(visibility.terrain.value);
@@ -1075,6 +1310,8 @@ async function main() {
     drive.setTerrain(terrain);
     water.setScale(scaleTuning.hScale.value, scaleTuning.vExag.value, scaleTuning.waterLevel.value);
     water.addToRenderList(terrain.getMesh());
+    trailTreePreview?.setPlacement(treePreviewGroundPosition(), scaleTuning.hScale.value);
+    repositionHeroClusters();
 
     rebuildClouds();
 
@@ -1106,10 +1343,13 @@ async function main() {
 
   render(
     <>
-      <Section title="Movement">
+      <Section title='Movement'>
         <MovementRow
           signals={movement}
-          onModeChange={(mode) => { switchMode(mode); persistSettings(); }}
+          onModeChange={(mode) => {
+            switchMode(mode);
+            persistSettings();
+          }}
           onCameraHeightInput={(value) => {
             player.setHeightOffset(value);
             drive.setHeightOffset(value);
@@ -1118,7 +1358,7 @@ async function main() {
           onResetFire={() => forestFire.reset()}
         />
       </Section>
-      <Section title="Navigation & Views">
+      <Section title='Navigation & Views'>
         <ViewToolsRow
           buildSnapshot={() => {
             const activeCamera = controllers[movement.activeMode.value].camera;
@@ -1126,22 +1366,39 @@ async function main() {
             return {
               level: levelKey,
               activeMode: movement.activeMode.value,
-              x: pos.x, y: pos.y, z: pos.z,
-              rotationX: activeCamera.rotation.x, rotationY: activeCamera.rotation.y,
-              hScale: scaleTuning.hScale.value, vExag: scaleTuning.vExag.value, waterLevel: scaleTuning.waterLevel.value,
+              x: pos.x,
+              y: pos.y,
+              z: pos.z,
+              rotationX: activeCamera.rotation.x,
+              rotationY: activeCamera.rotation.y,
+              hScale: scaleTuning.hScale.value,
+              vExag: scaleTuning.vExag.value,
+              waterLevel: scaleTuning.waterLevel.value,
               cameraHeightOffset: movement.cameraHeightOffset.value,
-              timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
-              overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
-              cloudColor: atmosphere.cloudColor.value, cloudOpacity: atmosphere.cloudOpacity.value,
-              waterColor: atmosphere.waterColor.value, starColor: atmosphere.starColor.value,
-              skyDayColor: atmosphere.skyDayColor.value, skyNightColor: atmosphere.skyNightColor.value,
-              terrainLowColor: atmosphere.terrainLowColor.value, terrainHighColor: atmosphere.terrainHighColor.value,
+              timeOfDay: atmosphere.timeOfDay.value,
+              fogDensity: atmosphere.fogDensity.value,
+              fogColor: atmosphere.fogColor.value,
+              overcast: atmosphere.overcast.value,
+              starCount: atmosphere.starCount.value,
+              cloudCount: atmosphere.cloudCount.value,
+              cloudColor: atmosphere.cloudColor.value,
+              cloudOpacity: atmosphere.cloudOpacity.value,
+              waterColor: atmosphere.waterColor.value,
+              starColor: atmosphere.starColor.value,
+              skyDayColor: atmosphere.skyDayColor.value,
+              skyNightColor: atmosphere.skyNightColor.value,
+              terrainLowColor: atmosphere.terrainLowColor.value,
+              terrainHighColor: atmosphere.terrainHighColor.value,
               sunTint: atmosphere.sunTint.value,
-              treeCount: treeCount.value, treeRegionRadius: treeRegionRadius.value,
-              treeHScale: treeScale.hScale.value, treeVScale: treeScale.vScale.value,
+              treeCount: treeCount.value,
+              treeRegionRadius: treeRegionRadius.value,
+              treeHScale: treeScale.hScale.value,
+              treeVScale: treeScale.vScale.value,
               weatherMode: weatherMode.value,
-              masterMuted: audio.masterMuted.value, windVolume: audio.windVolume.value,
-              footstepMuted: audio.footstepMuted.value, breathMuted: audio.breathMuted.value,
+              masterMuted: audio.masterMuted.value,
+              windVolume: audio.windVolume.value,
+              footstepMuted: audio.footstepMuted.value,
+              breathMuted: audio.breathMuted.value,
             };
           }}
           levelKey={levelKey}
@@ -1198,24 +1455,42 @@ async function main() {
     const activeCamera = controllers[movement.activeMode.value].camera;
     const pos = controllers[movement.activeMode.value].getPosition();
     saveSettings(levelKey, {
-      x: pos.x, y: pos.y, z: pos.z,
-      rotationX: activeCamera.rotation.x, rotationY: activeCamera.rotation.y,
+      x: pos.x,
+      y: pos.y,
+      z: pos.z,
+      rotationX: activeCamera.rotation.x,
+      rotationY: activeCamera.rotation.y,
       activeMode: movement.activeMode.value,
-      hScale: scaleTuning.hScale.value, vExag: scaleTuning.vExag.value, waterLevel: scaleTuning.waterLevel.value,
+      hScale: scaleTuning.hScale.value,
+      vExag: scaleTuning.vExag.value,
+      waterLevel: scaleTuning.waterLevel.value,
       cameraHeightOffset: movement.cameraHeightOffset.value,
-      timeOfDay: atmosphere.timeOfDay.value, fogDensity: atmosphere.fogDensity.value, fogColor: atmosphere.fogColor.value,
-      overcast: atmosphere.overcast.value, starCount: atmosphere.starCount.value, cloudCount: atmosphere.cloudCount.value,
-      cloudColor: atmosphere.cloudColor.value, cloudOpacity: atmosphere.cloudOpacity.value,
-      waterColor: atmosphere.waterColor.value, starColor: atmosphere.starColor.value,
-      skyDayColor: atmosphere.skyDayColor.value, skyNightColor: atmosphere.skyNightColor.value,
-      terrainLowColor: atmosphere.terrainLowColor.value, terrainHighColor: atmosphere.terrainHighColor.value,
+      timeOfDay: atmosphere.timeOfDay.value,
+      fogDensity: atmosphere.fogDensity.value,
+      fogColor: atmosphere.fogColor.value,
+      overcast: atmosphere.overcast.value,
+      starCount: atmosphere.starCount.value,
+      cloudCount: atmosphere.cloudCount.value,
+      cloudColor: atmosphere.cloudColor.value,
+      cloudOpacity: atmosphere.cloudOpacity.value,
+      waterColor: atmosphere.waterColor.value,
+      starColor: atmosphere.starColor.value,
+      skyDayColor: atmosphere.skyDayColor.value,
+      skyNightColor: atmosphere.skyNightColor.value,
+      terrainLowColor: atmosphere.terrainLowColor.value,
+      terrainHighColor: atmosphere.terrainHighColor.value,
       sunTint: atmosphere.sunTint.value,
-      treeCount: treeCount.value, treeRegionRadius: treeRegionRadius.value,
-      treeHScale: treeScale.hScale.value, treeVScale: treeScale.vScale.value,
+      treeCount: treeCount.value,
+      treeRegionRadius: treeRegionRadius.value,
+      treeHScale: treeScale.hScale.value,
+      treeVScale: treeScale.vScale.value,
       weatherMode: weatherMode.value,
-      hudVisible, worldBounded: worldBounded.value,
-      masterMuted: audio.masterMuted.value, windVolume: audio.windVolume.value,
-      footstepMuted: audio.footstepMuted.value, breathMuted: audio.breathMuted.value,
+      hudVisible,
+      worldBounded: worldBounded.value,
+      masterMuted: audio.masterMuted.value,
+      windVolume: audio.windVolume.value,
+      footstepMuted: audio.footstepMuted.value,
+      breathMuted: audio.breathMuted.value,
     });
   };
   window.addEventListener('beforeunload', persistSettings);
@@ -1247,15 +1522,18 @@ async function main() {
 
     const pos = controllers[movement.activeMode.value].getPosition();
     const groundY = terrain.getHeightAt(pos.x, pos.z);
-    const controlsHint = movement.activeMode.value === 'fly'
-      ? 'click canvas to look around, WASD to fly, space/ctrl up/down, shift to boost'
-      : movement.activeMode.value === 'drive'
-      ? 'click canvas to look around, WASD to drive, shift to boost'
-      : 'click canvas to look around, WASD to move, shift to run';
+    const controlsHint =
+      movement.activeMode.value === 'fly'
+        ? 'click canvas to look around, WASD to fly, space/ctrl up/down, shift to boost'
+        : movement.activeMode.value === 'drive'
+          ? 'click canvas to look around, WASD to drive, shift to boost'
+          : 'click canvas to look around, WASD to move, shift to run';
     readout.textContent =
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
+      `${treePreviewStatus}\n` +
       `fires burning: ${forestFire.activeFireCount} (F to ignite nearest tree)\n` +
+      `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
     scene.render();
 

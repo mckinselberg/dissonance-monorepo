@@ -1,0 +1,30 @@
+Pine Sapling Medium
+===================
+
+Source: https://polyhaven.com/a/pine_sapling_medium
+Author: Rico Cilliers (Modeling), Rob Tuytel (Photography)
+License: CC0 1.0 Universal
+License details: https://polyhaven.com/license
+
+Runtime derivative
+------------------
+
+Only a 4K glTF was available for this asset (no 1K variant), so its six 4K
+JPEG textures were downscaled to 1024x1024 with ffmpeg first (gltfpack's
+node.js build can't do texture processing itself — that needs -tc/-tu/-tw,
+none of which the node.js build supports), then simplified with gltfpack 1.2:
+
+  gltfpack -i pine_sapling_medium_4k.gltf -o pine_sapling_medium_preview.glb -si 0.009 -sp -kn -km
+
+Reduces the model from 6,038,139 to 62,147 triangles (three separate
+bark/twig/dead-branches meshes) and packages it as one GLB for the browser
+preview. Needed a much lower -si ratio than tree_small_02's 0.025 since the
+source model is roughly 3x heavier to begin with. This derivative is also
+available under CC0.
+
+Meshopt runtime compression is intentionally disabled for this preview so the
+Babylon client does not need to fetch a decoder from an external CDN.
+
+Uses meshoptimizer/gltfpack. Copyright (c) 2016-2026 Arseny Kapoulkine.
+meshoptimizer is distributed under the MIT License:
+https://github.com/zeux/meshoptimizer
