@@ -74,6 +74,11 @@ export class DriveController {
 
     window.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
     window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
+    // See PlayerController's setupInput comment: a key held when focus
+    // leaves the window never gets its matching keyup, so it reads as
+    // permanently held until explicitly cleared here.
+    window.addEventListener('blur', () => { this.keys = {}; });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.keys = {}; });
 
     canvas.addEventListener('click', () => canvas.requestPointerLock());
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());

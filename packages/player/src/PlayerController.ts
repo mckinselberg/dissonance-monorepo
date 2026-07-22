@@ -184,6 +184,15 @@ export class PlayerController {
 
     window.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
     window.addEventListener('keyup',   (e) => { this.keys[e.code] = false; });
+    // A key held down when focus leaves the window (alt-tab, click into
+    // another app) never gets its matching keyup — the browser only
+    // delivers that to whichever window has focus at release time. Left
+    // unhandled, that key reads as permanently held, and once a second key
+    // is pressed after refocusing, opposite-direction keys (e.g. stuck W +
+    // real S) cancel out and movement looks dead. Clearing all key state on
+    // blur/hide is the standard fix.
+    window.addEventListener('blur', () => { this.keys = {}; });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.keys = {}; });
 
     canvas.addEventListener('click', () => canvas.requestPointerLock());
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
