@@ -25,8 +25,20 @@ export function MovementRow({
         value={signals.activeMode.value}
         onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
           const mode = e.currentTarget.value as ActiveMode;
-          signals.activeMode.value = mode;
+          // Don't set signals.activeMode here — onModeChange (switchMode in
+          // main.tsx) does the real controller handoff (position, ground-
+          // snap, rotation, scene.activeCamera) and sets the signal itself
+          // at the end. Setting it first made switchMode's own "already
+          // this mode" guard see no change and bail before any of that ran
+          // — the dropdown and readout would relabel, but the camera never
+          // actually switched and the old controller kept rendering.
           onModeChange(mode);
+          // Left focused, a <select> intercepts subsequent letter keys as
+          // type-ahead search — pressing W or D to move (matching "Walk"/
+          // "Drive") silently jumps the dropdown and re-fires onChange,
+          // swapping the active controller out from under the player. Blur
+          // it so WASD reaches the window-level movement listeners instead.
+          e.currentTarget.blur();
         }}
       >
         <option value="walk">Walk</option>
