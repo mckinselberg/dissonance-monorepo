@@ -50,6 +50,7 @@ import { createAtmosphereSignals } from './state/atmosphere';
 import { createMovementSignals, type ActiveMode } from './state/movement';
 import { createScaleTuningSignals } from './state/scaleTuning';
 import { createTreeScaleSignals } from './state/treeScale';
+import { createTrailsideScatterSignals } from './state/trailsideScatter';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
@@ -197,6 +198,9 @@ export type SavedSettings = {
   treeRegionRadius?: number;
   treeHScale?: number;
   treeVScale?: number;
+  trailsideHScale?: number;
+  trailsideVScale?: number;
+  trailsideCount?: number;
   waterColor?: string;
   starColor?: string;
   skyDayColor?: string;
@@ -320,6 +324,19 @@ function buildPolylineMeshes(
 
 function setMeshesEnabled(meshes: Mesh[], enabled: boolean): void {
   meshes.forEach((m) => m.setEnabled(enabled));
+}
+
+// Coalesces rapid-fire calls (e.g. every 'input' tick while dragging a
+// slider) into one trailing call after activity stops — used for the
+// trailside scatter's H/V-scale + count sliders, which commit live on
+// 'input' (so dragging previews) rather than waiting for 'change' (mouse
+// release), but shouldn't rebuild the scatter on every single tick.
+function debounce<Args extends unknown[]>(fn: (...args: Args) => void, delayMs: number): (...args: Args) => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (...args: Args) => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delayMs);
+  };
 }
 
 // Same drape path as buildPolylineMeshes (project -> scale -> getHeightAt +
@@ -617,6 +634,18 @@ async function main() {
     hScale: savedSettings.treeHScale ?? 1,
     vScale: savedSettings.treeVScale ?? 1,
   });
+  // Same shape as treeScale, but for the trailside hero-asset scatter
+  // further down (rebuildTrailsideScatter) — kept as its own signal group
+  // rather than reusing treeScale since it governs a visually separate
+  // cluster (spread along the GPX trail, not the near-spawn grove) that the
+  // user should be able to size/densify independently. Default count of 30
+  // is intentionally conservative — see rebuildTrailsideScatter's own
+  // comment on why a full-trail scatter's triangle budget needs care.
+  const trailsideScale = createTrailsideScatterSignals({
+    hScale: savedSettings.trailsideHScale ?? 1,
+    vScale: savedSettings.trailsideVScale ?? 1,
+    count: savedSettings.trailsideCount ?? 30,
+  });
   let trees = new ThinInstanceTrees(scene, { shadowGenerator: sun.getShadowGenerator() });
   trees.scatter(
     treePointsInRegion().slice(0, treeCount.value),
@@ -816,6 +845,38 @@ async function main() {
         commitOn='change'
         onCommit={() => rebuildTrees()}
       />
+      <SliderRow
+        label='Trailside H-scale'
+        signal={trailsideScale.hScale}
+        min={0.25}
+        max={3}
+        step={0.25}
+        suffix='x'
+        format={(v) => v.toFixed(2)}
+        commitOn='input'
+        onCommit={() => rebuildTrailsideScatterDebounced()}
+      />
+      <SliderRow
+        label='Trailside V-scale'
+        signal={trailsideScale.vScale}
+        min={0.25}
+        max={3}
+        step={0.25}
+        suffix='x'
+        format={(v) => v.toFixed(2)}
+        commitOn='input'
+        onCommit={() => rebuildTrailsideScatterDebounced()}
+      />
+      <SliderRow
+        label='Trailside count'
+        signal={trailsideScale.count}
+        min={0}
+        max={300}
+        step={10}
+        format={(v) => v.toFixed(0)}
+        commitOn='input'
+        onCommit={() => rebuildTrailsideScatterDebounced()}
+      />
       {levelKey === '1' && (
         <ScaleTuningRow
           signals={scaleTuning}
@@ -980,6 +1041,9 @@ async function main() {
             treeRegionRadius: treeRegionRadius.value,
             treeHScale: treeScale.hScale.value,
             treeVScale: treeScale.vScale.value,
+            trailsideHScale: trailsideScale.hScale.value,
+            trailsideVScale: trailsideScale.vScale.value,
+            trailsideCount: trailsideScale.count.value,
             weatherMode: weatherMode.value,
             masterMuted: audio.masterMuted.value,
             windVolume: audio.windVolume.value,
@@ -1184,6 +1248,96 @@ async function main() {
     }
   };
 
+  // Same 5 species as the near-spawn grove above, spread along both sides
+  // of the recorded GPX track (the red line) instead of clustered in one
+  // spot — reuses HERO_ASSETS' per-species counts as MIX WEIGHTS (not
+  // absolute counts) so the trailside cluster keeps the same species
+  // proportions, scaled by the user-facing "Trailside count" slider
+  // instead of a fixed total.
+  //
+  // Segments are computed once, in real (unscaled) meters, same convention
+  // as buildPolylineMeshes — trailTotalLength stays fixed even as hScale
+  // changes, only the final render-space conversion below depends on it.
+  // Full-trail scatter was a deliberate choice over bounding to near-spawn:
+  // it means total triangle cost scales with the count slider alone, which
+  // is exactly the "watch the FPS readout and find the real ceiling"
+  // pattern this app already uses for tree count / region radius — see
+  // MAX_TREE_COUNT's own comment. Default count (30, see trailsideScale's
+  // creation above) starts well below the near-spawn grove's ~150 total.
+  const trailSegments: Array<{ ax: number; az: number; bx: number; bz: number; length: number; start: number }> = [];
+  let trailTotalLength = 0;
+  for (const polyline of gpxTrack) {
+    const realPoints = polyline.points.map((p) => latLonToWorld(p, origin));
+    for (let i = 0; i < realPoints.length - 1; i++) {
+      const a = realPoints[i];
+      const b = realPoints[i + 1];
+      const length = Math.hypot(b.x - a.x, b.z - a.z);
+      if (length <= 0) continue;
+      trailSegments.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z, length, start: trailTotalLength });
+      trailTotalLength += length;
+    }
+  }
+
+  const TRAILSIDE_MIN_OFFSET = 3;
+  const TRAILSIDE_MAX_OFFSET = 14;
+  const trailsidePositions = (count: number): Vector3[] => {
+    const positions: Vector3[] = [];
+    if (trailTotalLength <= 0) return positions;
+    for (let i = 0; i < count; i++) {
+      const d = Math.random() * trailTotalLength;
+      const seg = trailSegments.find((s) => d >= s.start && d < s.start + s.length) ?? trailSegments[trailSegments.length - 1];
+      const t = (d - seg.start) / seg.length;
+      const px = seg.ax + (seg.bx - seg.ax) * t;
+      const pz = seg.az + (seg.bz - seg.az) * t;
+      // Unit tangent along the segment, rotated 90 degrees in the XZ plane
+      // to get the side-to-side offset direction ("both sides" of the trail).
+      const dirX = (seg.bx - seg.ax) / seg.length;
+      const dirZ = (seg.bz - seg.az) / seg.length;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const offset = (TRAILSIDE_MIN_OFFSET + Math.random() * (TRAILSIDE_MAX_OFFSET - TRAILSIDE_MIN_OFFSET)) * side;
+      const realX = px - dirZ * offset;
+      const realZ = pz + dirX * offset;
+      const x = realX * scaleTuning.hScale.value;
+      const z = realZ * scaleTuning.hScale.value;
+      positions.push(new Vector3(x, terrain.getHeightAt(x, z), z));
+    }
+    return positions;
+  };
+
+  const HERO_WEIGHT_TOTAL = HERO_ASSETS.reduce((sum, asset) => sum + asset.count, 0);
+  const trailsideSpeciesCount = (weight: number) => Math.round(trailsideScale.count.value * (weight / HERO_WEIGHT_TOTAL));
+
+  const trailsideClusters: Array<{ weight: number; handle: HeroTreeInstancesHandle }> = [];
+  await Promise.all(HERO_ASSETS.map(async ({ label, url, count: weight }) => {
+    try {
+      const handle = await loadHeroTreeInstances(
+        scene,
+        url,
+        trailsidePositions(trailsideSpeciesCount(weight)),
+        scaleTuning.hScale.value * trailsideScale.hScale.value,
+        scaleTuning.hScale.value * trailsideScale.vScale.value,
+        sun.getShadowGenerator(),
+      );
+      trailsideClusters.push({ weight, handle });
+      console.info(
+        `[TrailsideScatter] loaded ${trailsideSpeciesCount(weight)} thin-instanced ${label}(s) along the trail`,
+      );
+    } catch (error) {
+      console.error(`[TrailsideScatter] failed to load ${label} along the trail`, error);
+    }
+  }));
+
+  const rebuildTrailsideScatter = () => {
+    for (const { weight, handle } of trailsideClusters) {
+      handle.setPlacements(
+        trailsidePositions(trailsideSpeciesCount(weight)),
+        scaleTuning.hScale.value * trailsideScale.hScale.value,
+        scaleTuning.hScale.value * trailsideScale.vScale.value,
+      );
+    }
+  };
+  const rebuildTrailsideScatterDebounced = debounce(rebuildTrailsideScatter, 200);
+
   // Forest fire game mechanic — press F (or the HUD button) to ignite the
   // nearest tree; fire spreads through neighboring trees over time. Reuses
   // the same treePointsInRegion() the forest was scattered from (not the
@@ -1312,6 +1466,7 @@ async function main() {
     water.addToRenderList(terrain.getMesh());
     trailTreePreview?.setPlacement(treePreviewGroundPosition(), scaleTuning.hScale.value);
     repositionHeroClusters();
+    rebuildTrailsideScatter();
 
     rebuildClouds();
 
@@ -1394,6 +1549,9 @@ async function main() {
               treeRegionRadius: treeRegionRadius.value,
               treeHScale: treeScale.hScale.value,
               treeVScale: treeScale.vScale.value,
+              trailsideHScale: trailsideScale.hScale.value,
+              trailsideVScale: trailsideScale.vScale.value,
+              trailsideCount: trailsideScale.count.value,
               weatherMode: weatherMode.value,
               masterMuted: audio.masterMuted.value,
               windVolume: audio.windVolume.value,
@@ -1484,6 +1642,9 @@ async function main() {
       treeRegionRadius: treeRegionRadius.value,
       treeHScale: treeScale.hScale.value,
       treeVScale: treeScale.vScale.value,
+      trailsideHScale: trailsideScale.hScale.value,
+      trailsideVScale: trailsideScale.vScale.value,
+      trailsideCount: trailsideScale.count.value,
       weatherMode: weatherMode.value,
       hudVisible,
       worldBounded: worldBounded.value,
