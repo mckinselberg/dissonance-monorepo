@@ -20,7 +20,7 @@ export default defineConfig(({ command }) => ({
       '@dissonance/utils': path.resolve(__dirname, '../../packages/utils/src'),
     },
     // pnpm creates separate symlinks per workspace package; force single instance
-    dedupe: ['@babylonjs/core'],
+    dedupe: ['@babylonjs/core', '@babylonjs/loaders'],
   },
   server: {
     port: 5175,
@@ -30,9 +30,9 @@ export default defineConfig(({ command }) => ({
     },
   },
   optimizeDeps: {
-    // @babylonjs/core and @babylonjs/materials (WaterMaterial) are both native
+    // Babylon core, glTF loaders, and WaterMaterial are all native
     // ESM ("type":"module") — excluding prevents the re-optimization loop
     // caused by Vite discovering them via multiple pnpm symlink paths
-    exclude: ['@babylonjs/core', '@babylonjs/materials'],
+    exclude: ['@babylonjs/core', '@babylonjs/loaders', '@babylonjs/materials'],
   },
 }));
