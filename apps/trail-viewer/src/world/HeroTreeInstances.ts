@@ -1,11 +1,13 @@
 import {
   LoadAssetContainerAsync,
+  Material,
   Matrix,
   Mesh,
   Quaternion,
   Vector3,
 } from '@babylonjs/core';
 import type { Scene, ShadowGenerator } from '@babylonjs/core';
+import { FoliageSwayPlugin, type FoliageSwaySource } from '@dissonance/world';
 import { ensureGltfLoader } from './gltfLoader';
 
 export interface HeroTreeInstancesHandle {
@@ -47,6 +49,7 @@ export async function loadHeroTreeInstances(
   horizontalScale: number,
   verticalScale: number,
   shadowGenerator?: ShadowGenerator,
+  wind?: FoliageSwaySource,
 ): Promise<HeroTreeInstancesHandle> {
   await ensureGltfLoader();
 
@@ -59,6 +62,20 @@ export async function loadHeroTreeInstances(
       (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0,
     );
     if (renderMeshes.length === 0) throw new Error(`hero asset GLB has no renderable meshes: ${url}`);
+
+    // The live-tree GLBs name their foliage card materials "leaves", "twig",
+    // or "twigs". Bark, branches, dead wood, trunks, and stumps stay rigid.
+    if (wind) {
+      const foliageMaterials = new Set<Material>();
+      for (const mesh of renderMeshes) {
+        for (const material of mesh.subMeshes
+          .map((subMesh) => subMesh.getMaterial())
+          .filter((material): material is Material => material instanceof Material)) {
+          if (/(?:leaves|twigs?)/i.test(material.name)) foliageMaterials.add(material);
+        }
+      }
+      foliageMaterials.forEach((material) => new FoliageSwayPlugin(material, wind));
+    }
 
     let minimumY = Number.POSITIVE_INFINITY;
     let triangleCount = 0;

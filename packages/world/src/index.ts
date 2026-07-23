@@ -10,6 +10,8 @@ export type { SunOptions } from './Sun';
 export { Sun, sunHeightForHour } from './Sun';
 export type { ThinInstanceTreesOptions, TreePoint } from './ThinInstanceTrees';
 export { ThinInstanceTrees } from './ThinInstanceTrees';
+export { FoliageSwayPlugin } from './FoliageSwayPlugin';
+export type { FoliageSwaySource } from './FoliageSwayPlugin';
 export type { ForestFireOptions } from './ForestFire';
 export { ForestFire } from './ForestFire';
 export type { StarFieldOptions } from './StarField';

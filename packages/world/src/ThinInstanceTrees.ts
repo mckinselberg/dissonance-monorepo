@@ -1,4 +1,5 @@
 import { Scene, MeshBuilder, PBRMaterial, Color3, Mesh, Matrix, Quaternion, Vector3, ShadowGenerator } from '@babylonjs/core';
+import { FoliageSwayPlugin, type FoliageSwaySource } from './FoliageSwayPlugin';
 
 export type ThinInstanceTreesOptions = {
   templateCount?: number;
@@ -8,6 +9,7 @@ export type ThinInstanceTreesOptions = {
   // Opt-in — same ForestGenerator convention (packages/world's DTA forest):
   // registered per-template after each scatter()'s thinInstanceAdd.
   shadowGenerator?: ShadowGenerator;
+  wind?: FoliageSwaySource;
 };
 
 // A real-world (x, z) position plus its real (unscaled) ground elevation —
@@ -66,12 +68,14 @@ function clampedTreeScale(horizontalScale: number, verticalExaggeration: number,
 export class ThinInstanceTrees {
   private templates: Mesh[] = [];
   private readonly shadowGenerator: ShadowGenerator | undefined;
+  private readonly wind: FoliageSwaySource | undefined;
 
   constructor(scene: Scene, options: ThinInstanceTreesOptions = {}) {
     const templateCount = options.templateCount ?? DEFAULTS.templateCount;
     const heightMin = options.heightMin ?? DEFAULTS.heightMin;
     const heightMax = options.heightMax ?? DEFAULTS.heightMax;
     this.shadowGenerator = options.shadowGenerator;
+    this.wind = options.wind;
 
     for (let i = 0; i < templateCount; i++) {
       this.templates.push(this.buildTemplate(scene, i, heightMin, heightMax));
@@ -122,6 +126,7 @@ export class ThinInstanceTrees {
       : new Color3(0.10, green, 0.08);
     canopyMat.metallic = 0;
     canopyMat.roughness = 0.85;
+    if (this.wind) new FoliageSwayPlugin(canopyMat, this.wind);
 
     let canopy: Mesh;
     let canopyYFactor: number;

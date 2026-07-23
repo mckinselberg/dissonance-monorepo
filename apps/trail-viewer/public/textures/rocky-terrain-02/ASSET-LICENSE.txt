@@ -24,4 +24,16 @@ nor_gl and rough colorspace was set to Non-Color before saving (no sRGB
 curve applied) — verified by sampling raw pixel values before/after
 conversion; disp/spec were already non-color 16-bit source data.
 
+diff was further color-normalized (2026-07-23) against forest-ground-04
+and marble-cliff-03's diff maps — the three come from different Poly Haven
+photo shoots (luminance ranged 0.29-0.51 across them, rocky_terrain_02
+itself skewed strongly olive/yellow with a suppressed blue channel) and
+looked visibly inconsistent once blended into one TerrainMaterial. Each
+diff map's mean/std (per RGB channel) was blended 65% toward the
+three-way average via a NumPy/Pillow script (Reinhard-style statistical
+color transfer) — moves each texture's overall tone/contrast toward a
+shared middle ground while leaving per-pixel detail untouched. Only diff
+went through this — normal/roughness/displacement maps are directional or
+data, not color, and would be corrupted by a tone transform.
+
 This derivative is also available under CC0.

@@ -22,6 +22,10 @@ as a bare/dead tree rather than the intended species, so 7,660 was chosen
 as the lowest ratio that still visibly reads as leafy. This derivative is
 also available under CC0.
 
+Trunk+branch diffuse (bark/wood) color-normalized the same way and at the
+same time as ../tree-small-02/ — see that folder's ASSET-LICENSE.txt for
+the full pipeline description; both share the same source textures.
+
 Meshopt runtime compression is intentionally disabled for this preview so
 the Babylon client does not need to fetch a decoder from an external CDN.
 

@@ -79,9 +79,20 @@ export interface GameControls {
 // ~235 units away — at jog speed ~35-40s in open air, ~3-4 min through the forest
 // Mountains are decorative geometry, not real colliders — this caps how far
 // the player can wander so they can't walk straight through them. Kept a
-// margin inside MountainRing's RING_RADIUS (340) so the boundary is never
+// margin inside MountainRing's default radius (340) so the boundary is never
 // visible/felt before the mountain's own base is already in view.
 const WORLD_BOUNDARY_RADIUS = 320;
+
+// MountainRing takes an explicit color rather than an ExperienceProfile (the
+// package no longer knows about DTA's profile shape — trail-viewer needs the
+// same ring with a real-world scale and no ExperienceProfile at all), so the
+// per-mode palette that used to live inside MountainRing itself lives here.
+const MOUNTAIN_NEAR_COLOR: Record<ExperienceProfile['mode'], Color3> = {
+  ps3: new Color3(0.060, 0.066, 0.095),
+  ps2: new Color3(0.045, 0.050, 0.075),
+  ps1: new Color3(0.07, 0.08, 0.14),
+  radio: new Color3(0.028, 0.022, 0.040),
+};
 
 // Distance at which the river ambience fades to silent — wide enough that
 // it's audible well before the water is in sightline, so it can act as a
@@ -198,7 +209,7 @@ export class Game {
       flavor: this.trail.worldFlavor,
     });
     this.clouds = new CloudSystem(scene, this.expProfile);
-    this.mountains = new MountainRing(scene, this.expProfile);
+    this.mountains = new MountainRing(scene, { nearColor: MOUNTAIN_NEAR_COLOR[this.expProfile.mode] });
 
     // DaylightSystem must exist before the forest is generated — its
     // ShadowGenerator (off the sun/moonlight) needs to be handed to

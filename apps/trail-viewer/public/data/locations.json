@@ -1,0 +1,52 @@
+[
+  {
+    "name": "mountain crater",
+    "latLong": [40.755397, -74.274582],
+    "props": ["rocks"]
+  },
+  {
+    "name": "dissonance boulevard",
+    "latLong": [40.728908, -74.275161],
+    "props": ["rocks", "trees"]
+  },
+  {
+    "name": "old picnic grounds",
+    "latLong": [40.735, -74.305],
+    "props": ["picnic-table", "trash-barrel", "post-grill"]
+  },
+  {
+    "name": "stone stairway",
+    "latLong": [40.748, -74.295],
+    "props": ["stone-steps"]
+  },
+  {
+    "name": "root ball hollow",
+    "latLong": [40.725, -74.285],
+    "props": ["root-ball"]
+  },
+  {
+    "name": "giant snag ridge",
+    "latLong": [40.755, -74.31],
+    "props": ["giant-snag"]
+  },
+  {
+    "name": "mossy creek bend",
+    "latLong": [40.73, -74.265],
+    "props": ["mossy-log", "rocks"]
+  },
+  {
+    "name": "dead fountain circle",
+    "latLong": [40.742, -74.318],
+    "props": ["dead-fountain"]
+  },
+  {
+    "name": "abandoned shed",
+    "latLong": [40.72, -74.3],
+    "props": ["shed-shell"]
+  },
+  {
+    "name": "boulder field",
+    "latLong": [40.75, -74.27],
+    "props": ["rocks"]
+  }
+]

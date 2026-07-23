@@ -19,6 +19,14 @@ none of which the node.js build supports), then simplified with gltfpack 1.2:
 Reduces the model from 41,046 to 12,312 triangles and packages it as one GLB
 for the browser preview. This derivative is also available under CC0.
 
+Diffuse was further color-normalized (2026-07-23) against the other tree
+species' bark/wood textures — see tree-small-02's ASSET-LICENSE.txt for
+the full pipeline description. Note this particular diffuse map is itself
+a multi-region UV atlas (moss/bark/wood/leaf-litter patches for the whole
+stump prop, not a single material scan) but fully opaque with no
+transparency, so the statistical transform applies safely — nothing to
+corrupt the way an alpha-cutout atlas would have.
+
 Meshopt runtime compression is intentionally disabled for this preview so the
 Babylon client does not need to fetch a decoder from an external CDN.
 

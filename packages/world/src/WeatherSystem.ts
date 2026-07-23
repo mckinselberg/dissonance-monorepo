@@ -7,6 +7,7 @@ export class WeatherSystem {
   private targetWindIntensity = 0.0;
   private gustTimer = 0;
   private windOverride: number | null = null;
+  private windTime = 0;
 
   constructor(_scene: Scene) {
     // Scene reference kept for potential future particle systems
@@ -15,6 +16,8 @@ export class WeatherSystem {
   setWindOverride(v: number | null): void { this.windOverride = v; }
 
   update(dt: number, onWindChange: (v: number) => void): void {
+    this.windTime += Math.max(0, dt);
+
     if (this.windOverride !== null) {
       this.windIntensity = this.windOverride;
       onWindChange(this.windIntensity);
@@ -50,5 +53,13 @@ export class WeatherSystem {
 
   getMaskLevel(): number {
     return this.windIntensity;
+  }
+
+  getWindIntensity(): number {
+    return this.windIntensity;
+  }
+
+  getWindTime(): number {
+    return this.windTime;
   }
 }

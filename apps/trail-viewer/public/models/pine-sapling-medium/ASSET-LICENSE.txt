@@ -22,6 +22,11 @@ preview. Needed a much lower -si ratio than tree_small_02's 0.025 since the
 source model is roughly 3x heavier to begin with. This derivative is also
 available under CC0.
 
+Bark diffuse was further color-normalized (2026-07-23) against the other
+tree species' bark/wood textures — see tree-small-02's ASSET-LICENSE.txt
+for the full pipeline description. Twig diffuse was deliberately left
+untouched (alpha-cutout card atlas, not a simple scan).
+
 Meshopt runtime compression is intentionally disabled for this preview so the
 Babylon client does not need to fetch a decoder from an external CDN.
 

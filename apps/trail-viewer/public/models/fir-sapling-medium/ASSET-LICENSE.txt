@@ -18,6 +18,11 @@ from 1,533,513 to 53,435 triangles (three separate branches/twigs/dead-
 branches meshes) and packages it as one GLB for the browser preview. This
 derivative is also available under CC0.
 
+Branches diffuse was further color-normalized (2026-07-23) against the
+other tree species' bark/wood textures — see tree-small-02's
+ASSET-LICENSE.txt for the full pipeline description. Twigs diffuse was
+deliberately left untouched (alpha-cutout card atlas, not a simple scan).
+
 Meshopt runtime compression is intentionally disabled for this preview so the
 Babylon client does not need to fetch a decoder from an external CDN.
 

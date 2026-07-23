@@ -19,4 +19,11 @@ Only diff and nor_gl are used (this asset feeds Babylon's TerrainMaterial
 as the "steep" slope layer — a legacy material with diffuseTexture/
 bumpTexture slots only, no roughness/displacement, so disp and rough were
 not converted). nor_gl colorspace set to Non-Color before saving (no sRGB
-curve applied). This derivative is also available under CC0.
+curve applied).
+
+diff was further color-normalized (2026-07-23) — see rocky-terrain-02's
+ASSET-LICENSE.txt for the full pipeline description (Reinhard-style
+statistical color transfer, 65% blend toward the 3-texture average,
+diff-only).
+
+This derivative is also available under CC0.
