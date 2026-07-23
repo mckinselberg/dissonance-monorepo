@@ -51,6 +51,7 @@ import { createMovementSignals, type ActiveMode } from './state/movement';
 import { createScaleTuningSignals } from './state/scaleTuning';
 import { createTreeScaleSignals } from './state/treeScale';
 import { createTrailsideScatterSignals } from './state/trailsideScatter';
+import { createBulkForestScatterSignals } from './state/bulkForestScatter';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
@@ -70,6 +71,25 @@ const OSM_TRAIL_Y_LIFT = 0.5;
 // top of them instead of z-fighting where the two coincide.
 const GPX_TRACK_Y_LIFT = 0.7;
 const GPX_TRACK_COLOR = new Color3(1.0, 0.1, 0.1);
+
+// Three-tier slope-blended ground material (see HeightmapTerrain's
+// slopeTextures option) — flat/mid/steep, blended by DEM-derived slope,
+// not external land-cover data (this dataset has none).
+const TERRAIN_TEXTURES_BASE = `${import.meta.env.BASE_URL}textures/`;
+const TERRAIN_SLOPE_TEXTURES = {
+  flat: {
+    diffuseUrl: `${TERRAIN_TEXTURES_BASE}forest-ground-04/forest_ground_04_diff_512.jpg`,
+    normalUrl: `${TERRAIN_TEXTURES_BASE}forest-ground-04/forest_ground_04_nor_gl_512.png`,
+  },
+  mid: {
+    diffuseUrl: `${TERRAIN_TEXTURES_BASE}rocky-terrain-02/rocky_terrain_02_diff_512.jpg`,
+    normalUrl: `${TERRAIN_TEXTURES_BASE}rocky-terrain-02/rocky_terrain_02_nor_gl_512.png`,
+  },
+  steep: {
+    diffuseUrl: `${TERRAIN_TEXTURES_BASE}marble-cliff-03/marble_cliff_03_diff_512.jpg`,
+    normalUrl: `${TERRAIN_TEXTURES_BASE}marble-cliff-03/marble_cliff_03_nor_gl_512.png`,
+  },
+};
 
 // Highest of the three drape lifts — the grid is a measurement layer that
 // should read as sitting "above" both trail layers, not fighting either for
@@ -201,6 +221,9 @@ export type SavedSettings = {
   trailsideHScale?: number;
   trailsideVScale?: number;
   trailsideCount?: number;
+  bulkForestHScale?: number;
+  bulkForestVScale?: number;
+  bulkForestCount?: number;
   waterColor?: string;
   starColor?: string;
   skyDayColor?: string;
@@ -522,6 +545,7 @@ async function main() {
     horizontalScale: scaleTuning.hScale.value,
     lowElevationColor: Color3.FromHexString(atmosphere.terrainLowColor.value),
     highElevationColor: Color3.FromHexString(atmosphere.terrainHighColor.value),
+    slopeTextures: TERRAIN_SLOPE_TEXTURES,
   });
 
   // Stand-in water: the DEM has no tagged lake/river geometry to trace (see
@@ -644,11 +668,62 @@ async function main() {
   const trailsideScale = createTrailsideScatterSignals({
     hScale: savedSettings.trailsideHScale ?? 1,
     vScale: savedSettings.trailsideVScale ?? 1,
-    count: savedSettings.trailsideCount ?? 30,
+    count: savedSettings.trailsideCount ?? 60,
   });
+  // Bulk/non-trail-adjacent forest — real (decimated) trees carved out of
+  // ThinInstanceTrees' own candidate pool, so the bulk of the forest reads
+  // as the same species as the hero/trailside real trees instead of a
+  // visibly different (procedural cone/sphere) art style. Own signal group,
+  // same reasoning as trailsideScale: this governs a third visually
+  // distinct cluster the user should be able to size independently.
+  const bulkForestScale = createBulkForestScatterSignals({
+    hScale: savedSettings.bulkForestHScale ?? 1,
+    vScale: savedSettings.bulkForestVScale ?? 1,
+    count: savedSettings.bulkForestCount ?? 200,
+  });
+  // Both slices come from the SAME treePointsInRegion() list — points
+  // [0, bulkCount) go real, [bulkCount, treeCount) stay procedural — so
+  // region radius / treeCount / this slider can all change independently
+  // without ever double-placing or skipping a candidate point. Clamped so
+  // the real slice can never exceed the procedural slider's own total.
+  const bulkForestCount = () => Math.min(bulkForestScale.count.value, treeCount.value);
+  // Real (unscaled) treePoints -> render space, same conversion
+  // ThinInstanceTrees.scatter uses internally (X/Z by hScale, Y by vExag,
+  // groundY already sampled once at candidate-generation time).
+  const bulkForestPositions = (count: number): Vector3[] => treePointsInRegion().slice(0, count).map((p) => {
+    const x = p.x * scaleTuning.hScale.value;
+    const z = p.z * scaleTuning.hScale.value;
+    return new Vector3(x, p.groundY * scaleTuning.vExag.value, z);
+  });
+
+  const BULK_FOREST_URL = `${import.meta.env.BASE_URL}models/tree-small-02-scatter/tree_small_02_scatter_preview.glb`;
+  let bulkForest: HeroTreeInstancesHandle | null = null;
+  try {
+    bulkForest = await loadHeroTreeInstances(
+      scene,
+      BULK_FOREST_URL,
+      bulkForestPositions(bulkForestCount()),
+      scaleTuning.hScale.value * bulkForestScale.hScale.value,
+      scaleTuning.hScale.value * bulkForestScale.vScale.value,
+      sun.getShadowGenerator(),
+    );
+    console.info(
+      `[BulkForest] loaded ${bulkForestCount()} thin-instanced tree_small_02_scatter(s), ${bulkForest.triangleCount.toLocaleString()} tris each`,
+    );
+  } catch (error) {
+    console.error('[BulkForest] failed to load bulk forest tree', error);
+  }
+  const repositionBulkForest = () => {
+    bulkForest?.setPlacements(
+      bulkForestPositions(bulkForestCount()),
+      scaleTuning.hScale.value * bulkForestScale.hScale.value,
+      scaleTuning.hScale.value * bulkForestScale.vScale.value,
+    );
+  };
+
   let trees = new ThinInstanceTrees(scene, { shadowGenerator: sun.getShadowGenerator() });
   trees.scatter(
-    treePointsInRegion().slice(0, treeCount.value),
+    treePointsInRegion().slice(bulkForestCount(), treeCount.value),
     scaleTuning.hScale.value,
     scaleTuning.vExag.value,
     treeScale.hScale.value,
@@ -658,13 +733,14 @@ async function main() {
     trees.dispose();
     trees = new ThinInstanceTrees(scene, { shadowGenerator: sun.getShadowGenerator() });
     trees.scatter(
-      treePointsInRegion().slice(0, treeCount.value),
+      treePointsInRegion().slice(bulkForestCount(), treeCount.value),
       scaleTuning.hScale.value,
       scaleTuning.vExag.value,
       treeScale.hScale.value,
       treeScale.vScale.value,
     );
     trees.setVisible(visibility.trees.value);
+    repositionBulkForest();
     // repositionHeroClusters is declared further down (after spawn/terrain
     // setup) but this closure is only ever invoked later, via slider
     // onCommit — by then it exists. Tree H/V-scale sliders only call
@@ -672,6 +748,10 @@ async function main() {
     // that needs to keep the hero-zone clusters in sync with them.
     repositionHeroClusters();
   };
+  // Bulk forest H/V-scale/count sliders commit live (like Trailside's) —
+  // debounced so dragging doesn't fire a full ThinInstanceTrees
+  // dispose/recreate on every tick.
+  const rebuildTreesDebounced = debounce(rebuildTrees, 200);
   // Fires only on region-radius commits — treeCount/hScale/vExag changes
   // don't shrink/grow the underlying candidate pool, only how much of it is
   // used, so they don't need to touch maxTreeCount or forestFire's points.
@@ -871,11 +951,43 @@ async function main() {
         label='Trailside count'
         signal={trailsideScale.count}
         min={0}
-        max={300}
+        max={600}
         step={10}
         format={(v) => v.toFixed(0)}
         commitOn='input'
         onCommit={() => rebuildTrailsideScatterDebounced()}
+      />
+      <SliderRow
+        label='Bulk forest H-scale'
+        signal={bulkForestScale.hScale}
+        min={0.25}
+        max={3}
+        step={0.25}
+        suffix='x'
+        format={(v) => v.toFixed(2)}
+        commitOn='input'
+        onCommit={() => rebuildTreesDebounced()}
+      />
+      <SliderRow
+        label='Bulk forest V-scale'
+        signal={bulkForestScale.vScale}
+        min={0.25}
+        max={3}
+        step={0.25}
+        suffix='x'
+        format={(v) => v.toFixed(2)}
+        commitOn='input'
+        onCommit={() => rebuildTreesDebounced()}
+      />
+      <SliderRow
+        label='Bulk forest count'
+        signal={bulkForestScale.count}
+        min={0}
+        max={maxTreeCount.value}
+        step={50}
+        format={(v) => v.toFixed(0)}
+        commitOn='input'
+        onCommit={() => rebuildTreesDebounced()}
       />
       {levelKey === '1' && (
         <ScaleTuningRow
@@ -1044,6 +1156,9 @@ async function main() {
             trailsideHScale: trailsideScale.hScale.value,
             trailsideVScale: trailsideScale.vScale.value,
             trailsideCount: trailsideScale.count.value,
+            bulkForestHScale: bulkForestScale.hScale.value,
+            bulkForestVScale: bulkForestScale.vScale.value,
+            bulkForestCount: bulkForestScale.count.value,
             weatherMode: weatherMode.value,
             masterMuted: audio.masterMuted.value,
             windVolume: audio.windVolume.value,
@@ -1249,11 +1364,11 @@ async function main() {
   };
 
   // Same 5 species as the near-spawn grove above, spread along both sides
-  // of the recorded GPX track (the red line) instead of clustered in one
-  // spot — reuses HERO_ASSETS' per-species counts as MIX WEIGHTS (not
-  // absolute counts) so the trailside cluster keeps the same species
-  // proportions, scaled by the user-facing "Trailside count" slider
-  // instead of a fixed total.
+  // of the recorded GPX track (the red line) AND the yellow-blazed OSM
+  // trails, instead of clustered in one spot — reuses HERO_ASSETS'
+  // per-species counts as MIX WEIGHTS (not absolute counts) so the
+  // trailside cluster keeps the same species proportions, scaled by the
+  // user-facing "Trailside count" slider instead of a fixed total.
   //
   // Segments are computed once, in real (unscaled) meters, same convention
   // as buildPolylineMeshes — trailTotalLength stays fixed even as hScale
@@ -1262,21 +1377,37 @@ async function main() {
   // it means total triangle cost scales with the count slider alone, which
   // is exactly the "watch the FPS readout and find the real ceiling"
   // pattern this app already uses for tree count / region radius — see
-  // MAX_TREE_COUNT's own comment. Default count (30, see trailsideScale's
+  // MAX_TREE_COUNT's own comment. Default count (60, see trailsideScale's
   // creation above) starts well below the near-spawn grove's ~150 total.
-  const trailSegments: Array<{ ax: number; az: number; bx: number; bz: number; length: number; start: number }> = [];
+  type TrailSegment = { ax: number; az: number; bx: number; bz: number; length: number; start: number };
+  const trailSegments: TrailSegment[] = [];
   let trailTotalLength = 0;
-  for (const polyline of gpxTrack) {
-    const realPoints = polyline.points.map((p) => latLonToWorld(p, origin));
-    for (let i = 0; i < realPoints.length - 1; i++) {
-      const a = realPoints[i];
-      const b = realPoints[i + 1];
-      const length = Math.hypot(b.x - a.x, b.z - a.z);
-      if (length <= 0) continue;
-      trailSegments.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z, length, start: trailTotalLength });
-      trailTotalLength += length;
+  const addTrailCorridor = (polylines: GeoPolyline[]) => {
+    for (const polyline of polylines) {
+      const realPoints = polyline.points.map((p) => latLonToWorld(p, origin));
+      for (let i = 0; i < realPoints.length - 1; i++) {
+        const a = realPoints[i];
+        const b = realPoints[i + 1];
+        const length = Math.hypot(b.x - a.x, b.z - a.z);
+        if (length <= 0) continue;
+        trailSegments.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z, length, start: trailTotalLength });
+        trailTotalLength += length;
+      }
     }
-  }
+  };
+  addTrailCorridor(gpxTrack);
+  // smr-trails.geojson carries no osmc:symbol tag at all (blazeColorFromTags
+  // falls back to NEUTRAL_TRAIL_COLOR for all 473 features, every OSM trail
+  // currently renders the same neutral tan regardless of real blaze color)
+  // — but several way segments DO encode it in the name text instead, e.g.
+  // "Lenape Trail (Yellow)", "Lenape Yellow Blaze", "Yellow/Red Blaze".
+  // Matching on osmc:symbol too costs nothing and covers datasets that do
+  // have it.
+  addTrailCorridor(trails.filter((polyline) => {
+    const primary = polyline.tags?.['osmc:symbol']?.split(':')[0]?.toLowerCase();
+    if (primary === 'yellow') return true;
+    return !!polyline.tags?.name?.toLowerCase().includes('yellow');
+  }));
 
   const TRAILSIDE_MIN_OFFSET = 3;
   const TRAILSIDE_MAX_OFFSET = 14;
@@ -1442,6 +1573,7 @@ async function main() {
       horizontalScale: scaleTuning.hScale.value,
       lowElevationColor: Color3.FromHexString(atmosphere.terrainLowColor.value),
       highElevationColor: Color3.FromHexString(atmosphere.terrainHighColor.value),
+      slopeTextures: TERRAIN_SLOPE_TEXTURES,
     });
     trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
       namePrefix: 'osmTrail',
@@ -1552,6 +1684,9 @@ async function main() {
               trailsideHScale: trailsideScale.hScale.value,
               trailsideVScale: trailsideScale.vScale.value,
               trailsideCount: trailsideScale.count.value,
+              bulkForestHScale: bulkForestScale.hScale.value,
+              bulkForestVScale: bulkForestScale.vScale.value,
+              bulkForestCount: bulkForestScale.count.value,
               weatherMode: weatherMode.value,
               masterMuted: audio.masterMuted.value,
               windVolume: audio.windVolume.value,
@@ -1645,6 +1780,9 @@ async function main() {
       trailsideHScale: trailsideScale.hScale.value,
       trailsideVScale: trailsideScale.vScale.value,
       trailsideCount: trailsideScale.count.value,
+      bulkForestHScale: bulkForestScale.hScale.value,
+      bulkForestVScale: bulkForestScale.vScale.value,
+      bulkForestCount: bulkForestScale.count.value,
       weatherMode: weatherMode.value,
       hudVisible,
       worldBounded: worldBounded.value,

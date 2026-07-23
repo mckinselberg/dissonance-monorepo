@@ -1,0 +1,27 @@
+Rocky Terrain 02
+================
+
+Source: https://polyhaven.com/a/rocky_terrain_02
+Author: Amal Kumar
+License: CC0 1.0 Universal
+License details: https://polyhaven.com/license
+
+Runtime derivative
+-------------------
+
+Downscaled from the source 1K maps to 512x512 (diff/disp/nor_gl/rough/spec)
+via Blender 5.2 (--background --python), not ffmpeg — ffmpeg's EXR decoder
+doesn't implement single-channel "Gray DWA" compression, which the rough
+map uses; it silently decoded to all-zero pixels instead of erroring, only
+caught by sanity-checking pixel values before trusting the output. Blender
+has full native OpenEXR support and was used for both EXR maps (nor_gl,
+rough) plus the two 16-bit PNG maps (disp, spec) for a consistent pipeline;
+diff was kept in JPEG (via ffmpeg) rather than PNG since it's a photographic
+albedo map with no need for lossless precision, and JPEG is far smaller for
+that kind of content (Blender's own image export only writes PNG).
+
+nor_gl and rough colorspace was set to Non-Color before saving (no sRGB
+curve applied) — verified by sampling raw pixel values before/after
+conversion; disp/spec were already non-color 16-bit source data.
+
+This derivative is also available under CC0.

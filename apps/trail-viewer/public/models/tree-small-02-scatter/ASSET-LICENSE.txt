@@ -1,0 +1,30 @@
+Tree Small 02 (scatter tier)
+============================
+
+Source: https://polyhaven.com/a/tree_small_02
+Author: Rico Cilliers
+License: CC0 1.0 Universal
+License details: https://polyhaven.com/license
+
+Runtime derivative
+------------------
+
+Same source as ../tree-small-02/ (see that folder's ASSET-LICENSE.txt), but
+simplified much further for bulk/non-trail-adjacent forest use instead of
+the near-field hero zone:
+
+  gltfpack -i tree_small_02_1k.gltf -o tree_small_02_scatter_preview.glb -si 0.002 -sp -kn -km
+
+Reduces the model from 2,062,487 to 7,660 triangles. Tested down to the
+gltfpack floor for this asset (~4,737 triangles, si 0.0005 and below all
+converge there) — that floor loses too much leaf-card geometry and reads
+as a bare/dead tree rather than the intended species, so 7,660 was chosen
+as the lowest ratio that still visibly reads as leafy. This derivative is
+also available under CC0.
+
+Meshopt runtime compression is intentionally disabled for this preview so
+the Babylon client does not need to fetch a decoder from an external CDN.
+
+Uses meshoptimizer/gltfpack. Copyright (c) 2016-2026 Arseny Kapoulkine.
+meshoptimizer is distributed under the MIT License:
+https://github.com/zeux/meshoptimizer
