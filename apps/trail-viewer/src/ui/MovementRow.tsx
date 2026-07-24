@@ -7,8 +7,6 @@ export type MovementRowProps = {
   signals: MovementSignals;
   onModeChange: (mode: ActiveMode) => void;
   onCameraHeightInput: (value: number) => void;
-  onIgniteFire: () => void;
-  onResetFire: () => void;
 };
 
 // Player-mode only (levels 1/2) — orbit (level 3) has no equivalent of any
@@ -16,7 +14,7 @@ export type MovementRowProps = {
 // shared "Toggles" section (main.tsx) — it's a toggle, not a movement
 // control per se, same reasoning as Overcast leaving AtmosphereRow.
 export function MovementRow({
-  signals, onModeChange, onCameraHeightInput, onIgniteFire, onResetFire,
+  signals, onModeChange, onCameraHeightInput,
 }: MovementRowProps) {
   return (
     <div style={{ marginTop: '4px' }}>
@@ -57,10 +55,6 @@ export function MovementRow({
         />{' '}
         <span>{signals.cameraHeightOffset.value.toFixed(1)}</span>m
       </label>
-      <div style={{ marginTop: '4px' }}>
-        <button type="button" style={{ font: 'inherit', cursor: 'pointer' }} onClick={onIgniteFire}>🔥 Ignite fire (F)</button>{' '}
-        <button type="button" style={{ font: 'inherit', cursor: 'pointer' }} onClick={onResetFire}>Reset fire</button>
-      </div>
     </div>
   );
 }

@@ -1,11 +1,4 @@
-import {
-  LoadAssetContainerAsync,
-  Material,
-  Matrix,
-  Mesh,
-  Quaternion,
-  Vector3,
-} from '@babylonjs/core';
+import { LoadAssetContainerAsync, Material, Matrix, Mesh, Quaternion, Vector3 } from '@babylonjs/core';
 import type { Scene, ShadowGenerator } from '@babylonjs/core';
 import { FoliageSwayPlugin, type FoliageSwaySource } from '@dissonance/world';
 import { ensureGltfLoader } from './gltfLoader';

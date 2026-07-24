@@ -1,0 +1,31 @@
+This is the standard FREE version of the Downtown City MegaKit, which only contains 
+a portion of the models . You can buy the SOURCE version which has all the models and also includes Unity(URP), Unreal Engine and Godot projects
+with collisions and custom shaders for fake interior windows, wear and more already set up.
+
+You can get the other versions from the website https://quaternius.com
+
+-------------------------------------------------------
+License:
+CC0 1.0 Universal (CC0 1.0) 
+Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+------------------------------------------------------
+Models by @Quaternius
+Consider supporting me on Patreon!
+
+https://www.patreon.com/quaternius
+
+-------------------------------------------------------
+Join the Discord Server:
+https://discord.gg/vJqnRUYRfT
+
+-------------------------------------------------------
+Selection notes (this repo): initial import copied 7 modules (3 buildings,
+street-2lane, sidewalk-straight, bollard, planter) for the first Dissonance
+Boulevard block. Extended 2026-07-24 with 6 more modules from the same CC0
+"Standard" (free) package — glTF (Godot) export, `Downtown City MegaKit
+[Standard]` — for the intersection/decal polish pass: Decal_Crosswalk(_Wide),
+Street_TIntersection, Sidewalk_Corner_Flat_3m, Prop_ManholeCover, Prop_Drain.
+Every module still shares this same license file and T_Street_Decals.png/
+texture set; only the .gltf/.bin subset copied into this repo has grown.

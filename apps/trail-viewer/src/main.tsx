@@ -672,19 +672,11 @@ async function main() {
     }
   };
   const treePoints: TreePoint[] = [];
-  const bulkTreePoints: TreePoint[] = [];
   for (let i = 0; i < TREE_CANDIDATE_COUNT; i++) {
     const x = (Math.random() - 0.5) * realWidth;
     const z = (Math.random() - 0.5) * realDepth;
     const groundY = sampler.sampleHeight({ x, z });
     treePoints.push({ x, z, groundY });
-    const bulkX = (Math.random() - 0.5) * realWidth;
-    const bulkZ = (Math.random() - 0.5) * realDepth;
-    bulkTreePoints.push({
-      x: bulkX,
-      z: bulkZ,
-      groundY: sampler.sampleHeight({ x: bulkX, z: bulkZ }),
-    });
   }
   // Consolidates the scattered forest toward the map's center instead of
   // covering the whole bbox corner-to-corner — a real forest reads as a
@@ -770,20 +762,37 @@ async function main() {
   // without ever double-placing or skipping a candidate point. Clamped so
   // the real slice can never exceed the procedural slider's own total.
   const bulkForestRadius = signal(savedSettings.bulkForestRadius ?? defaultTreeRegionRadius);
-  const bulkForestCandidates = () => bulkTreePoints.filter(
-    (point) => Math.hypot(point.x, point.z) <= bulkForestRadius.value
-      && isForestEligible(point),
-  );
+  const bulkForestPlacedCount = signal(0);
+  const createBulkEligibleCandidatePositions = (count: number, radius: number): TreePoint[] => {
+    if (count <= 0 || radius <= 0) return [];
+    let state = (Math.round(radius * 10) ^ 0x9e3779b9) >>> 0;
+    const random = () => {
+      state += 0x6d2b79f5;
+      let value = state;
+      value = Math.imul(value ^ (value >>> 15), value | 1);
+      value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    };
+    const positions: TreePoint[] = [];
+    const maxAttempts = Math.max(1_000, count * 16);
+    for (let attempt = 0; attempt < maxAttempts && positions.length < count; attempt++) {
+      const angle = random() * Math.PI * 2;
+      const distance = Math.sqrt(random()) * radius;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      const point = { x, z, groundY: sampler.sampleHeight({ x, z }) };
+      if (isForestEligible(point)) positions.push(point);
+    }
+    return positions;
+  };
   const bulkForestPoints = () =>
-    bulkForestCandidates().slice(0, bulkForestScale.count.value);
-  const bulkForestCount = () => bulkForestPoints().length;
+    createBulkEligibleCandidatePositions(bulkForestScale.count.value, bulkForestRadius.value);
   const proceduralTreePoints = () => treePointsInRegion().slice(0, treeCount.value);
   // Real (unscaled) treePoints -> render space, same conversion
   // ThinInstanceTrees.scatter uses internally (X/Z by hScale, Y by vExag,
   // groundY already sampled once at candidate-generation time).
-  const bulkForestPositions = (count: number): Vector3[] =>
+  const bulkForestPositions = (): Vector3[] =>
     bulkForestPoints()
-      .slice(0, count)
       .map((p) => {
         const x = p.x * scaleTuning.hScale.value;
         const z = p.z * scaleTuning.hScale.value;
@@ -793,24 +802,33 @@ async function main() {
   const BULK_FOREST_URL = `${import.meta.env.BASE_URL}models/tree-small-02-scatter/tree_small_02_scatter_preview.glb`;
   let bulkForest: HeroTreeInstancesHandle | null = null;
   try {
+    const positions = bulkForestPositions();
     bulkForest = await loadHeroTreeInstances(
       scene,
       BULK_FOREST_URL,
-      bulkForestPositions(bulkForestCount()),
+      positions,
       scaleTuning.hScale.value * bulkForestScale.hScale.value,
       scaleTuning.hScale.value * bulkForestScale.vScale.value,
       sun.getShadowGenerator(),
       weatherSystem,
     );
+    bulkForestPlacedCount.value = positions.length;
     console.info(
-      `[BulkForest] loaded ${bulkForestCount()} thin-instanced tree_small_02_scatter(s), ${bulkForest.triangleCount.toLocaleString()} tris each`,
+      `[BulkForest] loaded ${positions.length} thin-instanced tree_small_02_scatter(s), ${bulkForest.triangleCount.toLocaleString()} tris each`,
     );
   } catch (error) {
+    bulkForestPlacedCount.value = 0;
     console.error('[BulkForest] failed to load bulk forest tree', error);
   }
   const repositionBulkForest = () => {
-    bulkForest?.setPlacements(
-      bulkForestPositions(bulkForestCount()),
+    const positions = bulkForestPositions();
+    if (!bulkForest) {
+      bulkForestPlacedCount.value = 0;
+      return;
+    }
+    bulkForestPlacedCount.value = positions.length;
+    bulkForest.setPlacements(
+      positions,
       scaleTuning.hScale.value * bulkForestScale.hScale.value,
       scaleTuning.hScale.value * bulkForestScale.vScale.value,
     );
@@ -1179,7 +1197,7 @@ async function main() {
         // max=0 and physically prevented this recovery control from moving.
         max={MAX_TREE_COUNT}
         step={50}
-        format={(v) => v.toFixed(0)}
+        format={(v) => `${v.toFixed(0)} requested / ${bulkForestPlacedCount.value.toFixed(0)} placed`}
         commitOn='input'
         onCommit={(value) => {
           if (value > 0 && bulkForestRadius.value === 0) {
@@ -1707,6 +1725,7 @@ async function main() {
     locations,
     locationToRenderXZ,
     scaleTuning.hScale.value,
+    scaleTuning.vExag.value,
     (x, z) => terrain.getHeightAt(x, z),
     sun.getShadowGenerator(),
   );
@@ -1725,6 +1744,7 @@ async function main() {
       locations,
       locationToRenderXZ,
       scaleTuning.hScale.value,
+      scaleTuning.vExag.value,
       (x, z) => terrain.getHeightAt(x, z),
       sun.getShadowGenerator(),
     )
@@ -1910,8 +1930,6 @@ async function main() {
             player.setHeightOffset(value);
             drive.setHeightOffset(value);
           }}
-          onIgniteFire={igniteAtActiveController}
-          onResetFire={() => forestFire.reset()}
         />
       </Section>
       <Section title='Navigation & Views'>
@@ -2100,6 +2118,8 @@ async function main() {
 
     const pos = controllers[movement.activeMode.value].getPosition();
     const groundY = terrain.getHeightAt(pos.x, pos.z);
+    const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
+    const latLon = worldToLatLon(real, origin);
     const controlsHint =
       movement.activeMode.value === 'fly'
         ? 'click canvas to look around, WASD to fly, space/ctrl up/down, shift to boost'
@@ -2108,8 +2128,8 @@ async function main() {
           : 'click canvas to look around, WASD to move, shift to run';
     readout.textContent =
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
+      `lat/lon: ${latLon.lat.toFixed(6)}, ${latLon.lon.toFixed(6)}\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
-      `fires burning: ${forestFire.activeFireCount} (F to ignite nearest tree)\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
     scene.render();

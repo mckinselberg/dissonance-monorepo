@@ -6,7 +6,6 @@ import {
   Texture,
   DynamicTexture,
   VertexBuffer,
-  VertexData,
   Mesh,
 } from '@babylonjs/core';
 import { TerrainMaterial } from '@babylonjs/materials';
@@ -71,9 +70,10 @@ const DEFAULT_GRID_RESOLUTION = 128;
 const LOW_ELEVATION_COLOR = new Color3(0.14, 0.11, 0.07);
 const HIGH_ELEVATION_COLOR = new Color3(0.55, 0.55, 0.52);
 const DEFAULT_MAX_SLOPE_FOR_STEEP = 0.5;
-// Finite-difference sample spacing for slope estimation — a few DEM pixels'
-// worth keeps it representative of local terrain shape rather than
-// per-pixel noise, without smoothing out real ridgelines/cliffs.
+// Finite-difference sample spacing for slope estimation and per-vertex
+// normals alike — a few DEM pixels' worth keeps it representative of local
+// terrain shape rather than per-pixel noise, without smoothing out real
+// ridgelines/cliffs.
 const SLOPE_SAMPLE_OFFSET_METERS = 8;
 // Independent of gridResolution — this is a texture (sampled per-fragment
 // by the GPU, smoothly interpolated), not mesh geometry, so it doesn't need
@@ -82,6 +82,38 @@ const MIX_TEXTURE_RESOLUTION = 256;
 
 function clamp01(t: number): number {
   return Math.max(0, Math.min(1, t));
+}
+
+// Babylon's CreateGround (verified against groundBuilder.js) splits every
+// quad along the *same* diagonal — corner(col,row) to corner(col+1,row+1)
+// — for the entire grid. On undulating real terrain that reads as a
+// consistent directional "grain" once lit (worse the more
+// verticalExaggeration amplifies the height difference across each quad):
+// exactly the "striated" look. Checkerboarding the split direction breaks
+// that single grain up without changing the vertex or triangle count.
+// Quads at (row+col) odd get the anti-diagonal instead — derived from the
+// main-diagonal formula reflected across the quad's vertical midline (so
+// the corner roles swap) and re-reversed to keep the same winding/normal
+// direction as the untouched quads; confirmed correct in-browser rather
+// than by hand alone, since a winding slip here would show as dark,
+// inverted-normal triangles in a checkerboard pattern.
+function alternatingGroundIndices(subdivisions: number): number[] {
+  const rowLength = subdivisions + 1;
+  const indices: number[] = [];
+  for (let row = 0; row < subdivisions; row++) {
+    for (let col = 0; col < subdivisions; col++) {
+      const a = col + row * rowLength;
+      const b = (col + 1) + row * rowLength;
+      const c = col + (row + 1) * rowLength;
+      const d = (col + 1) + (row + 1) * rowLength;
+      if ((row + col) % 2 === 0) {
+        indices.push(d, b, a, c, d, a);
+      } else {
+        indices.push(b, a, c, b, c, d);
+      }
+    }
+  }
+  return indices;
 }
 
 // Fraction of each of the three slope layers at a given steepness ratio
@@ -168,6 +200,7 @@ export class HeightmapTerrain implements ITerrain {
       subdivisions: gridResolution,
       updatable: true,
     }, scene);
+    ground.setIndices(alternatingGroundIndices(gridResolution));
     ground.position.x = centerX * this.horizontalScale;
     ground.position.z = centerZ * this.horizontalScale;
 
@@ -177,7 +210,19 @@ export class HeightmapTerrain implements ITerrain {
     // so the two are mutually exclusive: colors stay empty in texture mode.
     const usingTexture = !!textureOptions.slopeTextures;
     const colors: number[] = [];
+    // Sampled straight from the DEM's own continuous (bilinear) gradient
+    // rather than derived from this mesh's discrete triangle facets
+    // (the old `VertexData.ComputeNormals` path) — shading reads as smooth
+    // terrain even where the geometry itself is coarse relative to camera
+    // distance, instead of every facet's flat normal showing through as a
+    // "shrink-wrapped skin" over a low-poly frame.
+    const normals: number[] = [];
     const elevationRange = elevation.max - elevation.min;
+    // Rendered-space slope = real slope * (verticalExaggeration for the
+    // rise) / (horizontalScale for the run) — Y and X/Z aren't scaled by
+    // the same factor (see this class's own options doc above), so the
+    // gradient needs the same conversion positions[] gets a few lines down.
+    const renderedSlopeFactor = this.verticalExaggeration / this.horizontalScale;
 
     for (let i = 0; i < positions.length; i += 3) {
       // Real (unscaled) world position — sample the DEM here, before
@@ -190,6 +235,13 @@ export class HeightmapTerrain implements ITerrain {
       positions[i + 1] = rawElevation * this.verticalExaggeration;
       positions[i + 2] *= this.horizontalScale;
 
+      const hDX = this.sampler.sampleHeight({ x: worldX + SLOPE_SAMPLE_OFFSET_METERS, z: worldZ });
+      const hDZ = this.sampler.sampleHeight({ x: worldX, z: worldZ + SLOPE_SAMPLE_OFFSET_METERS });
+      const slopeX = ((hDX - rawElevation) / SLOPE_SAMPLE_OFFSET_METERS) * renderedSlopeFactor;
+      const slopeZ = ((hDZ - rawElevation) / SLOPE_SAMPLE_OFFSET_METERS) * renderedSlopeFactor;
+      const normalLength = Math.sqrt(slopeX * slopeX + 1 + slopeZ * slopeZ);
+      normals.push(-slopeX / normalLength, 1 / normalLength, -slopeZ / normalLength);
+
       if (!usingTexture) {
         const t = elevationRange > 0 ? clamp01((rawElevation - elevation.min) / elevationRange) : 0;
         colors.push(
@@ -201,12 +253,8 @@ export class HeightmapTerrain implements ITerrain {
       }
     }
     ground.updateVerticesData(VertexBuffer.PositionKind, positions);
-    if (!usingTexture) ground.setVerticesData(VertexBuffer.ColorKind, colors);
-
-    const indices = ground.getIndices()!;
-    const normals: number[] = [];
-    VertexData.ComputeNormals(positions, indices, normals);
     ground.updateVerticesData(VertexBuffer.NormalKind, normals);
+    if (!usingTexture) ground.setVerticesData(VertexBuffer.ColorKind, colors);
 
     let mat: PBRMaterial | TerrainMaterial;
     if (textureOptions.slopeTextures) {

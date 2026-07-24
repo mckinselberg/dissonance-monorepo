@@ -109,7 +109,11 @@ function buildSimpleTree(scene: Scene): Mesh {
 // solid shade, nodding to the PoC's other named strongest visual identity
 // ("wireframe-over-mass aesthetic — the world rendered the way SignalNet
 // parses it") without trying to fake a real wireframe shader here.
-function buildStreetLamp(scene: Scene): Mesh {
+// Exported (unlike its sibling builders) so CompositeLocations.ts can place
+// it as a repeated compound-grid module alongside the city kit's glTF
+// assets — a lamp row down the sidewalk, not just the one jittered instance
+// scatterLocationProps gives every plain prop type.
+export function buildStreetLamp(scene: Scene): Mesh {
   const poleMat = pbr(scene, 'locProp_lampPoleMat', new Color3(0.05, 0.05, 0.06), 0.5, 0.7);
   const globeMat = new PBRMaterial('locProp_lampGlobeMat', scene);
   globeMat.albedoColor = new Color3(0.9, 0.7, 0.3);
