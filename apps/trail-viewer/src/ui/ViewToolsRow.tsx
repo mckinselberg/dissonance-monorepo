@@ -4,9 +4,11 @@ import type { SavedSettings } from '../main';
 
 const textareaStyle: JSX.CSSProperties = {
   width: '100%', boxSizing: 'border-box', font: '11px monospace', background: '#111', color: '#eee',
-  border: '1px solid #555', borderRadius: '3px', resize: 'vertical',
+  border: '1px solid #555', borderRadius: '3px', resize: 'vertical', marginTop: '4px',
 };
 const buttonStyle: JSX.CSSProperties = { font: 'inherit', cursor: 'pointer' };
+const groupStyle: JSX.CSSProperties = { marginTop: '8px' };
+const summaryStyle: JSX.CSSProperties = { font: 'inherit', cursor: 'pointer', color: '#9cf' };
 
 // A views.json entry — same shape Copy View produces, plus the human label
 // the JSON file adds when a snapshot is pasted in by hand.
@@ -25,10 +27,6 @@ export type ViewToolsRowProps = {
   // that's effectively just the guard, since persistSettings is never
   // registered there (see SavedSettings' own comment in main.tsx).
   onBeforeNavigate: () => void;
-  // Absent in orbit mode — no meaningful position is ever saved there (see
-  // SavedSettings' comment) — rather than render a button whose handler
-  // would reach into player-mode-only state.
-  onResetPosition?: () => void;
   // docs/views.json, imported once in main.tsx and passed to both mount
   // sites (orbit + player) — a curated, committed alternative to pasting
   // clipboard JSON by hand. Same list regardless of the level currently
@@ -37,7 +35,7 @@ export type ViewToolsRowProps = {
   savedViews: SavedView[];
 };
 
-export function ViewToolsRow({ buildSnapshot, levelKey, validLevelKeys, saveSettings, onBeforeNavigate, onResetPosition, savedViews }: ViewToolsRowProps) {
+export function ViewToolsRow({ buildSnapshot, levelKey, validLevelKeys, saveSettings, onBeforeNavigate, savedViews }: ViewToolsRowProps) {
   const [copyLabel, setCopyLabel] = useState('📋 Copy View');
   const loadViewInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -102,18 +100,17 @@ export function ViewToolsRow({ buildSnapshot, levelKey, validLevelKeys, saveSett
           </select>
         </label>
       )}
-      <div style={{ marginTop: '4px' }}>
+      <div style={groupStyle}>
         <button type="button" style={buttonStyle} onClick={handleCopy}>{copyLabel}</button>
-        <div style={{ marginTop: '4px' }}>
+        {/* Collapsed by default — raw-JSON paste is a power-user escape
+            hatch behind the dropdown/Copy View above, not something that
+            needs to occupy a permanent 3-line textarea in everyone's HUD. */}
+        <details style={{ marginTop: '4px' }}>
+          <summary style={summaryStyle}>Load view from pasted JSON</summary>
           <textarea ref={loadViewInputRef} rows={3} placeholder="paste a copied view JSON here" style={textareaStyle} />
           <button type="button" style={{ ...buttonStyle, marginTop: '2px' }} onClick={handleLoad}>Load View</button>
-        </div>
+        </details>
       </div>
-      {onResetPosition && (
-        <button type="button" style={{ marginTop: '8px', ...buttonStyle }} onClick={onResetPosition}>
-          Reset position (back to trailhead)
-        </button>
-      )}
     </>
   );
 }

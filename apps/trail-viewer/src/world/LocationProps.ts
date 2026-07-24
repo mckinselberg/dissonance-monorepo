@@ -14,6 +14,23 @@ export type LocationEntry = {
   name: string;
   latLong: [number, number];
   props?: string[];
+  compound?: {
+    // Local grid measured from latLong. Keeping the anchor geographic and
+    // the authored layout metric makes a whole block move as one location
+    // without turning every curb/building into its own lat/long landmark.
+    cellMeters: number;
+    rotationDegrees?: number;
+    placements: Array<{
+      asset: string;
+      grid: [number, number];
+      rotationDegrees?: number;
+      scale?: number;
+      repeat?: {
+        count: number;
+        step: [number, number];
+      };
+    }>;
+  };
 };
 
 export interface LocationPropsHandle {
@@ -81,6 +98,45 @@ function buildSimpleTree(scene: Scene): Mesh {
   // set above. multiMultiMaterials preserves them as a MultiMaterial instead.
   const merged = Mesh.MergeMeshes(parts, true, true, undefined, false, true) ?? parts[0];
   merged.name = 'locProp_trees';
+  return merged;
+}
+
+// "Dissonance Boulevard" placeholder — THREADS.md's T13 excavation of the
+// Godot Surveillance Boulevard PoC names globe-in-cage street lamps as its
+// single most distinctive urban-edge prop (rhymes with the catenary-wire
+// vertical rhythm), so that's the one piece worth a placeholder ahead of
+// any real boulevard-layout work. Cage is literal thin bars rather than a
+// solid shade, nodding to the PoC's other named strongest visual identity
+// ("wireframe-over-mass aesthetic — the world rendered the way SignalNet
+// parses it") without trying to fake a real wireframe shader here.
+function buildStreetLamp(scene: Scene): Mesh {
+  const poleMat = pbr(scene, 'locProp_lampPoleMat', new Color3(0.05, 0.05, 0.06), 0.5, 0.7);
+  const globeMat = new PBRMaterial('locProp_lampGlobeMat', scene);
+  globeMat.albedoColor = new Color3(0.9, 0.7, 0.3);
+  globeMat.emissiveColor = new Color3(0.9, 0.6, 0.15); // warm amber, T22's palette note: warm reserved for carry light/interactables
+  globeMat.roughness = 0.4;
+  globeMat.metallic = 0;
+
+  const parts: Mesh[] = [];
+  const pole = MeshBuilder.CreateCylinder('lampPole', { height: 4, diameter: 0.12, tessellation: 8 }, scene);
+  pole.position.y = 2;
+  parts.push(pole);
+  const cageBarCount = 6;
+  for (let i = 0; i < cageBarCount; i++) {
+    const angle = (i / cageBarCount) * Math.PI * 2;
+    const bar = MeshBuilder.CreateCylinder(`lampCageBar_${i}`, { height: 0.6, diameter: 0.025, tessellation: 4 }, scene);
+    bar.position.set(Math.cos(angle) * 0.28, 4.3, Math.sin(angle) * 0.28);
+    parts.push(bar);
+  }
+  const poleMerged = Mesh.MergeMeshes(parts, true, true, undefined, false, true) ?? parts[0];
+  poleMerged.material = poleMat;
+
+  const globe = MeshBuilder.CreateSphere('lampGlobe', { diameter: 0.5, segments: 10 }, scene);
+  globe.position.y = 4.3;
+  globe.material = globeMat;
+
+  const merged = Mesh.MergeMeshes([poleMerged, globe], true, true, undefined, false, true) ?? poleMerged;
+  merged.name = 'locProp_streetLamp';
   return merged;
 }
 
@@ -230,6 +286,7 @@ const PROP_BUILDERS: Record<string, (scene: Scene) => Mesh> = {
   'mossy-log': buildMossyLog,
   'dead-fountain': buildDeadFountain,
   'shed-shell': buildShedShell,
+  'street-lamp': buildStreetLamp,
 };
 
 // Reads locations.json-shaped entries and thin-instances a crude primitive

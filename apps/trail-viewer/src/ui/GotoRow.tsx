@@ -9,6 +9,7 @@ const buttonStyle = { font: 'inherit', marginLeft: '4px', cursor: 'pointer' };
 const readoutInputStyle = {
   ...inputStyle, width: '150px', cursor: 'text',
 };
+const groupStyle: JSX.CSSProperties = { marginTop: '8px' };
 
 export type GotoRowProps = {
   // Orbit's version recenters the orbit pivot; player's version teleports
@@ -18,15 +19,20 @@ export type GotoRowProps = {
   // to update faster than "the user just clicked the button") — orbit
   // reads the camera position, player reads the active controller's.
   getCurrentLatLon: () => { lat: number; lon: number };
+  // Absent in orbit mode — no meaningful position is ever saved there (see
+  // SavedSettings' comment in main.tsx) — rather than render a button
+  // whose handler would reach into player-mode-only state. Grouped here
+  // (moved from ViewToolsRow) since it's a position tool, not a view-
+  // snapshot one.
+  onResetPosition?: () => void;
 };
 
 // Lat/lon values for the "go to" inputs aren't persisted or bound to any
 // signal (matching today's behavior — they're read from the DOM only at
 // click-time), so plain uncontrolled inputs via refs are enough here, no
 // signal needed.
-export function GotoRow({ onGo, getCurrentLatLon }: GotoRowProps) {
-  const latRef = useRef<HTMLInputElement>(null);
-  const lonRef = useRef<HTMLInputElement>(null);
+export function GotoRow({ onGo, getCurrentLatLon, onResetPosition }: GotoRowProps) {
+  const latLonRef = useRef<HTMLInputElement>(null);
   const [currentLatLon, setCurrentLatLon] = useState('');
   const [copyLabel, setCopyLabel] = useState('📍 Copy current');
   const currentRef = useRef<HTMLInputElement>(null);
@@ -46,17 +52,18 @@ export function GotoRow({ onGo, getCurrentLatLon }: GotoRowProps) {
   };
 
   return (
-    <>
-      <div style={{ marginTop: '8px' }}>
+    <div style={groupStyle}>
+      <div>
         Go to:{' '}
-        <input ref={latRef} type="text" placeholder="lat" style={inputStyle} />{' '}
-        <input ref={lonRef} type="text" placeholder="lon" style={inputStyle} />
+        <input ref={latLonRef} type="text" placeholder="lat, lon" style={{ ...inputStyle, width: '150px' }} />
         <button
           type="button"
           style={buttonStyle}
           onClick={() => {
-            const lat = parseFloat(latRef.current?.value ?? '');
-            const lon = parseFloat(lonRef.current?.value ?? '');
+            // Same "lat, lon" format Copy current produces below, so a
+            // copied readout (or a locations.json latLong pair typed by
+            // hand) pastes straight in.
+            const [lat, lon] = (latLonRef.current?.value ?? '').split(',').map((part) => parseFloat(part.trim()));
             if (Number.isNaN(lat) || Number.isNaN(lon)) return;
             onGo(lat, lon);
           }}
@@ -78,6 +85,11 @@ export function GotoRow({ onGo, getCurrentLatLon }: GotoRowProps) {
           onClick={(e: JSX.TargetedEvent<HTMLInputElement>) => e.currentTarget.select()}
         />
       </div>
-    </>
+      {onResetPosition && (
+        <button type="button" style={{ marginTop: '8px', font: 'inherit', cursor: 'pointer' }} onClick={onResetPosition}>
+          Reset position (back to trailhead)
+        </button>
+      )}
+    </div>
   );
 }

@@ -54,6 +54,7 @@ import { createTreeScaleSignals } from './state/treeScale';
 import { createTrailsideScatterSignals } from './state/trailsideScatter';
 import { createBulkForestScatterSignals } from './state/bulkForestScatter';
 import { scatterLocationProps, type LocationEntry } from './world/LocationProps';
+import { loadCompositeLocations } from './world/CompositeLocations';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
@@ -65,7 +66,6 @@ import { ViewToolsRow, type SavedView } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
 import { Section } from './ui/Section';
 import { AudioRow } from './ui/AudioRow';
-import { loadTrailTreePreview, type TrailTreePreviewHandle } from './world/TreeAssetPreview';
 import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './world/HeroTreeInstances';
 
 const OSM_TRAIL_Y_LIFT = 0.5;
@@ -91,7 +91,7 @@ const MOUNTAIN_BASE_MARGIN_M = 50;
 // Dark blue-grey distant-silhouette tone — reuses DTA's ps3-mode color
 // (its most naturalistic profile) rather than tying to the terrain/sky
 // color pickers, which is more churn than this needs right now.
-const MOUNTAIN_NEAR_COLOR = new Color3(0.060, 0.066, 0.095);
+const MOUNTAIN_NEAR_COLOR = new Color3(0.06, 0.066, 0.095);
 
 // Three-tier slope-blended ground material (see HeightmapTerrain's
 // slopeTextures option) — flat/mid/steep, blended by DEM-derived slope,
@@ -245,6 +245,11 @@ export type SavedSettings = {
   bulkForestHScale?: number;
   bulkForestVScale?: number;
   bulkForestCount?: number;
+  bulkForestRadius?: number;
+  heroHScale?: number;
+  heroVScale?: number;
+  heroRadius?: number;
+  heroCount?: number;
   waterColor?: string;
   starColor?: string;
   skyDayColor?: string;
@@ -667,27 +672,47 @@ async function main() {
     }
   };
   const treePoints: TreePoint[] = [];
+  const bulkTreePoints: TreePoint[] = [];
   for (let i = 0; i < TREE_CANDIDATE_COUNT; i++) {
     const x = (Math.random() - 0.5) * realWidth;
     const z = (Math.random() - 0.5) * realDepth;
     const groundY = sampler.sampleHeight({ x, z });
-    if (groundY < scaleTuning.waterLevel.value + TREE_CLEARANCE_ABOVE_WATER) continue;
     treePoints.push({ x, z, groundY });
+    const bulkX = (Math.random() - 0.5) * realWidth;
+    const bulkZ = (Math.random() - 0.5) * realDepth;
+    bulkTreePoints.push({
+      x: bulkX,
+      z: bulkZ,
+      groundY: sampler.sampleHeight({ x: bulkX, z: bulkZ }),
+    });
   }
   // Consolidates the scattered forest toward the map's center instead of
   // covering the whole bbox corner-to-corner — a real forest reads as a
   // region, not a uniform carpet over the entire DEM. Filters the same
   // cached candidate pool rather than regenerating it, so tightening/
   // loosening the radius doesn't re-roll which points get chosen, same
-  // property rebuildTrees already relies on for hScale/vExag changes.
+  // property rebuildThinInstanceTrees relies on for hScale/vExag changes.
   const treeRegionRadiusMax = Math.hypot(realWidth, realDepth) / 2;
-  const treeRegionRadius = signal(savedSettings.treeRegionRadius ?? treeRegionRadiusMax * 0.4);
-  const treePointsInRegion = () => treePoints.filter((p) => Math.hypot(p.x, p.z) <= treeRegionRadius.value);
+  const defaultTreeRegionRadius = treeRegionRadiusMax * 0.4;
+  const treeRegionRadius = signal(savedSettings.treeRegionRadius ?? defaultTreeRegionRadius);
+  // WaterPlane is a freely tunable visual stand-in, not mapped hydrology.
+  // Raising it must not erase the forest candidate pool or lock the count
+  // controls. Keep vegetation's shoreline threshold stable.
+  const forestWaterline = defaultWaterLevel(contract);
+  const isForestEligible = (point: TreePoint) =>
+    point.groundY >= forestWaterline + TREE_CLEARANCE_ABOVE_WATER;
+  const treePointsInRegion = () =>
+    treePoints.filter(
+      (p) => Math.hypot(p.x, p.z) <= treeRegionRadius.value
+        && isForestEligible(p),
+    );
 
   const maxTreeCount = signal(Math.min(treePointsInRegion().length, MAX_TREE_COUNT));
   // Created here rather than in state/atmosphere.ts's factory — its default
   // depends on maxTreeCount, which is only known now (see AtmosphereRow's
   // props, where this is merged back in alongside the other 6 signals).
+  // `treeCount` is the procedural ThinInstanceTrees count. Bulk GLB trees
+  // have their own independent count below; neither consumes the other.
   const treeCount = signal(Math.min(savedSettings.treeCount ?? maxTreeCount.value, maxTreeCount.value));
   // Independent tree-size multipliers (canopy/trunk footprint + height) —
   // separate from scaleTuning's hScale/vExag, which position/exaggerate the
@@ -697,6 +722,25 @@ async function main() {
     hScale: savedSettings.treeHScale ?? 1,
     vScale: savedSettings.treeVScale ?? 1,
   });
+  // Bug fix (2026-07-23, Dan: "the high-def bulk trees are incorrectly
+  // wired to the poly tree controls"): the near-spawn hero grove (real
+  // Poly Haven trees) was reusing treeScale — the SAME signal that also
+  // drives ThinInstanceTrees' procedural/primitive trees — so dragging
+  // "Tree H/V-scale" resized both the low-poly forest and the high-detail
+  // grove together. Own signal group instead, same reasoning as
+  // trailsideScale/bulkForestScale already getting their own: these are
+  // visually separate clusters the user should be able to size
+  // independently, not incidentally coupled because they both happen to
+  // be "trees".
+  const heroScale = createTreeScaleSignals({
+    hScale: savedSettings.heroHScale ?? 1,
+    vScale: savedSettings.heroVScale ?? 1,
+  });
+  // Outer edge of the near-spawn grove's annulus (heroZonePositions below)
+  // — the inner edge stays a fixed 10m to leave breathing room at the
+  // geographic anchor.
+  const heroRadius = signal(savedSettings.heroRadius ?? 28);
+  const heroCount = signal(savedSettings.heroCount ?? 130);
   // Same shape as treeScale, but for the trailside hero-asset scatter
   // further down (rebuildTrailsideScatter) — kept as its own signal group
   // rather than reusing treeScale since it governs a visually separate
@@ -725,15 +769,26 @@ async function main() {
   // region radius / treeCount / this slider can all change independently
   // without ever double-placing or skipping a candidate point. Clamped so
   // the real slice can never exceed the procedural slider's own total.
-  const bulkForestCount = () => Math.min(bulkForestScale.count.value, treeCount.value);
+  const bulkForestRadius = signal(savedSettings.bulkForestRadius ?? defaultTreeRegionRadius);
+  const bulkForestCandidates = () => bulkTreePoints.filter(
+    (point) => Math.hypot(point.x, point.z) <= bulkForestRadius.value
+      && isForestEligible(point),
+  );
+  const bulkForestPoints = () =>
+    bulkForestCandidates().slice(0, bulkForestScale.count.value);
+  const bulkForestCount = () => bulkForestPoints().length;
+  const proceduralTreePoints = () => treePointsInRegion().slice(0, treeCount.value);
   // Real (unscaled) treePoints -> render space, same conversion
   // ThinInstanceTrees.scatter uses internally (X/Z by hScale, Y by vExag,
   // groundY already sampled once at candidate-generation time).
-  const bulkForestPositions = (count: number): Vector3[] => treePointsInRegion().slice(0, count).map((p) => {
-    const x = p.x * scaleTuning.hScale.value;
-    const z = p.z * scaleTuning.hScale.value;
-    return new Vector3(x, p.groundY * scaleTuning.vExag.value, z);
-  });
+  const bulkForestPositions = (count: number): Vector3[] =>
+    bulkForestPoints()
+      .slice(0, count)
+      .map((p) => {
+        const x = p.x * scaleTuning.hScale.value;
+        const z = p.z * scaleTuning.hScale.value;
+        return new Vector3(x, p.groundY * scaleTuning.vExag.value, z);
+      });
 
   const BULK_FOREST_URL = `${import.meta.env.BASE_URL}models/tree-small-02-scatter/tree_small_02_scatter_preview.glb`;
   let bulkForest: HeroTreeInstancesHandle | null = null;
@@ -760,51 +815,47 @@ async function main() {
       scaleTuning.hScale.value * bulkForestScale.vScale.value,
     );
   };
+  const repositionBulkForestDebounced = debounce(repositionBulkForest, 200);
 
   let trees = new ThinInstanceTrees(scene, {
     shadowGenerator: sun.getShadowGenerator(),
     wind: weatherSystem,
   });
   trees.scatter(
-    treePointsInRegion().slice(bulkForestCount(), treeCount.value),
+    proceduralTreePoints(),
     scaleTuning.hScale.value,
     scaleTuning.vExag.value,
     treeScale.hScale.value,
     treeScale.vScale.value,
   );
-  const rebuildTrees = () => {
+  const rebuildThinInstanceTrees = () => {
     trees.dispose();
     trees = new ThinInstanceTrees(scene, {
       shadowGenerator: sun.getShadowGenerator(),
       wind: weatherSystem,
     });
     trees.scatter(
-      treePointsInRegion().slice(bulkForestCount(), treeCount.value),
+      proceduralTreePoints(),
       scaleTuning.hScale.value,
       scaleTuning.vExag.value,
       treeScale.hScale.value,
       treeScale.vScale.value,
     );
     trees.setVisible(visibility.trees.value);
-    repositionBulkForest();
-    // repositionHeroClusters is declared further down (after spawn/terrain
-    // setup) but this closure is only ever invoked later, via slider
-    // onCommit — by then it exists. Tree H/V-scale sliders only call
-    // rebuildTrees (not the heavier rebuildWorld), so this is the one place
-    // that needs to keep the hero-zone clusters in sync with them.
-    repositionHeroClusters();
+    // The near-spawn hero grove no longer reacts here — it has its own
+    // heroScale/heroRadius signals now (see the "incorrectly wired to the
+    // poly tree controls" fix above), so Tree H/V-scale/count/region-radius
+    // commits (all of which call rebuildThinInstanceTrees) have nothing to do with it.
   };
-  // Bulk forest H/V-scale/count sliders commit live (like Trailside's) —
-  // debounced so dragging doesn't fire a full ThinInstanceTrees
-  // dispose/recreate on every tick.
-  const rebuildTreesDebounced = debounce(rebuildTrees, 200);
+  // Bulk GLB placement and procedural ThinInstanceTrees now have separate
+  // update functions; neither group's controls invoke the other.
   // Fires only on region-radius commits — treeCount/hScale/vExag changes
   // don't shrink/grow the underlying candidate pool, only how much of it is
   // used, so they don't need to touch maxTreeCount or forestFire's points.
   const rebuildTreeRegion = () => {
     maxTreeCount.value = Math.min(treePointsInRegion().length, MAX_TREE_COUNT);
     treeCount.value = Math.min(treeCount.value, maxTreeCount.value);
-    rebuildTrees();
+    rebuildThinInstanceTrees();
     rebuildForestFire();
   };
 
@@ -876,21 +927,18 @@ async function main() {
     heightScale: currentVExag,
     nearColor: MOUNTAIN_NEAR_COLOR,
   });
-  let mountains = new MountainRing(
-    scene,
-    mountainRingOptions(scaleTuning.hScale.value, scaleTuning.vExag.value),
-  );
+  let mountains = new MountainRing(scene, mountainRingOptions(scaleTuning.hScale.value, scaleTuning.vExag.value));
   const rebuildMountains = () => {
     mountains.dispose();
-    mountains = new MountainRing(
-      scene,
-      mountainRingOptions(scaleTuning.hScale.value, scaleTuning.vExag.value),
-    );
+    mountains = new MountainRing(scene, mountainRingOptions(scaleTuning.hScale.value, scaleTuning.vExag.value));
     mountains.setVisible(visibility.mountains.value);
   };
 
   const [trails, gpxTrack, savedViews, locations] = await Promise.all([
-    loadTrails(), loadGpxTrack(), loadSavedViews(), loadLocations(),
+    loadTrails(),
+    loadGpxTrack(),
+    loadSavedViews(),
+    loadLocations(),
   ]);
   let trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
     namePrefix: 'osmTrail',
@@ -969,9 +1017,15 @@ async function main() {
   // trigger stay exactly where they were.
   render(
     <Section title='World'>
-      <TreeCountRow signal={treeCount} max={maxTreeCount} onCommit={() => rebuildTrees()} />
+      <div style={{ marginTop: '6px', color: '#9cf', fontWeight: 700 }}>Thin-instance trees (procedural)</div>
+      <TreeCountRow
+        label='Thin-instance tree count'
+        signal={treeCount}
+        max={maxTreeCount}
+        onCommit={() => rebuildThinInstanceTrees()}
+      />
       <SliderRow
-        label='Tree region radius'
+        label='Thin-instance tree radius'
         signal={treeRegionRadius}
         min={0}
         max={treeRegionRadiusMax}
@@ -985,7 +1039,7 @@ async function main() {
         }}
       />
       <SliderRow
-        label='Tree H-scale'
+        label='Thin-instance tree H-scale'
         signal={treeScale.hScale}
         min={0.25}
         max={3}
@@ -993,10 +1047,10 @@ async function main() {
         suffix='x'
         format={(v) => v.toFixed(2)}
         commitOn='change'
-        onCommit={() => rebuildTrees()}
+        onCommit={() => rebuildThinInstanceTrees()}
       />
       <SliderRow
-        label='Tree V-scale'
+        label='Thin-instance tree V-scale'
         signal={treeScale.vScale}
         min={0.25}
         max={3}
@@ -1004,8 +1058,53 @@ async function main() {
         suffix='x'
         format={(v) => v.toFixed(2)}
         commitOn='change'
-        onCommit={() => rebuildTrees()}
+        onCommit={() => rebuildThinInstanceTrees()}
       />
+      <div style={{ marginTop: '10px', color: '#9cf', fontWeight: 700 }}>Hero grove (full-detail GLBs)</div>
+      <SliderRow
+        label='Hero grove count'
+        signal={heroCount}
+        min={0}
+        max={500}
+        step={10}
+        format={(v) => v.toFixed(0)}
+        commitOn='input'
+        onCommit={() => repositionHeroClustersDebounced()}
+      />
+      <SliderRow
+        label='Hero grove H-scale'
+        signal={heroScale.hScale}
+        min={0.25}
+        max={3}
+        step={0.25}
+        suffix='x'
+        format={(v) => v.toFixed(2)}
+        commitOn='input'
+        onCommit={() => repositionHeroClustersDebounced()}
+      />
+      <SliderRow
+        label='Hero grove V-scale'
+        signal={heroScale.vScale}
+        min={0.25}
+        max={3}
+        step={0.25}
+        suffix='x'
+        format={(v) => v.toFixed(2)}
+        commitOn='input'
+        onCommit={() => repositionHeroClustersDebounced()}
+      />
+      <SliderRow
+        label='Hero grove radius'
+        signal={heroRadius}
+        min={11}
+        max={100}
+        step={1}
+        suffix='m'
+        format={(v) => v.toFixed(0)}
+        commitOn='input'
+        onCommit={() => repositionHeroClustersDebounced()}
+      />
+      <div style={{ marginTop: '10px', color: '#9cf', fontWeight: 700 }}>Trailside trees (full-detail GLBs)</div>
       <SliderRow
         label='Trailside H-scale'
         signal={trailsideScale.hScale}
@@ -1038,6 +1137,7 @@ async function main() {
         commitOn='input'
         onCommit={() => rebuildTrailsideScatterDebounced()}
       />
+      <div style={{ marginTop: '10px', color: '#9cf', fontWeight: 700 }}>Bulk forest (decimated high-def GLB)</div>
       <SliderRow
         label='Bulk forest H-scale'
         signal={bulkForestScale.hScale}
@@ -1047,7 +1147,7 @@ async function main() {
         suffix='x'
         format={(v) => v.toFixed(2)}
         commitOn='input'
-        onCommit={() => rebuildTreesDebounced()}
+        onCommit={() => repositionBulkForestDebounced()}
       />
       <SliderRow
         label='Bulk forest V-scale'
@@ -1058,17 +1158,35 @@ async function main() {
         suffix='x'
         format={(v) => v.toFixed(2)}
         commitOn='input'
-        onCommit={() => rebuildTreesDebounced()}
+        onCommit={() => repositionBulkForestDebounced()}
+      />
+      <SliderRow
+        label='Bulk forest radius'
+        signal={bulkForestRadius}
+        min={0}
+        max={treeRegionRadiusMax}
+        step={treeRegionRadiusMax / 100}
+        suffix='m'
+        format={(v) => v.toFixed(0)}
+        commitOn='input'
+        onCommit={() => repositionBulkForestDebounced()}
       />
       <SliderRow
         label='Bulk forest count'
         signal={bulkForestScale.count}
         min={0}
-        max={maxTreeCount.value}
+        // Never derive this range from the current pool: radius=0 made
+        // max=0 and physically prevented this recovery control from moving.
+        max={MAX_TREE_COUNT}
         step={50}
         format={(v) => v.toFixed(0)}
         commitOn='input'
-        onCommit={() => rebuildTreesDebounced()}
+        onCommit={(value) => {
+          if (value > 0 && bulkForestRadius.value === 0) {
+            bulkForestRadius.value = defaultTreeRegionRadius;
+          }
+          repositionBulkForestDebounced();
+        }}
       />
       {levelKey === '1' && (
         <ScaleTuningRow
@@ -1241,6 +1359,11 @@ async function main() {
             bulkForestHScale: bulkForestScale.hScale.value,
             bulkForestVScale: bulkForestScale.vScale.value,
             bulkForestCount: bulkForestScale.count.value,
+            bulkForestRadius: bulkForestRadius.value,
+            heroHScale: heroScale.hScale.value,
+            heroVScale: heroScale.vScale.value,
+            heroRadius: heroRadius.value,
+            heroCount: heroCount.value,
             weatherMode: weatherMode.value,
             masterMuted: audio.masterMuted.value,
             windVolume: audio.windVolume.value,
@@ -1338,8 +1461,7 @@ async function main() {
     drive.camera.rotation.copyFrom(savedRotation);
   }
 
-  // Hero-zone anchor for the single debug preview tree + the near-spawn
-  // grove/annulus (heroZonePositions below) — a fixed real-world lat/lon,
+  // Hero-grove anchor — a fixed real-world lat/lon,
   // not spawn/camera-facing-relative like this used to be (previewRealX/Z
   // were previewSpawnRealX/Z + a 5m-forward/2.5m-right offset rotated by
   // player.camera.rotation.y, so the grove actually drifted whenever the
@@ -1349,35 +1471,11 @@ async function main() {
   // spot this already sat at, just pinned instead of drifting.
   const HERO_ZONE_CENTER_LATLON = { lat: 40.745162, lon: -74.283341 };
   const heroZoneCenterReal = latLonToWorld(HERO_ZONE_CENTER_LATLON, origin);
-  const previewRealX = heroZoneCenterReal.x;
-  const previewRealZ = heroZoneCenterReal.z;
-  const treePreviewGroundPosition = () => {
-    const x = previewRealX * scaleTuning.hScale.value;
-    const z = previewRealZ * scaleTuning.hScale.value;
-    return new Vector3(x, terrain.getHeightAt(x, z), z);
-  };
+  const heroCenterRealX = heroZoneCenterReal.x;
+  const heroCenterRealZ = heroZoneCenterReal.z;
 
-  let trailTreePreview: TrailTreePreviewHandle | null = null;
-  let treePreviewStatus = 'optimized tree: failed to load (see console)';
-  try {
-    const previewPosition = treePreviewGroundPosition();
-    trailTreePreview = await loadTrailTreePreview(
-      scene,
-      previewPosition,
-      scaleTuning.hScale.value,
-      sun.getShadowGenerator(),
-    );
-    treePreviewStatus = `optimized tree: ${trailTreePreview.triangleCount.toLocaleString()} tris, cyan ring near spawn`;
-    console.info(
-      `[TrailTreePreview] loaded ${trailTreePreview.meshCount} mesh(es), ${trailTreePreview.triangleCount.toLocaleString()} triangles at`,
-      previewPosition,
-    );
-  } catch (error) {
-    console.error('[TrailTreePreview] failed to load optimized tree', error);
-  }
-
-  // A small grove mixing the same real glTF tree as the single preview
-  // above with a few other Poly Haven hero-zone props (two sapling species,
+  // A small grove mixing a real glTF tree with a few other Poly Haven
+  // hero-zone props (two sapling species,
   // a dead trunk, a stump) — the hero-zone half of the two-tier plan in
   // docs/THREADS-fold-in.260721.md (T8): full-detail real geometry close to
   // the player, scattered instead of a single placeholder. Deliberately NOT
@@ -1385,17 +1483,16 @@ async function main() {
   // HeroTreeInstances.ts for why these assets' tri counts only work at a
   // small, near-field count). One shared annulus for every species, so they
   // interleave naturally instead of forming separate rings — centered
-  // around the existing single-preview spot rather than on it, so it
-  // doesn't overlap that tree/its marker.
+  // around the fixed geographic anchor.
   const HERO_ZONE_MIN_RADIUS = 10;
-  const HERO_ZONE_MAX_RADIUS = 28;
   const heroZonePositions = (count: number): Vector3[] => {
     const positions: Vector3[] = [];
+    const maxRadius = Math.max(HERO_ZONE_MIN_RADIUS + 1, heroRadius.value);
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
-      const radius = HERO_ZONE_MIN_RADIUS + Math.random() * (HERO_ZONE_MAX_RADIUS - HERO_ZONE_MIN_RADIUS);
-      const realX = previewRealX + Math.cos(angle) * radius;
-      const realZ = previewRealZ + Math.sin(angle) * radius;
+      const radius = HERO_ZONE_MIN_RADIUS + Math.random() * (maxRadius - HERO_ZONE_MIN_RADIUS);
+      const realX = heroCenterRealX + Math.cos(angle) * radius;
+      const realZ = heroCenterRealZ + Math.sin(angle) * radius;
       const x = realX * scaleTuning.hScale.value;
       const z = realZ * scaleTuning.hScale.value;
       positions.push(new Vector3(x, terrain.getHeightAt(x, z), z));
@@ -1407,58 +1504,74 @@ async function main() {
   // canopy — a real forest floor has far fewer stumps and dead trunks
   // underfoot than it has live trees overhead.
   const HERO_ASSETS = [
-    { label: 'tree_small_02', url: `${import.meta.env.BASE_URL}models/tree-small-02/tree_small_02_preview.glb`, count: 100 },
-    { label: 'pine_sapling_medium', url: `${import.meta.env.BASE_URL}models/pine-sapling-medium/pine_sapling_medium_preview.glb`, count: 8 },
-    { label: 'fir_sapling_medium', url: `${import.meta.env.BASE_URL}models/fir-sapling-medium/fir_sapling_medium_preview.glb`, count: 8 },
-    { label: 'dead_tree_trunk_02', url: `${import.meta.env.BASE_URL}models/dead-tree-trunk-02/dead_tree_trunk_02_preview.glb`, count: 6 },
-    { label: 'tree_stump_01', url: `${import.meta.env.BASE_URL}models/tree-stump-01/tree_stump_01_preview.glb`, count: 8 },
+    {
+      label: 'tree_small_02',
+      url: `${import.meta.env.BASE_URL}models/tree-small-02/tree_small_02_preview.glb`,
+      count: 100,
+    },
+    {
+      label: 'pine_sapling_medium',
+      url: `${import.meta.env.BASE_URL}models/pine-sapling-medium/pine_sapling_medium_preview.glb`,
+      count: 8,
+    },
+    {
+      label: 'fir_sapling_medium',
+      url: `${import.meta.env.BASE_URL}models/fir-sapling-medium/fir_sapling_medium_preview.glb`,
+      count: 8,
+    },
+    {
+      label: 'dead_tree_trunk_02',
+      url: `${import.meta.env.BASE_URL}models/dead-tree-trunk-02/dead_tree_trunk_02_preview.glb`,
+      count: 6,
+    },
+    {
+      label: 'tree_stump_01',
+      url: `${import.meta.env.BASE_URL}models/tree-stump-01/tree_stump_01_preview.glb`,
+      count: 8,
+    },
   ] as const;
 
-  const heroClusters: Array<{ count: number; handle: HeroTreeInstancesHandle }> = [];
-  await Promise.all(HERO_ASSETS.map(async ({ label, url, count }) => {
-    try {
-      const handle = await loadHeroTreeInstances(
-        scene,
-        url,
-        heroZonePositions(count),
-        scaleTuning.hScale.value * treeScale.hScale.value,
-        scaleTuning.hScale.value * treeScale.vScale.value,
-        sun.getShadowGenerator(),
-        weatherSystem,
-      );
-      heroClusters.push({ count, handle });
-      console.info(
-        `[HeroTreeInstances] loaded ${count} thin-instanced ${label}(s), ${handle.triangleCount.toLocaleString()} tris each near spawn`,
-      );
-    } catch (error) {
-      console.error(`[HeroTreeInstances] failed to load ${label} cluster`, error);
-    }
-  }));
+  const HERO_WEIGHT_TOTAL = HERO_ASSETS.reduce((sum, asset) => sum + asset.count, 0);
+  const heroSpeciesCount = (weight: number) =>
+    Math.round(heroCount.value * (weight / HERO_WEIGHT_TOTAL));
+  const heroClusters: Array<{ weight: number; handle: HeroTreeInstancesHandle }> = [];
+  await Promise.all(
+    HERO_ASSETS.map(async ({ label, url, count: weight }) => {
+      try {
+        const count = heroSpeciesCount(weight);
+        const handle = await loadHeroTreeInstances(
+          scene,
+          url,
+          heroZonePositions(count),
+          scaleTuning.hScale.value * heroScale.hScale.value,
+          scaleTuning.hScale.value * heroScale.vScale.value,
+          sun.getShadowGenerator(),
+          weatherSystem,
+        );
+        heroClusters.push({ weight, handle });
+        console.info(
+          `[HeroTreeInstances] loaded ${count} thin-instanced ${label}(s), ${handle.triangleCount.toLocaleString()} tris each near spawn`,
+        );
+      } catch (error) {
+        console.error(`[HeroTreeInstances] failed to load ${label} cluster`, error);
+      }
+    }),
+  );
 
   const repositionHeroClusters = () => {
-    for (const { count, handle } of heroClusters) {
+    for (const { weight, handle } of heroClusters) {
+      const count = heroSpeciesCount(weight);
       handle.setPlacements(
         heroZonePositions(count),
-        scaleTuning.hScale.value * treeScale.hScale.value,
-        scaleTuning.hScale.value * treeScale.vScale.value,
+        scaleTuning.hScale.value * heroScale.hScale.value,
+        scaleTuning.hScale.value * heroScale.vScale.value,
       );
     }
   };
-
-  // TEMP decimation-candidate visual test — standalone, doesn't touch
-  // HERO_ASSETS/heroClusters. Remove after review.
-  try {
-    const decimTest = await loadHeroTreeInstances(
-      scene, `${import.meta.env.BASE_URL}models/_decim-test/candidate.glb`, heroZonePositions(15),
-      scaleTuning.hScale.value * treeScale.hScale.value,
-      scaleTuning.hScale.value * treeScale.vScale.value,
-      sun.getShadowGenerator(),
-      weatherSystem,
-    );
-    console.info(`[DecimTest] loaded: ${decimTest.triangleCount.toLocaleString()} tris`);
-  } catch (error) {
-    console.error('[DecimTest] failed', error);
-  }
+  // Hero grove H/V-scale/radius sliders commit live (like Trailside's/Bulk
+  // forest's) — debounced so dragging doesn't reposition ~130 thin-instance
+  // templates on every tick.
+  const repositionHeroClustersDebounced = debounce(repositionHeroClusters, 200);
 
   // Same 5 species as the near-spawn grove above, spread along both sides
   // of the recorded GPX track (the red line) AND the yellow-blazed OSM
@@ -1500,11 +1613,13 @@ async function main() {
   // "Lenape Trail (Yellow)", "Lenape Yellow Blaze", "Yellow/Red Blaze".
   // Matching on osmc:symbol too costs nothing and covers datasets that do
   // have it.
-  addTrailCorridor(trails.filter((polyline) => {
-    const primary = polyline.tags?.['osmc:symbol']?.split(':')[0]?.toLowerCase();
-    if (primary === 'yellow') return true;
-    return !!polyline.tags?.name?.toLowerCase().includes('yellow');
-  }));
+  addTrailCorridor(
+    trails.filter((polyline) => {
+      const primary = polyline.tags?.['osmc:symbol']?.split(':')[0]?.toLowerCase();
+      if (primary === 'yellow') return true;
+      return !!polyline.tags?.name?.toLowerCase().includes('yellow');
+    }),
+  );
 
   const TRAILSIDE_MIN_OFFSET = 3;
   const TRAILSIDE_MAX_OFFSET = 14;
@@ -1513,7 +1628,8 @@ async function main() {
     if (trailTotalLength <= 0) return positions;
     for (let i = 0; i < count; i++) {
       const d = Math.random() * trailTotalLength;
-      const seg = trailSegments.find((s) => d >= s.start && d < s.start + s.length) ?? trailSegments[trailSegments.length - 1];
+      const seg =
+        trailSegments.find((s) => d >= s.start && d < s.start + s.length) ?? trailSegments[trailSegments.length - 1];
       const t = (d - seg.start) / seg.length;
       const px = seg.ax + (seg.bx - seg.ax) * t;
       const pz = seg.az + (seg.bz - seg.az) * t;
@@ -1532,29 +1648,31 @@ async function main() {
     return positions;
   };
 
-  const HERO_WEIGHT_TOTAL = HERO_ASSETS.reduce((sum, asset) => sum + asset.count, 0);
-  const trailsideSpeciesCount = (weight: number) => Math.round(trailsideScale.count.value * (weight / HERO_WEIGHT_TOTAL));
+  const trailsideSpeciesCount = (weight: number) =>
+    Math.round(trailsideScale.count.value * (weight / HERO_WEIGHT_TOTAL));
 
   const trailsideClusters: Array<{ weight: number; handle: HeroTreeInstancesHandle }> = [];
-  await Promise.all(HERO_ASSETS.map(async ({ label, url, count: weight }) => {
-    try {
-      const handle = await loadHeroTreeInstances(
-        scene,
-        url,
-        trailsidePositions(trailsideSpeciesCount(weight)),
-        scaleTuning.hScale.value * trailsideScale.hScale.value,
-        scaleTuning.hScale.value * trailsideScale.vScale.value,
-        sun.getShadowGenerator(),
-        weatherSystem,
-      );
-      trailsideClusters.push({ weight, handle });
-      console.info(
-        `[TrailsideScatter] loaded ${trailsideSpeciesCount(weight)} thin-instanced ${label}(s) along the trail`,
-      );
-    } catch (error) {
-      console.error(`[TrailsideScatter] failed to load ${label} along the trail`, error);
-    }
-  }));
+  await Promise.all(
+    HERO_ASSETS.map(async ({ label, url, count: weight }) => {
+      try {
+        const handle = await loadHeroTreeInstances(
+          scene,
+          url,
+          trailsidePositions(trailsideSpeciesCount(weight)),
+          scaleTuning.hScale.value * trailsideScale.hScale.value,
+          scaleTuning.hScale.value * trailsideScale.vScale.value,
+          sun.getShadowGenerator(),
+          weatherSystem,
+        );
+        trailsideClusters.push({ weight, handle });
+        console.info(
+          `[TrailsideScatter] loaded ${trailsideSpeciesCount(weight)} thin-instanced ${label}(s) along the trail`,
+        );
+      } catch (error) {
+        console.error(`[TrailsideScatter] failed to load ${label} along the trail`, error);
+      }
+    }),
+  );
 
   const rebuildTrailsideScatter = () => {
     for (const { weight, handle } of trailsideClusters) {
@@ -1584,6 +1702,14 @@ async function main() {
     (x, z) => terrain.getHeightAt(x, z),
     sun.getShadowGenerator(),
   );
+  let compositeLocations = await loadCompositeLocations(
+    scene,
+    locations,
+    locationToRenderXZ,
+    scaleTuning.hScale.value,
+    (x, z) => terrain.getHeightAt(x, z),
+    sun.getShadowGenerator(),
+  );
   const rebuildLocationProps = () => {
     locationProps.dispose();
     locationProps = scatterLocationProps(
@@ -1593,6 +1719,21 @@ async function main() {
       (x, z) => terrain.getHeightAt(x, z),
       sun.getShadowGenerator(),
     );
+    compositeLocations.dispose();
+    void loadCompositeLocations(
+      scene,
+      locations,
+      locationToRenderXZ,
+      scaleTuning.hScale.value,
+      (x, z) => terrain.getHeightAt(x, z),
+      sun.getShadowGenerator(),
+    )
+      .then((next) => {
+        compositeLocations = next;
+      })
+      .catch((error) => {
+        console.error('[CompositeLocations] failed to rebuild', error);
+      });
   };
 
   // Forest fire game mechanic — press F (or the HUD button) to ignite the
@@ -1600,7 +1741,7 @@ async function main() {
   // the same treePointsInRegion() the forest was scattered from (not the
   // full candidate pool), so it can't ignite trees outside what's actually
   // rendered — rebuilt (dispose + reconstruct) whenever the tree region
-  // radius changes, same as rebuildTrees.
+  // radius changes, same as rebuildThinInstanceTrees.
   let forestFire = new ForestFire(scene, treePointsInRegion(), {
     horizontalScale: scaleTuning.hScale.value,
     verticalExaggeration: scaleTuning.vExag.value,
@@ -1722,7 +1863,6 @@ async function main() {
     drive.setTerrain(terrain);
     water.setScale(scaleTuning.hScale.value, scaleTuning.vExag.value, scaleTuning.waterLevel.value);
     water.addToRenderList(terrain.getMesh());
-    trailTreePreview?.setPlacement(treePreviewGroundPosition(), scaleTuning.hScale.value);
     repositionHeroClusters();
     rebuildTrailsideScatter();
     rebuildLocationProps();
@@ -1732,7 +1872,8 @@ async function main() {
 
     // Positions are cached (treePoints), so this just re-scatters the
     // same forest at the new scale rather than re-rolling placement.
-    rebuildTrees();
+    rebuildThinInstanceTrees();
+    repositionBulkForest();
     forestFire.setScale(scaleTuning.hScale.value, scaleTuning.vExag.value);
 
     const newRenderX = realX * scaleTuning.hScale.value;
@@ -1815,6 +1956,11 @@ async function main() {
               bulkForestHScale: bulkForestScale.hScale.value,
               bulkForestVScale: bulkForestScale.vScale.value,
               bulkForestCount: bulkForestScale.count.value,
+              bulkForestRadius: bulkForestRadius.value,
+              heroHScale: heroScale.hScale.value,
+              heroVScale: heroScale.vScale.value,
+              heroRadius: heroRadius.value,
+              heroCount: heroCount.value,
               weatherMode: weatherMode.value,
               masterMuted: audio.masterMuted.value,
               windVolume: audio.windVolume.value,
@@ -1826,21 +1972,6 @@ async function main() {
           validLevelKeys={Object.keys(LEVELS)}
           saveSettings={saveSettings}
           onBeforeNavigate={unregisterBeforeNavigate}
-          onResetPosition={() => {
-            // Fly Mode has no bounds clamping, so it's easy to end up saved
-            // somewhere far outside the DEM's real footprint (nothing but
-            // sky, a distant sliver of terrain). This drops just the saved
-            // position for the current level (keeping scale/water/camera-
-            // height tuning intact) and reloads back to the recorded hike's
-            // trailhead.
-            unregisterBeforeNavigate();
-            const withoutPosition = loadSavedSettings(levelKey);
-            delete withoutPosition.x;
-            delete withoutPosition.y;
-            delete withoutPosition.z;
-            saveSettings(levelKey, withoutPosition);
-            location.reload();
-          }}
           savedViews={savedViews}
         />
         <GotoRow
@@ -1863,6 +1994,21 @@ async function main() {
             const pos = controllers[movement.activeMode.value].getPosition();
             const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
             return worldToLatLon(real, origin);
+          }}
+          onResetPosition={() => {
+            // Fly Mode has no bounds clamping, so it's easy to end up saved
+            // somewhere far outside the DEM's real footprint (nothing but
+            // sky, a distant sliver of terrain). This drops just the saved
+            // position for the current level (keeping scale/water/camera-
+            // height tuning intact) and reloads back to the recorded hike's
+            // trailhead.
+            unregisterBeforeNavigate();
+            const withoutPosition = loadSavedSettings(levelKey);
+            delete withoutPosition.x;
+            delete withoutPosition.y;
+            delete withoutPosition.z;
+            saveSettings(levelKey, withoutPosition);
+            location.reload();
           }}
         />
       </Section>
@@ -1911,6 +2057,11 @@ async function main() {
       bulkForestHScale: bulkForestScale.hScale.value,
       bulkForestVScale: bulkForestScale.vScale.value,
       bulkForestCount: bulkForestScale.count.value,
+      bulkForestRadius: bulkForestRadius.value,
+      heroHScale: heroScale.hScale.value,
+      heroVScale: heroScale.vScale.value,
+      heroRadius: heroRadius.value,
+      heroCount: heroCount.value,
       weatherMode: weatherMode.value,
       hudVisible,
       worldBounded: worldBounded.value,
@@ -1958,7 +2109,6 @@ async function main() {
     readout.textContent =
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
-      `${treePreviewStatus}\n` +
       `fires burning: ${forestFire.activeFireCount} (F to ignite nearest tree)\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;

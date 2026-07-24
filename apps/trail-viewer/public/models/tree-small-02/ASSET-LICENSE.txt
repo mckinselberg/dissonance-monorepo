@@ -17,6 +17,16 @@ The pass preserves the original nine 1K JPEG textures. It reduces the model
 from 2,062,487 to 52,353 triangles and packages it as one GLB for the browser
 preview. This derivative is also available under CC0.
 
+Re-simplified further (2026-07-23, gltfpack 1.2, -si 0.015) to 32,854
+triangles — a deliberate art-direction choice (Dan: "decimate the quality
+slightly to give the game a more distinct visual style"), not a performance
+fix; this asset wasn't the bottleneck. Chosen from a 38,676/32,854/27,040
+tri three-way comparison as the smallest reduction that's still
+indistinguishable from the original at normal viewing distance — ~63% of
+the original triangle count, well clear of the ~15%-and-below range where
+the earlier scatter-tier pass (see tree-small-02-scatter/ASSET-LICENSE.txt)
+found visible leaf-card loss.
+
 Trunk+branch diffuse (bark/wood) were further color-normalized (2026-07-23)
 against the other 4 tree species' bark/wood textures — six bark/wood
 diffuse maps across all species were visibly inconsistent in tone (Poly
