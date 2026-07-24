@@ -2,6 +2,7 @@ import type { Signal } from '@preact/signals';
 import { SliderRow } from './AtmosphereRow';
 
 export type TreeCountRowProps = {
+  label?: string;
   signal: Signal<number>;
   // A Signal, not a plain number — its pool shrinks/grows as the tree
   // region radius changes (main.tsx), and passing the signal itself (read
@@ -17,13 +18,13 @@ export type TreeCountRowProps = {
 // H-scale/V-exagg/water-level (level-1-only), tree count applies on every
 // level, so it's mounted unconditionally alongside ScaleTuningRow rather
 // than gated the same way — see main.tsx's "World" Section.
-export function TreeCountRow({ signal, max, onCommit }: TreeCountRowProps) {
+export function TreeCountRow({ label = '# Trees', signal, max, onCommit }: TreeCountRowProps) {
   return (
     <div style={{ marginTop: '4px' }}>
       {/* step stays 1 unconditionally — see main.ts's tree-count comment:
           setting .value via JS snaps to the nearest step boundary, so a
           coarser step would silently desync the shown count from the thumb. */}
-      <SliderRow label="# Trees" signal={signal} min={0} max={max.value} step={1} commitOn="change" onCommit={onCommit} />
+      <SliderRow label={label} signal={signal} min={0} max={max.value} step={1} commitOn="change" onCommit={onCommit} />
     </div>
   );
 }

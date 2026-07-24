@@ -40,7 +40,7 @@ export function VisibilityToggles({
       <ToggleLabel label="GPX Track" signal={signals.gpx} onCommit={onGpxCommit} />
       <ToggleLabel label="Water" signal={signals.water} onCommit={onWaterCommit} />
       <ToggleLabel label="Clouds" signal={signals.clouds} onCommit={onCloudsCommit} />
-      <ToggleLabel label="Trees" signal={signals.trees} onCommit={onTreesCommit} />
+      <ToggleLabel label="Thin trees" signal={signals.trees} onCommit={onTreesCommit} />
       <ToggleLabel label="Lat/Long Grid" signal={signals.grid} onCommit={onGridCommit} />
       <ToggleLabel label="Mountains" signal={signals.mountains} onCommit={onMountainsCommit} />
     </>

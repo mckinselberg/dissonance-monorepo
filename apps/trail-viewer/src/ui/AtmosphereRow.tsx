@@ -37,7 +37,9 @@ export function SliderRow({ label, signal: sig, min, max, step, suffix, format, 
   const handleValue = (e: JSX.TargetedEvent<HTMLInputElement>) => {
     const value = parseFloat(e.currentTarget.value);
     sig.value = value;
-    if (commitOn === 'change') onCommit?.(value);
+    // This handler is attached to exactly one matching event below, so
+    // input-mode controls must invoke their callback here too.
+    onCommit?.(value);
   };
   const eventProp = commitOn === 'change' ? { onChange: handleValue } : { onInput: handleValue };
   return (
