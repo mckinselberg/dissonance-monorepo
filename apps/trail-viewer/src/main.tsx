@@ -24,6 +24,7 @@ import {
   MountainRing,
   type ITerrain,
   type TreePoint,
+  type FoliageSwaySource,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
 import { AmbientAudio, AudioEngine, HeartbeatAudio, TrailPlayerAudio } from '@dissonance/audio';
@@ -645,6 +646,17 @@ async function main() {
   const weatherMode = signal<WeatherMode>(savedSettings.weatherMode ?? 'clear');
   const weatherSystem = new WeatherSystem(scene);
   weatherSystem.setMode(weatherMode.value);
+  // Wind audio already runs weatherSystem's live windIntensity through the
+  // user-facing "Wind vol" slider (see the ambientAudio.setWeatherIntensity
+  // calls below); foliage sway read weatherSystem directly instead, so
+  // muting/lowering Wind vol changed what you heard with no visible change
+  // in how hard the trees moved. This wraps the same weatherSystem for
+  // FoliageSwayPlugin consumers so "Wind vol" reads as one master wind-
+  // strength knob — audible and visible together — not just an audio gain.
+  const visualWindSource: FoliageSwaySource = {
+    getWindIntensity: () => weatherSystem.getWindIntensity() * audio.windVolume.value,
+    getWindTime: () => weatherSystem.getWindTime(),
+  };
 
   const clampToWorldBounds = (controller: { getPosition(): Vector3; setPosition(pos: Vector3): void }) => {
     if (!worldBounded.value) return;
@@ -778,7 +790,7 @@ async function main() {
       scaleTuning.hScale.value * bulkForestScale.hScale.value,
       scaleTuning.hScale.value * bulkForestScale.vScale.value,
       sun.getShadowGenerator(),
-      weatherSystem,
+      visualWindSource,
     );
     bulkForestPlacedCount.value = positions.length;
     console.info(
@@ -830,7 +842,7 @@ async function main() {
           scaleTuning.hScale.value * bulkForestScale.hScale.value,
           scaleTuning.hScale.value * bulkForestScale.vScale.value,
           sun.getShadowGenerator(),
-          weatherSystem,
+          visualWindSource,
         );
         bulkUnderstoryClusters.push({ label, fraction, handle });
         console.info(`[BulkForest] loaded ${positions.length} thin-instanced ${label}(s) as understory`);
@@ -1487,7 +1499,7 @@ async function main() {
           scaleTuning.hScale.value * trailsideScale.hScale.value,
           scaleTuning.hScale.value * trailsideScale.vScale.value,
           sun.getShadowGenerator(),
-          weatherSystem,
+          visualWindSource,
         );
         trailsideClusters.push({ weight, handle });
         console.info(
