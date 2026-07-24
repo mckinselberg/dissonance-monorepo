@@ -19,7 +19,6 @@ import {
   Sun,
   sunHeightForHour,
   StarField,
-  ThinInstanceTrees,
   ForestFire,
   WeatherSystem,
   MountainRing,
@@ -50,7 +49,6 @@ import { signal, effect } from '@preact/signals';
 import { createAtmosphereSignals } from './state/atmosphere';
 import { createMovementSignals, type ActiveMode } from './state/movement';
 import { createScaleTuningSignals } from './state/scaleTuning';
-import { createTreeScaleSignals } from './state/treeScale';
 import { createTrailsideScatterSignals } from './state/trailsideScatter';
 import { createBulkForestScatterSignals } from './state/bulkForestScatter';
 import { scatterLocationProps, type LocationEntry } from './world/LocationProps';
@@ -61,7 +59,6 @@ import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
 import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
-import { TreeCountRow } from './ui/TreeCountRow';
 import { ViewToolsRow, type SavedView } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
 import { Section } from './ui/Section';
@@ -235,10 +232,7 @@ export type SavedSettings = {
   cloudCount?: number;
   cloudColor?: string;
   cloudOpacity?: number;
-  treeCount?: number;
   treeRegionRadius?: number;
-  treeHScale?: number;
-  treeVScale?: number;
   trailsideHScale?: number;
   trailsideVScale?: number;
   trailsideCount?: number;
@@ -246,10 +240,6 @@ export type SavedSettings = {
   bulkForestVScale?: number;
   bulkForestCount?: number;
   bulkForestRadius?: number;
-  heroHScale?: number;
-  heroVScale?: number;
-  heroRadius?: number;
-  heroCount?: number;
   waterColor?: string;
   starColor?: string;
   skyDayColor?: string;
@@ -446,9 +436,7 @@ async function main() {
   const visibility = createVisibilitySignals();
 
   // Atmosphere-row pilot (see docs/THREADS.md) — these 6 signals back the
-  // Preact-rendered #atmosphere-root panel mounted further down. treeCount
-  // isn't among them; its default depends on maxTreeCount, which isn't
-  // known until the tree-candidate pool below is built (see there).
+  // Preact-rendered #atmosphere-root panel mounted further down.
   const atmosphere = createAtmosphereSignals({
     timeOfDay: savedSettings.timeOfDay ?? 12,
     fogDensity: savedSettings.fogDensity ?? 0,
@@ -618,14 +606,12 @@ async function main() {
   // actual forest from the built-up flat area visible near the coast (see
   // smr-trails.geojson — trail lines only, no polygons), so elevation is a
   // simple stand-in for "this is probably slope, not town."
-  // Thin instancing keeps the GPU draw-call cost of *rendering* trees flat
-  // regardless of count (a handful of draw calls per template — see
-  // ThinInstanceTrees — however many instances ride along), so the real
-  // constraint is candidate generation + per-instance matrix upload. 8000 was
-  // a guessed-not-measured ceiling; raised well past it (matching
-  // TREE_CANDIDATE_COUNT) so the "# Trees" slider can actually be dragged
-  // into the range needed to find the real one — watch the FPS readout while
-  // doing that, don't trust this number until it's been through that.
+  // Candidate pool feeds ForestFire (via treePointsInRegion below) and caps
+  // the "Bulk forest count" slider — 8000 was a guessed-not-measured
+  // ceiling; raised well past it (matching TREE_CANDIDATE_COUNT) so that
+  // slider can actually be dragged into the range needed to find the real
+  // one — watch the FPS readout while doing that, don't trust this number
+  // until it's been through that.
   const MAX_TREE_COUNT = 30000;
   const TREE_CANDIDATE_COUNT = 30000;
   const TREE_CLEARANCE_ABOVE_WATER = 20;
@@ -678,12 +664,13 @@ async function main() {
     const groundY = sampler.sampleHeight({ x, z });
     treePoints.push({ x, z, groundY });
   }
-  // Consolidates the scattered forest toward the map's center instead of
-  // covering the whole bbox corner-to-corner — a real forest reads as a
-  // region, not a uniform carpet over the entire DEM. Filters the same
-  // cached candidate pool rather than regenerating it, so tightening/
-  // loosening the radius doesn't re-roll which points get chosen, same
-  // property rebuildThinInstanceTrees relies on for hScale/vExag changes.
+  // Consolidates the ForestFire candidate pool toward the map's center
+  // instead of covering the whole bbox corner-to-corner — a real forest
+  // reads as a region, not a uniform carpet over the entire DEM. Filters the
+  // same cached candidate pool rather than regenerating it, so this stays
+  // stable across a rescale. No HUD slider of its own anymore (see the
+  // removed "Thin-instance tree radius" control); "Bulk forest radius"
+  // reuses treeRegionRadiusMax for its own, separate range below.
   const treeRegionRadiusMax = Math.hypot(realWidth, realDepth) / 2;
   const defaultTreeRegionRadius = treeRegionRadiusMax * 0.4;
   const treeRegionRadius = signal(savedSettings.treeRegionRadius ?? defaultTreeRegionRadius);
@@ -699,58 +686,25 @@ async function main() {
         && isForestEligible(p),
     );
 
-  const maxTreeCount = signal(Math.min(treePointsInRegion().length, MAX_TREE_COUNT));
-  // Created here rather than in state/atmosphere.ts's factory — its default
-  // depends on maxTreeCount, which is only known now (see AtmosphereRow's
-  // props, where this is merged back in alongside the other 6 signals).
-  // `treeCount` is the procedural ThinInstanceTrees count. Bulk GLB trees
-  // have their own independent count below; neither consumes the other.
-  const treeCount = signal(Math.min(savedSettings.treeCount ?? maxTreeCount.value, maxTreeCount.value));
-  // Independent tree-size multipliers (canopy/trunk footprint + height) —
-  // separate from scaleTuning's hScale/vExag, which position/exaggerate the
-  // world itself (see ThinInstanceTrees.scatter's comment on why tree size
-  // deliberately doesn't track verticalExaggeration 1:1).
-  const treeScale = createTreeScaleSignals({
-    hScale: savedSettings.treeHScale ?? 1,
-    vScale: savedSettings.treeVScale ?? 1,
-  });
-  // Bug fix (2026-07-23, Dan: "the high-def bulk trees are incorrectly
-  // wired to the poly tree controls"): the near-spawn hero grove (real
-  // Poly Haven trees) was reusing treeScale — the SAME signal that also
-  // drives ThinInstanceTrees' procedural/primitive trees — so dragging
-  // "Tree H/V-scale" resized both the low-poly forest and the high-detail
-  // grove together. Own signal group instead, same reasoning as
-  // trailsideScale/bulkForestScale already getting their own: these are
-  // visually separate clusters the user should be able to size
-  // independently, not incidentally coupled because they both happen to
-  // be "trees".
-  const heroScale = createTreeScaleSignals({
-    hScale: savedSettings.heroHScale ?? 1,
-    vScale: savedSettings.heroVScale ?? 1,
-  });
-  // Outer edge of the near-spawn grove's annulus (heroZonePositions below)
-  // — the inner edge stays a fixed 10m to leave breathing room at the
-  // geographic anchor.
-  const heroRadius = signal(savedSettings.heroRadius ?? 28);
-  const heroCount = signal(savedSettings.heroCount ?? 130);
-  // Same shape as treeScale, but for the trailside hero-asset scatter
-  // further down (rebuildTrailsideScatter) — kept as its own signal group
-  // rather than reusing treeScale since it governs a visually separate
-  // cluster (spread along the GPX trail, not the near-spawn grove) that the
-  // user should be able to size/densify independently. Default count of 30
-  // is intentionally conservative — see rebuildTrailsideScatter's own
-  // comment on why a full-trail scatter's triangle budget needs care.
+  // Trailside (spread along the GPX/OSM trail corridor) and bulk forest
+  // (the rest of the region) are each their own signal group — visually
+  // separate clusters the user should be able to size independently rather
+  // than incidentally coupled because they're both "trees". Trailside's
+  // default count of 60 is intentionally conservative — see
+  // rebuildTrailsideScatter's own comment on why a full-trail scatter's
+  // triangle budget needs care.
   const trailsideScale = createTrailsideScatterSignals({
     hScale: savedSettings.trailsideHScale ?? 1,
     vScale: savedSettings.trailsideVScale ?? 1,
     count: savedSettings.trailsideCount ?? 60,
   });
-  // Bulk/non-trail-adjacent forest — real (decimated) trees carved out of
-  // ThinInstanceTrees' own candidate pool, so the bulk of the forest reads
-  // as the same species as the hero/trailside real trees instead of a
-  // visibly different (procedural cone/sphere) art style. Own signal group,
-  // same reasoning as trailsideScale: this governs a third visually
-  // distinct cluster the user should be able to size independently.
+  // Bulk/non-trail-adjacent forest — real (decimated) trees scattered over
+  // their own independent candidate disc (createBulkEligibleCandidatePositions
+  // below, sized by bulkForestRadius, not treePointsInRegion), so the bulk of
+  // the forest reads as the same species as the hero/trailside real trees
+  // instead of a procedural art style. Own signal group, same reasoning as
+  // trailsideScale: this governs a visually distinct cluster the user should
+  // be able to size independently.
   const bulkForestScale = createBulkForestScatterSignals({
     hScale: savedSettings.bulkForestHScale ?? 1,
     vScale: savedSettings.bulkForestVScale ?? 1,
@@ -787,10 +741,9 @@ async function main() {
   };
   const bulkForestPoints = () =>
     createBulkEligibleCandidatePositions(bulkForestScale.count.value, bulkForestRadius.value);
-  const proceduralTreePoints = () => treePointsInRegion().slice(0, treeCount.value);
-  // Real (unscaled) treePoints -> render space, same conversion
-  // ThinInstanceTrees.scatter uses internally (X/Z by hScale, Y by vExag,
-  // groundY already sampled once at candidate-generation time).
+  // Real (unscaled) points -> render space, same conversion HeightmapTerrain/
+  // WaterPlane use (X/Z by hScale, Y by vExag, groundY already sampled once
+  // at candidate-generation time).
   const bulkForestPositions = (): Vector3[] =>
     bulkForestPoints()
       .map((p) => {
@@ -834,48 +787,6 @@ async function main() {
     );
   };
   const repositionBulkForestDebounced = debounce(repositionBulkForest, 200);
-
-  let trees = new ThinInstanceTrees(scene, {
-    shadowGenerator: sun.getShadowGenerator(),
-    wind: weatherSystem,
-  });
-  trees.scatter(
-    proceduralTreePoints(),
-    scaleTuning.hScale.value,
-    scaleTuning.vExag.value,
-    treeScale.hScale.value,
-    treeScale.vScale.value,
-  );
-  const rebuildThinInstanceTrees = () => {
-    trees.dispose();
-    trees = new ThinInstanceTrees(scene, {
-      shadowGenerator: sun.getShadowGenerator(),
-      wind: weatherSystem,
-    });
-    trees.scatter(
-      proceduralTreePoints(),
-      scaleTuning.hScale.value,
-      scaleTuning.vExag.value,
-      treeScale.hScale.value,
-      treeScale.vScale.value,
-    );
-    trees.setVisible(visibility.trees.value);
-    // The near-spawn hero grove no longer reacts here — it has its own
-    // heroScale/heroRadius signals now (see the "incorrectly wired to the
-    // poly tree controls" fix above), so Tree H/V-scale/count/region-radius
-    // commits (all of which call rebuildThinInstanceTrees) have nothing to do with it.
-  };
-  // Bulk GLB placement and procedural ThinInstanceTrees now have separate
-  // update functions; neither group's controls invoke the other.
-  // Fires only on region-radius commits — treeCount/hScale/vExag changes
-  // don't shrink/grow the underlying candidate pool, only how much of it is
-  // used, so they don't need to touch maxTreeCount or forestFire's points.
-  const rebuildTreeRegion = () => {
-    maxTreeCount.value = Math.min(treePointsInRegion().length, MAX_TREE_COUNT);
-    treeCount.value = Math.min(treeCount.value, maxTreeCount.value);
-    rebuildThinInstanceTrees();
-    rebuildForestFire();
-  };
 
   // Same technique as @dissonance/world's CloudSystem (a decoupled sibling,
   // DriftingClouds — CloudSystem's sizes/altitudes are hardcoded to DTA's
@@ -996,7 +907,6 @@ async function main() {
           onGpxCommit={(checked) => setMeshesEnabled(gpxMeshes, checked)}
           onWaterCommit={(checked) => water.setVisible(checked)}
           onCloudsCommit={(checked) => clouds.setVisible(checked)}
-          onTreesCommit={(checked) => trees.setVisible(checked)}
           onGridCommit={(checked) => setMeshesEnabled(gridMeshes, checked)}
           onMountainsCommit={(checked) => mountains.setVisible(checked)}
         />
@@ -1027,102 +937,13 @@ async function main() {
   // World — level-1-only scale-tuning (H-scale/V-exagg/water-level) plus
   // tree count, which (unlike H/V/water) applies on every level, so it
   // mounts unconditionally while ScaleTuningRow stays gated beneath it.
-  // Tree count moved here from Sky/Atmosphere — it's world/terrain density,
-  // not a sky control (see TreeCountRow's own comment). Mounted into its
-  // own root (right after Toggles in index.html's DOM order) so "what the
-  // terrain looks like" controls read as one group, even though the
-  // underlying signals (created earlier) and the rebuild logic they
-  // trigger stay exactly where they were.
+  // Mounted into its own root (right after Toggles in index.html's DOM
+  // order) so "what the terrain looks like" controls read as one group,
+  // even though the underlying signals (created earlier) and the rebuild
+  // logic they trigger stay exactly where they were.
   render(
     <Section title='World'>
-      <div style={{ marginTop: '6px', color: '#9cf', fontWeight: 700 }}>Thin-instance trees (procedural)</div>
-      <TreeCountRow
-        label='Thin-instance tree count'
-        signal={treeCount}
-        max={maxTreeCount}
-        onCommit={() => rebuildThinInstanceTrees()}
-      />
-      <SliderRow
-        label='Thin-instance tree radius'
-        signal={treeRegionRadius}
-        min={0}
-        max={treeRegionRadiusMax}
-        step={treeRegionRadiusMax / 100}
-        suffix='m'
-        format={(v) => v.toFixed(0)}
-        commitOn='change'
-        onCommit={() => {
-          rebuildTreeRegion();
-          persistSettings();
-        }}
-      />
-      <SliderRow
-        label='Thin-instance tree H-scale'
-        signal={treeScale.hScale}
-        min={0.25}
-        max={3}
-        step={0.25}
-        suffix='x'
-        format={(v) => v.toFixed(2)}
-        commitOn='change'
-        onCommit={() => rebuildThinInstanceTrees()}
-      />
-      <SliderRow
-        label='Thin-instance tree V-scale'
-        signal={treeScale.vScale}
-        min={0.25}
-        max={3}
-        step={0.25}
-        suffix='x'
-        format={(v) => v.toFixed(2)}
-        commitOn='change'
-        onCommit={() => rebuildThinInstanceTrees()}
-      />
-      <div style={{ marginTop: '10px', color: '#9cf', fontWeight: 700 }}>Hero grove (full-detail GLBs)</div>
-      <SliderRow
-        label='Hero grove count'
-        signal={heroCount}
-        min={0}
-        max={500}
-        step={10}
-        format={(v) => v.toFixed(0)}
-        commitOn='input'
-        onCommit={() => repositionHeroClustersDebounced()}
-      />
-      <SliderRow
-        label='Hero grove H-scale'
-        signal={heroScale.hScale}
-        min={0.25}
-        max={3}
-        step={0.25}
-        suffix='x'
-        format={(v) => v.toFixed(2)}
-        commitOn='input'
-        onCommit={() => repositionHeroClustersDebounced()}
-      />
-      <SliderRow
-        label='Hero grove V-scale'
-        signal={heroScale.vScale}
-        min={0.25}
-        max={3}
-        step={0.25}
-        suffix='x'
-        format={(v) => v.toFixed(2)}
-        commitOn='input'
-        onCommit={() => repositionHeroClustersDebounced()}
-      />
-      <SliderRow
-        label='Hero grove radius'
-        signal={heroRadius}
-        min={11}
-        max={100}
-        step={1}
-        suffix='m'
-        format={(v) => v.toFixed(0)}
-        commitOn='input'
-        onCommit={() => repositionHeroClustersDebounced()}
-      />
-      <div style={{ marginTop: '10px', color: '#9cf', fontWeight: 700 }}>Trailside trees (full-detail GLBs)</div>
+      <div style={{ marginTop: '6px', color: '#9cf', fontWeight: 700 }}>Trailside trees (full-detail GLBs)</div>
       <SliderRow
         label='Trailside H-scale'
         signal={trailsideScale.hScale}
@@ -1367,10 +1188,7 @@ async function main() {
             terrainLowColor: atmosphere.terrainLowColor.value,
             terrainHighColor: atmosphere.terrainHighColor.value,
             sunTint: atmosphere.sunTint.value,
-            treeCount: treeCount.value,
             treeRegionRadius: treeRegionRadius.value,
-            treeHScale: treeScale.hScale.value,
-            treeVScale: treeScale.vScale.value,
             trailsideHScale: trailsideScale.hScale.value,
             trailsideVScale: trailsideScale.vScale.value,
             trailsideCount: trailsideScale.count.value,
@@ -1378,10 +1196,6 @@ async function main() {
             bulkForestVScale: bulkForestScale.vScale.value,
             bulkForestCount: bulkForestScale.count.value,
             bulkForestRadius: bulkForestRadius.value,
-            heroHScale: heroScale.hScale.value,
-            heroVScale: heroScale.vScale.value,
-            heroRadius: heroRadius.value,
-            heroCount: heroCount.value,
             weatherMode: weatherMode.value,
             masterMuted: audio.masterMuted.value,
             windVolume: audio.windVolume.value,
@@ -1479,45 +1293,6 @@ async function main() {
     drive.camera.rotation.copyFrom(savedRotation);
   }
 
-  // Hero-grove anchor — a fixed real-world lat/lon,
-  // not spawn/camera-facing-relative like this used to be (previewRealX/Z
-  // were previewSpawnRealX/Z + a 5m-forward/2.5m-right offset rotated by
-  // player.camera.rotation.y, so the grove actually drifted whenever the
-  // player's saved look direction changed between sessions — not what
-  // "the hero grove is HERE" should mean). "Trailhead grove" is simply the
-  // GPX track's own first point (the trailhead) — the same approximate
-  // spot this already sat at, just pinned instead of drifting.
-  const HERO_ZONE_CENTER_LATLON = { lat: 40.745162, lon: -74.283341 };
-  const heroZoneCenterReal = latLonToWorld(HERO_ZONE_CENTER_LATLON, origin);
-  const heroCenterRealX = heroZoneCenterReal.x;
-  const heroCenterRealZ = heroZoneCenterReal.z;
-
-  // A small grove mixing a real glTF tree with a few other Poly Haven
-  // hero-zone props (two sapling species,
-  // a dead trunk, a stump) — the hero-zone half of the two-tier plan in
-  // docs/THREADS-fold-in.260721.md (T8): full-detail real geometry close to
-  // the player, scattered instead of a single placeholder. Deliberately NOT
-  // a replacement for ThinInstanceTrees' forest-wide scatter (see
-  // HeroTreeInstances.ts for why these assets' tri counts only work at a
-  // small, near-field count). One shared annulus for every species, so they
-  // interleave naturally instead of forming separate rings — centered
-  // around the fixed geographic anchor.
-  const HERO_ZONE_MIN_RADIUS = 10;
-  const heroZonePositions = (count: number): Vector3[] => {
-    const positions: Vector3[] = [];
-    const maxRadius = Math.max(HERO_ZONE_MIN_RADIUS + 1, heroRadius.value);
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
-      const radius = HERO_ZONE_MIN_RADIUS + Math.random() * (maxRadius - HERO_ZONE_MIN_RADIUS);
-      const realX = heroCenterRealX + Math.cos(angle) * radius;
-      const realZ = heroCenterRealZ + Math.sin(angle) * radius;
-      const x = realX * scaleTuning.hScale.value;
-      const z = realZ * scaleTuning.hScale.value;
-      positions.push(new Vector3(x, terrain.getHeightAt(x, z), z));
-    }
-    return positions;
-  };
-
   // Counts are lower for the understory/deadfall props than the tree
   // canopy — a real forest floor has far fewer stumps and dead trunks
   // underfoot than it has live trees overhead.
@@ -1550,63 +1325,21 @@ async function main() {
   ] as const;
 
   const HERO_WEIGHT_TOTAL = HERO_ASSETS.reduce((sum, asset) => sum + asset.count, 0);
-  const heroSpeciesCount = (weight: number) =>
-    Math.round(heroCount.value * (weight / HERO_WEIGHT_TOTAL));
-  const heroClusters: Array<{ weight: number; handle: HeroTreeInstancesHandle }> = [];
-  await Promise.all(
-    HERO_ASSETS.map(async ({ label, url, count: weight }) => {
-      try {
-        const count = heroSpeciesCount(weight);
-        const handle = await loadHeroTreeInstances(
-          scene,
-          url,
-          heroZonePositions(count),
-          scaleTuning.hScale.value * heroScale.hScale.value,
-          scaleTuning.hScale.value * heroScale.vScale.value,
-          sun.getShadowGenerator(),
-          weatherSystem,
-        );
-        heroClusters.push({ weight, handle });
-        console.info(
-          `[HeroTreeInstances] loaded ${count} thin-instanced ${label}(s), ${handle.triangleCount.toLocaleString()} tris each near spawn`,
-        );
-      } catch (error) {
-        console.error(`[HeroTreeInstances] failed to load ${label} cluster`, error);
-      }
-    }),
-  );
 
-  const repositionHeroClusters = () => {
-    for (const { weight, handle } of heroClusters) {
-      const count = heroSpeciesCount(weight);
-      handle.setPlacements(
-        heroZonePositions(count),
-        scaleTuning.hScale.value * heroScale.hScale.value,
-        scaleTuning.hScale.value * heroScale.vScale.value,
-      );
-    }
-  };
-  // Hero grove H/V-scale/radius sliders commit live (like Trailside's/Bulk
-  // forest's) — debounced so dragging doesn't reposition ~130 thin-instance
-  // templates on every tick.
-  const repositionHeroClustersDebounced = debounce(repositionHeroClusters, 200);
-
-  // Same 5 species as the near-spawn grove above, spread along both sides
-  // of the recorded GPX track (the red line) AND the yellow-blazed OSM
-  // trails, instead of clustered in one spot — reuses HERO_ASSETS'
-  // per-species counts as MIX WEIGHTS (not absolute counts) so the
-  // trailside cluster keeps the same species proportions, scaled by the
+  // Spread along both sides of the recorded GPX track (the red line) AND
+  // the yellow-blazed OSM trails, instead of clustered in one spot — reuses
+  // HERO_ASSETS' per-species counts as MIX WEIGHTS (not absolute counts) so
+  // the trailside cluster keeps the same species proportions, scaled by the
   // user-facing "Trailside count" slider instead of a fixed total.
   //
   // Segments are computed once, in real (unscaled) meters, same convention
   // as buildPolylineMeshes — trailTotalLength stays fixed even as hScale
   // changes, only the final render-space conversion below depends on it.
-  // Full-trail scatter was a deliberate choice over bounding to near-spawn:
-  // it means total triangle cost scales with the count slider alone, which
-  // is exactly the "watch the FPS readout and find the real ceiling"
-  // pattern this app already uses for tree count / region radius — see
+  // Total triangle cost scales with the count slider alone, which is
+  // exactly the "watch the FPS readout and find the real ceiling" pattern
+  // this app already uses for candidate-pool-backed sliders — see
   // MAX_TREE_COUNT's own comment. Default count (60, see trailsideScale's
-  // creation above) starts well below the near-spawn grove's ~150 total.
+  // creation above) is intentionally conservative.
   type TrailSegment = { ax: number; az: number; bx: number; bz: number; length: number; start: number };
   const trailSegments: TrailSegment[] = [];
   let trailTotalLength = 0;
@@ -1756,23 +1489,15 @@ async function main() {
       });
   };
 
-  // Forest fire game mechanic — press F (or the HUD button) to ignite the
-  // nearest tree; fire spreads through neighboring trees over time. Reuses
-  // the same treePointsInRegion() the forest was scattered from (not the
-  // full candidate pool), so it can't ignite trees outside what's actually
-  // rendered — rebuilt (dispose + reconstruct) whenever the tree region
-  // radius changes, same as rebuildThinInstanceTrees.
+  // Forest fire game mechanic — press F to ignite the nearest tree; fire
+  // spreads through neighboring trees over time. Reuses treePointsInRegion()
+  // (not the full candidate pool), so it can't ignite trees outside that
+  // region — treeRegionRadius has no live HUD control anymore, so this pool
+  // is fixed for the session once built.
   let forestFire = new ForestFire(scene, treePointsInRegion(), {
     horizontalScale: scaleTuning.hScale.value,
     verticalExaggeration: scaleTuning.vExag.value,
   });
-  const rebuildForestFire = () => {
-    forestFire.dispose();
-    forestFire = new ForestFire(scene, treePointsInRegion(), {
-      horizontalScale: scaleTuning.hScale.value,
-      verticalExaggeration: scaleTuning.vExag.value,
-    });
-  };
   const igniteAtActiveController = () => {
     const pos = controllers[movement.activeMode.value].getPosition();
     forestFire.ignite(pos.x / scaleTuning.hScale.value, pos.z / scaleTuning.hScale.value);
@@ -1883,16 +1608,14 @@ async function main() {
     drive.setTerrain(terrain);
     water.setScale(scaleTuning.hScale.value, scaleTuning.vExag.value, scaleTuning.waterLevel.value);
     water.addToRenderList(terrain.getMesh());
-    repositionHeroClusters();
     rebuildTrailsideScatter();
     rebuildLocationProps();
 
     rebuildClouds();
     rebuildMountains();
 
-    // Positions are cached (treePoints), so this just re-scatters the
-    // same forest at the new scale rather than re-rolling placement.
-    rebuildThinInstanceTrees();
+    // Positions are cached (treePoints), so this just re-scatters the same
+    // candidate points at the new scale rather than re-rolling placement.
     repositionBulkForest();
     forestFire.setScale(scaleTuning.hScale.value, scaleTuning.vExag.value);
 
@@ -1964,10 +1687,7 @@ async function main() {
               terrainLowColor: atmosphere.terrainLowColor.value,
               terrainHighColor: atmosphere.terrainHighColor.value,
               sunTint: atmosphere.sunTint.value,
-              treeCount: treeCount.value,
               treeRegionRadius: treeRegionRadius.value,
-              treeHScale: treeScale.hScale.value,
-              treeVScale: treeScale.vScale.value,
               trailsideHScale: trailsideScale.hScale.value,
               trailsideVScale: trailsideScale.vScale.value,
               trailsideCount: trailsideScale.count.value,
@@ -1975,10 +1695,6 @@ async function main() {
               bulkForestVScale: bulkForestScale.vScale.value,
               bulkForestCount: bulkForestScale.count.value,
               bulkForestRadius: bulkForestRadius.value,
-              heroHScale: heroScale.hScale.value,
-              heroVScale: heroScale.vScale.value,
-              heroRadius: heroRadius.value,
-              heroCount: heroCount.value,
               weatherMode: weatherMode.value,
               masterMuted: audio.masterMuted.value,
               windVolume: audio.windVolume.value,
@@ -2065,10 +1781,7 @@ async function main() {
       terrainLowColor: atmosphere.terrainLowColor.value,
       terrainHighColor: atmosphere.terrainHighColor.value,
       sunTint: atmosphere.sunTint.value,
-      treeCount: treeCount.value,
       treeRegionRadius: treeRegionRadius.value,
-      treeHScale: treeScale.hScale.value,
-      treeVScale: treeScale.vScale.value,
       trailsideHScale: trailsideScale.hScale.value,
       trailsideVScale: trailsideScale.vScale.value,
       trailsideCount: trailsideScale.count.value,
@@ -2076,10 +1789,6 @@ async function main() {
       bulkForestVScale: bulkForestScale.vScale.value,
       bulkForestCount: bulkForestScale.count.value,
       bulkForestRadius: bulkForestRadius.value,
-      heroHScale: heroScale.hScale.value,
-      heroVScale: heroScale.vScale.value,
-      heroRadius: heroRadius.value,
-      heroCount: heroCount.value,
       weatherMode: weatherMode.value,
       hudVisible,
       worldBounded: worldBounded.value,

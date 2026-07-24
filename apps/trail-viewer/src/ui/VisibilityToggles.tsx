@@ -24,13 +24,12 @@ export type VisibilityTogglesProps = {
   onGpxCommit: (checked: boolean) => void;
   onWaterCommit: (checked: boolean) => void;
   onCloudsCommit: (checked: boolean) => void;
-  onTreesCommit: (checked: boolean) => void;
   onGridCommit: (checked: boolean) => void;
   onMountainsCommit: (checked: boolean) => void;
 };
 
 export function VisibilityToggles({
-  signals, onTerrainCommit, onOsmCommit, onGpxCommit, onWaterCommit, onCloudsCommit, onTreesCommit, onGridCommit,
+  signals, onTerrainCommit, onOsmCommit, onGpxCommit, onWaterCommit, onCloudsCommit, onGridCommit,
   onMountainsCommit,
 }: VisibilityTogglesProps) {
   return (
@@ -40,7 +39,6 @@ export function VisibilityToggles({
       <ToggleLabel label="GPX Track" signal={signals.gpx} onCommit={onGpxCommit} />
       <ToggleLabel label="Water" signal={signals.water} onCommit={onWaterCommit} />
       <ToggleLabel label="Clouds" signal={signals.clouds} onCommit={onCloudsCommit} />
-      <ToggleLabel label="Thin trees" signal={signals.trees} onCommit={onTreesCommit} />
       <ToggleLabel label="Lat/Long Grid" signal={signals.grid} onCommit={onGridCommit} />
       <ToggleLabel label="Mountains" signal={signals.mountains} onCommit={onMountainsCommit} />
     </>

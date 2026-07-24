@@ -1,5 +1,9 @@
 import { Scene, Mesh, MeshBuilder, StandardMaterial, PBRMaterial, Color3, Matrix, Quaternion, Vector3 } from '@babylonjs/core';
-import type { TreePoint } from './ThinInstanceTrees';
+
+// A real-world (x, z) position plus its real (unscaled) ground elevation —
+// e.g. straight out of HeightmapSampler.sampleHeight, same convention
+// HeightmapTerrain/WaterPlane use.
+export type TreePoint = { x: number; z: number; groundY: number };
 
 export type ForestFireOptions = {
   horizontalScale?: number;
@@ -34,8 +38,8 @@ const DEFAULT_MAX_ACTIVE_FIRES = 60;
 // tight radius would frequently find nothing near an arbitrary player position.
 const DEFAULT_IGNITE_RADIUS = 150;
 
-// A game-mechanic layer on top of ThinInstanceTrees' scattered points:
-// ignite the nearest tree, then fire spreads through unburnt neighbors
+// A game-mechanic layer on top of a scattered set of TreePoints: ignite the
+// nearest tree, then fire spreads through unburnt neighbors
 // within spreadRadius over time, throttled by maxActiveFires so growth is
 // gradual instead of the whole forest catching in one frame.
 //
@@ -102,7 +106,7 @@ export class ForestFire {
   }
 
   // Repositions/rescales active flames and rebuilds the burnt-stump thin
-  // instances from tracked state — unlike ThinInstanceTrees/DriftingClouds,
+  // instances from tracked state — unlike a plain scatter/DriftingClouds,
   // fire has real in-progress state (which trees are burnt/burning) worth
   // preserving across a rescale rather than just disposing and starting over.
   setScale(horizontalScale: number, verticalExaggeration: number): void {

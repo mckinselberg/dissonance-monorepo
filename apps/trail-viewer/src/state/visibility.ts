@@ -11,7 +11,6 @@ export type VisibilitySignals = {
   gpx: Signal<boolean>;
   water: Signal<boolean>;
   clouds: Signal<boolean>;
-  trees: Signal<boolean>;
   grid: Signal<boolean>;
   mountains: Signal<boolean>;
 };
@@ -23,7 +22,6 @@ export function createVisibilitySignals(): VisibilitySignals {
     gpx: signal(true),
     water: signal(true),
     clouds: signal(true),
-    trees: signal(true),
     grid: signal(false),
     mountains: signal(true),
   };

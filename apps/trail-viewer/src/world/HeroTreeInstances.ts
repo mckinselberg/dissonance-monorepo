@@ -25,9 +25,9 @@ const jitterScale = (base: number) => base * (SCALE_JITTER_MIN + Math.random() *
 // that doesn't exist yet. Originally written for tree_small_02 (see
 // public/models/tree-small-02/ASSET-LICENSE.txt — 52k tris/tree), now
 // reused for the other Poly Haven hero-zone props (saplings, dead trunk,
-// stump) — all similarly only viable at a small, near-field instance count,
-// NOT a drop-in replacement for ThinInstanceTrees' forest-wide scatter,
-// which stays procedural.
+// stump), and for the bulk-forest and trailside tiers (main.tsx) — every
+// caller thin-instances one loaded asset across a set of placements, just
+// with different candidate-point sources and counts.
 //
 // Multi-material GLBs (trunk+leaf-card submeshes with different vertex
 // attributes) can't go through Mesh.MergeMeshes — it requires identical
