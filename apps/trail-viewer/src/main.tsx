@@ -710,11 +710,10 @@ async function main() {
     vScale: savedSettings.bulkForestVScale ?? 1,
     count: savedSettings.bulkForestCount ?? 200,
   });
-  // Both slices come from the SAME treePointsInRegion() list — points
-  // [0, bulkCount) go real, [bulkCount, treeCount) stay procedural — so
-  // region radius / treeCount / this slider can all change independently
-  // without ever double-placing or skipping a candidate point. Clamped so
-  // the real slice can never exceed the procedural slider's own total.
+  // Its own disc (bulkForestRadius), independent of treeRegionRadius/
+  // treePointsInRegion — the region-radius pool now only feeds ForestFire,
+  // so bulk forest generating its own candidates keeps it fully decoupled
+  // from that tier's session-fixed radius.
   const bulkForestRadius = signal(savedSettings.bulkForestRadius ?? defaultTreeRegionRadius);
   const bulkForestPlacedCount = signal(0);
   const createBulkEligibleCandidatePositions = (count: number, radius: number): TreePoint[] => {
@@ -743,14 +742,15 @@ async function main() {
     createBulkEligibleCandidatePositions(bulkForestScale.count.value, bulkForestRadius.value);
   // Real (unscaled) points -> render space, same conversion HeightmapTerrain/
   // WaterPlane use (X/Z by hScale, Y by vExag, groundY already sampled once
-  // at candidate-generation time).
-  const bulkForestPositions = (): Vector3[] =>
-    bulkForestPoints()
-      .map((p) => {
-        const x = p.x * scaleTuning.hScale.value;
-        const z = p.z * scaleTuning.hScale.value;
-        return new Vector3(x, p.groundY * scaleTuning.vExag.value, z);
-      });
+  // at candidate-generation time). Shared by the dominant scatter tree and
+  // the understory mix below.
+  const toRenderPositions = (points: TreePoint[]): Vector3[] =>
+    points.map((p) => {
+      const x = p.x * scaleTuning.hScale.value;
+      const z = p.z * scaleTuning.hScale.value;
+      return new Vector3(x, p.groundY * scaleTuning.vExag.value, z);
+    });
+  const bulkForestPositions = (): Vector3[] => toRenderPositions(bulkForestPoints());
 
   const BULK_FOREST_URL = `${import.meta.env.BASE_URL}models/tree-small-02-scatter/tree_small_02_scatter_preview.glb`;
   let bulkForest: HeroTreeInstancesHandle | null = null;
@@ -773,18 +773,75 @@ async function main() {
     bulkForestPlacedCount.value = 0;
     console.error('[BulkForest] failed to load bulk forest tree', error);
   }
+
+  // Prototype: sparse understory variety mixed into the bulk tier, same
+  // weighted-species pattern as HERO_ASSETS/trailside (independent random
+  // draw per species, sized as a fraction of the dominant tree's own count)
+  // — but using assets that already exist at a real-world scatter-tier tri
+  // budget (dead-tree-trunk-02/tree-stump-01, both already decimated-enough
+  // to have shipped as HERO_ASSETS' own understory props) rather than
+  // full-detail saplings, since bulk forest runs at 10x+ hero-grove's
+  // instance count. Fractions are deliberately small and easy to retune —
+  // no new asset authoring, just budget: at a count of 2250 this adds
+  // ~110 extra instances (~1.8M tris) on top of the dominant tree's own
+  // ~17M, for real silhouette variety instead of one repeated clone.
+  const BULK_UNDERSTORY_ASSETS = [
+    {
+      label: 'tree_stump_01',
+      url: `${import.meta.env.BASE_URL}models/tree-stump-01/tree_stump_01_preview.glb`,
+      fraction: 0.03,
+    },
+    {
+      label: 'dead_tree_trunk_02',
+      url: `${import.meta.env.BASE_URL}models/dead-tree-trunk-02/dead_tree_trunk_02_preview.glb`,
+      fraction: 0.02,
+    },
+  ] as const;
+  const bulkUnderstoryCount = (fraction: number) => Math.round(bulkForestScale.count.value * fraction);
+  const bulkUnderstoryPositions = (fraction: number): Vector3[] =>
+    toRenderPositions(createBulkEligibleCandidatePositions(bulkUnderstoryCount(fraction), bulkForestRadius.value));
+
+  const bulkUnderstoryClusters: Array<{ fraction: number; handle: HeroTreeInstancesHandle }> = [];
+  await Promise.all(
+    BULK_UNDERSTORY_ASSETS.map(async ({ label, url, fraction }) => {
+      try {
+        const positions = bulkUnderstoryPositions(fraction);
+        const handle = await loadHeroTreeInstances(
+          scene,
+          url,
+          positions,
+          scaleTuning.hScale.value * bulkForestScale.hScale.value,
+          scaleTuning.hScale.value * bulkForestScale.vScale.value,
+          sun.getShadowGenerator(),
+          weatherSystem,
+        );
+        bulkUnderstoryClusters.push({ fraction, handle });
+        console.info(`[BulkForest] loaded ${positions.length} thin-instanced ${label}(s) as understory`);
+      } catch (error) {
+        console.error(`[BulkForest] failed to load ${label} understory cluster`, error);
+      }
+    }),
+  );
+
   const repositionBulkForest = () => {
     const positions = bulkForestPositions();
     if (!bulkForest) {
       bulkForestPlacedCount.value = 0;
-      return;
+    } else {
+      bulkForestPlacedCount.value = positions.length;
+      bulkForest.setPlacements(
+        positions,
+        scaleTuning.hScale.value * bulkForestScale.hScale.value,
+        scaleTuning.hScale.value * bulkForestScale.vScale.value,
+      );
     }
-    bulkForestPlacedCount.value = positions.length;
-    bulkForest.setPlacements(
-      positions,
-      scaleTuning.hScale.value * bulkForestScale.hScale.value,
-      scaleTuning.hScale.value * bulkForestScale.vScale.value,
-    );
+    for (const { fraction, handle } of bulkUnderstoryClusters) {
+      handle.setPlacements(
+        bulkUnderstoryPositions(fraction),
+        scaleTuning.hScale.value * bulkForestScale.hScale.value,
+        scaleTuning.hScale.value * bulkForestScale.vScale.value,
+      );
+    }
   };
   const repositionBulkForestDebounced = debounce(repositionBulkForest, 200);
 
