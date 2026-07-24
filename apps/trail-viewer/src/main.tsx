@@ -716,9 +716,24 @@ async function main() {
   // from that tier's session-fixed radius.
   const bulkForestRadius = signal(savedSettings.bulkForestRadius ?? defaultTreeRegionRadius);
   const bulkForestPlacedCount = signal(0);
-  const createBulkEligibleCandidatePositions = (count: number, radius: number): TreePoint[] => {
+  // Stable string hash (FNV-1a) — gives each species its own seed salt so
+  // multiple calls at the SAME radius (dominant tree + every understory
+  // species below) don't draw the same deterministic sequence. Without
+  // this, every call's leading N accepted points were identical regardless
+  // of which species asked, since the seed depended only on radius — the
+  // understory props were landing exactly on top of the dominant tree (and
+  // each other), reading as floating/embedded rather than freestanding.
+  const hashSeed = (label: string): number => {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < label.length; i++) {
+      h ^= label.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  };
+  const createBulkEligibleCandidatePositions = (count: number, radius: number, seedSalt: number): TreePoint[] => {
     if (count <= 0 || radius <= 0) return [];
-    let state = (Math.round(radius * 10) ^ 0x9e3779b9) >>> 0;
+    let state = ((Math.round(radius * 10) ^ 0x9e3779b9) ^ seedSalt) >>> 0;
     const random = () => {
       state += 0x6d2b79f5;
       let value = state;
@@ -739,7 +754,7 @@ async function main() {
     return positions;
   };
   const bulkForestPoints = () =>
-    createBulkEligibleCandidatePositions(bulkForestScale.count.value, bulkForestRadius.value);
+    createBulkEligibleCandidatePositions(bulkForestScale.count.value, bulkForestRadius.value, hashSeed('tree_small_02_scatter'));
   // Real (unscaled) points -> render space, same conversion HeightmapTerrain/
   // WaterPlane use (X/Z by hScale, Y by vExag, groundY already sampled once
   // at candidate-generation time). Shared by the dominant scatter tree and
@@ -798,14 +813,16 @@ async function main() {
     },
   ] as const;
   const bulkUnderstoryCount = (fraction: number) => Math.round(bulkForestScale.count.value * fraction);
-  const bulkUnderstoryPositions = (fraction: number): Vector3[] =>
-    toRenderPositions(createBulkEligibleCandidatePositions(bulkUnderstoryCount(fraction), bulkForestRadius.value));
+  const bulkUnderstoryPositions = (label: string, fraction: number): Vector3[] =>
+    toRenderPositions(
+      createBulkEligibleCandidatePositions(bulkUnderstoryCount(fraction), bulkForestRadius.value, hashSeed(label)),
+    );
 
-  const bulkUnderstoryClusters: Array<{ fraction: number; handle: HeroTreeInstancesHandle }> = [];
+  const bulkUnderstoryClusters: Array<{ label: string; fraction: number; handle: HeroTreeInstancesHandle }> = [];
   await Promise.all(
     BULK_UNDERSTORY_ASSETS.map(async ({ label, url, fraction }) => {
       try {
-        const positions = bulkUnderstoryPositions(fraction);
+        const positions = bulkUnderstoryPositions(label, fraction);
         const handle = await loadHeroTreeInstances(
           scene,
           url,
@@ -815,7 +832,7 @@ async function main() {
           sun.getShadowGenerator(),
           weatherSystem,
         );
-        bulkUnderstoryClusters.push({ fraction, handle });
+        bulkUnderstoryClusters.push({ label, fraction, handle });
         console.info(`[BulkForest] loaded ${positions.length} thin-instanced ${label}(s) as understory`);
       } catch (error) {
         console.error(`[BulkForest] failed to load ${label} understory cluster`, error);
@@ -835,9 +852,9 @@ async function main() {
         scaleTuning.hScale.value * bulkForestScale.vScale.value,
       );
     }
-    for (const { fraction, handle } of bulkUnderstoryClusters) {
+    for (const { label, fraction, handle } of bulkUnderstoryClusters) {
       handle.setPlacements(
-        bulkUnderstoryPositions(fraction),
+        bulkUnderstoryPositions(label, fraction),
         scaleTuning.hScale.value * bulkForestScale.hScale.value,
         scaleTuning.hScale.value * bulkForestScale.vScale.value,
       );
