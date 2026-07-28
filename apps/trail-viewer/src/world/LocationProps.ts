@@ -30,6 +30,12 @@ export type LocationEntry = {
         count: number;
         step: [number, number];
       };
+      // Stable identity for a single (non-repeated) placement — e.g. singling
+      // one specific building out of an otherwise-anonymous thin-instanced
+      // row for collision exceptions or later T26 identified-overlay
+      // hookup. Only meaningful without `repeat` (every repeated instance
+      // sharing one placement entry has no way to carry distinct ids yet).
+      id?: string;
     }>;
   };
   // A utility/power-line corridor — a freeform polyline (not grid-snapped

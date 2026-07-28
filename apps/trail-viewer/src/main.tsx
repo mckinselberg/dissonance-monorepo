@@ -1626,6 +1626,11 @@ async function main() {
     atmosphere.windowGlow.value,
     sun.getShadowGenerator(),
   );
+  // Composite GLBs load asynchronously. Scale/color sliders can request a
+  // second rebuild before the first one finishes, so use a generation token
+  // to ensure an older completion disposes its own newly-created meshes
+  // instead of becoming a second live copy of the boulevard.
+  let compositeLocationsGeneration = 0;
   // Same rectangle clampToWorldBounds/mountainRingOptions already treat as
   // "the edge of the world" (realWidth/realDepth, DEM bbox centered on
   // origin) — a corridor with `extendToWorldBounds: true` stretches its two
@@ -1648,13 +1653,14 @@ async function main() {
     sun.getShadowGenerator(),
   );
   utilityCorridors.setVisible(visibility.powerLines.value);
-  // Buildings (compositeLocations) deliberately don't feed this yet — a
-  // circle collider is a poor fit for a rectangular building footprint
-  // (either clips corners or blocks well outside the flat walls); scoped
-  // down to props+poles for now, buildings/Drive-mode collision are a
-  // follow-up (Dan, 2026-07-27).
+  // Buildings joined props/poles here 2026-07-27 ("make all buildings but
+  // milo's apartment building un-enterable") — CompositeLocations.ts's own
+  // BUILDING_COLLISION_RADII/MILOS_BUILDING_ID own the "which buildings,
+  // how big a circle" decisions; this just combines whatever each loader
+  // currently reports. Drive mode still has no collision logic at all
+  // (only PlayerController/Walk does) — still a real follow-up, unchanged.
   const applyPlayerColliders = () => {
-    player.setColliders([...locationProps.colliders, ...utilityCorridors.colliders]);
+    player.setColliders([...locationProps.colliders, ...utilityCorridors.colliders, ...compositeLocations.colliders]);
   };
   applyPlayerColliders();
   const rebuildLocationProps = () => {
@@ -1666,6 +1672,7 @@ async function main() {
       (x, z) => terrain.getHeightAt(x, z),
       sun.getShadowGenerator(),
     );
+    const requestedCompositeGeneration = ++compositeLocationsGeneration;
     compositeLocations.dispose();
     void loadCompositeLocations(
       scene,
@@ -1679,7 +1686,12 @@ async function main() {
       sun.getShadowGenerator(),
     )
       .then((next) => {
+        if (requestedCompositeGeneration !== compositeLocationsGeneration) {
+          next.dispose();
+          return;
+        }
         compositeLocations = next;
+        applyPlayerColliders();
       })
       .catch((error) => {
         console.error('[CompositeLocations] failed to rebuild', error);

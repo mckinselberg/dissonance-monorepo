@@ -17,7 +17,7 @@
         { "asset": "sidewalk-straight", "grid": [-0.75, -7.5], "repeat": { "count": 29, "step": [0, 0.5] } },
         { "asset": "sidewalk-straight", "grid": [0.75, -7.5], "repeat": { "count": 29, "step": [0, 0.5] } },
         { "asset": "building-small", "grid": [-2.8, -5], "rotationDegrees": 90 },
-        { "asset": "building-medium", "grid": [-3.2, 0], "rotationDegrees": 90 },
+        { "asset": "building-medium", "grid": [-3.2, 0], "rotationDegrees": 90, "id": "milos-building" },
         { "asset": "building-large", "grid": [-3.7, 5], "rotationDegrees": 90 },
         { "asset": "building-medium", "grid": [3.2, -4], "rotationDegrees": -90 },
         { "asset": "building-small", "grid": [2.8, 1], "rotationDegrees": -90 },

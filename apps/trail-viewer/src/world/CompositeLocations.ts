@@ -14,13 +14,38 @@ import type {
   Scene,
   ShadowGenerator,
 } from '@babylonjs/core';
+import type { Collider } from '@dissonance/world';
 import type { LocationEntry } from './LocationProps';
 import { buildStreetLamp } from './LocationProps';
 import { ensureGltfLoader } from './gltfLoader';
 
 export interface CompositeLocationsHandle {
+  // One collider per solid (non-Milo's-building) building instance — see
+  // BUILDING_COLLISION_RADII/MILOS_BUILDING_ID below. Streets/sidewalks/
+  // props/lamps stay walk-through; only buildings are "un-enterable" here.
+  colliders: Collider[];
   dispose(): void;
 }
+
+// Real footprint dimensions read straight off each glTF's own position
+// accessor min/max (checked directly, not guessed) — small: 12.46x14.54m,
+// medium: 15.06x13.06m, large: 20.64x16.64m. A circle can't fit a
+// rectangle exactly (this is the "buildings are a follow-up" gap flagged
+// when props/poles shipped, 2026-07-27); radius = average of the two
+// half-extents, not the half-diagonal, so the collider stays inside the
+// footprint on the flat walls instead of bulging past them into the
+// sidewalk — undershoots at the corners, which is the safer failure mode.
+const BUILDING_COLLISION_RADII: Record<string, number> = {
+  'building-small': 6.5,
+  'building-medium': 7,
+  'building-large': 9,
+};
+// One building on "dissonance boulevard" is tagged this id in locations.json
+// (Dan, 2026-07-27: "all buildings but milo's apartment building
+// un-enterable") — excluded from the collider list below so the player can
+// walk into its footprint; everything else with a BUILDING_COLLISION_RADII
+// entry is solid.
+const MILOS_BUILDING_ID = 'milos-building';
 
 function isKnownAsset(asset: string): boolean {
   return asset in CITY_ASSETS || asset in PROCEDURAL_ASSETS;
@@ -155,6 +180,7 @@ const PROCEDURAL_ASSETS: Record<string, (scene: Scene) => Mesh> = {
 // is known (see ExpandedPlacement).
 type PositionedPlacement = {
   asset: string;
+  id?: string;
   x: number;
   z: number;
   rotationRadians: number;
@@ -193,6 +219,7 @@ function expandCompoundPositions(
       const scale = placement.scale ?? 1;
       expanded.push({
         asset: placement.asset,
+        id: placement.id,
         x: anchor.x + (localX * cos - localZ * sin) * horizontalScale,
         z: anchor.z + (localX * sin + localZ * cos) * horizontalScale,
         rotationRadians: compoundRotation + (placement.rotationDegrees ?? 0) * Math.PI / 180,
@@ -416,6 +443,7 @@ export async function loadCompositeLocations(
   await ensureGltfLoader();
   const byAsset = new Map<string, ExpandedPlacement[]>();
   const gradePads: Mesh[] = [];
+  const colliders: Collider[] = [];
   // Built once and shared by every "fake interior" material across every
   // building type/instance — see applyWindowTint's own comment for why
   // these replaced the kit's baked room photo.
@@ -453,6 +481,11 @@ export async function loadCompositeLocations(
       const entries = byAsset.get(placement.asset) ?? [];
       entries.push({ ...placement, groundY: planeHeightAt(plane, placement.x, placement.z) });
       byAsset.set(placement.asset, entries);
+
+      const buildingRadius = BUILDING_COLLISION_RADII[placement.asset];
+      if (buildingRadius !== undefined && placement.id !== MILOS_BUILDING_ID) {
+        colliders.push({ x: placement.x, z: placement.z, radius: buildingRadius * horizontalScale });
+      }
     }
   }
 
@@ -473,6 +506,7 @@ export async function loadCompositeLocations(
   }));
 
   return {
+    colliders,
     dispose: () => {
       containers.forEach((container) => container.dispose());
       // false/true: skip the (already-null) parent-hierarchy walk, do
