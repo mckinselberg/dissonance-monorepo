@@ -70,7 +70,7 @@ export class TrailPlayerAudio {
     this.footstepInterval = window.setInterval(() => {
       if (this.footstepMuted) return;
       const vol = -10 + this.currentBreathLoad * 6 + (Math.random() - 0.5) * 2;
-      const crack = 0; // Math.random() < 0.06;
+      const crack = false; // Math.random() < 0.06;
       const pan = (Math.random() - 0.5) * 0.15;
       AudioEngine.playTrailStep(pan, vol, crack);
     }, intervalMs);
