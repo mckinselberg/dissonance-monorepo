@@ -15,7 +15,7 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  apps/dont-turn-around:
+  apps/museum/dont-turn-around:
     dependencies:
       '@babylonjs/core':
         specifier: ^7.0.0
@@ -25,37 +25,37 @@ importers:
         version: 7.54.3(@babylonjs/core@7.54.3)(babylonjs-gltf2interface@7.54.3)
       '@dissonance/audio':
         specifier: workspace:*
-        version: link:../../packages/audio
+        version: link:../../../packages/audio
       '@dissonance/engine':
         specifier: workspace:*
-        version: link:../../packages/engine
+        version: link:../../../packages/engine
       '@dissonance/glow':
         specifier: workspace:*
-        version: link:../../packages/glow
+        version: link:../../../packages/glow
       '@dissonance/input':
         specifier: workspace:*
-        version: link:../../packages/input
+        version: link:../../../packages/input
       '@dissonance/navigation':
         specifier: workspace:*
-        version: link:../../packages/navigation
+        version: link:../../../packages/navigation
       '@dissonance/persistence':
         specifier: workspace:*
-        version: link:../../packages/persistence
+        version: link:../../../packages/persistence
       '@dissonance/player':
         specifier: workspace:*
-        version: link:../../packages/player
+        version: link:../../../packages/player
       '@dissonance/pursuer':
         specifier: workspace:*
-        version: link:../../packages/pursuer
+        version: link:../../../packages/pursuer
       '@dissonance/pursuit':
         specifier: workspace:*
-        version: link:../../packages/pursuit
+        version: link:../../../packages/pursuit
       '@dissonance/shared-types':
         specifier: workspace:*
-        version: link:../../packages/shared-types
+        version: link:../../../packages/shared-types
       '@dissonance/world':
         specifier: workspace:*
-        version: link:../../packages/world
+        version: link:../../../packages/world
       tone:
         specifier: ^15.0.4
         version: 15.1.22
@@ -76,7 +76,16 @@ importers:
         specifier: ^5.2.0
         version: 5.4.21
 
-  apps/trail-viewer:
+  apps/museum:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vite:
+        specifier: ^5.2.0
+        version: 5.4.21
+
+  apps/world:
     dependencies:
       '@babylonjs/core':
         specifier: ^7.0.0

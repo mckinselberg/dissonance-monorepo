@@ -1,29 +1,33 @@
 services:
   - type: web
-    name: dont-turn-around
+    name: dissonance
     env: static
-    # Builds three apps, then stitches their dist/ outputs into one publish dir so
-    # they share this service's domain: home at /, don't turn around at
-    # /dont-turn-around/, and trail-viewer at /trail-viewer/.
+    # Builds the launcher and diorama layers, then stitches them into one site:
+    # home at /, the living world at /world/, the museum at /museum/, and the
+    # preserved DTA exhibit at /museum/dont-turn-around/.
     buildCommand: >-
-      pnpm turbo build --filter=home --filter=dont-turn-around --filter=trail-viewer &&
+      pnpm turbo build --filter=home --filter=world --filter=museum --filter=dont-turn-around &&
       rm -rf dist &&
-      mkdir -p dist/dont-turn-around &&
-      mkdir -p dist/trail-viewer &&
+      mkdir -p dist/world &&
+      mkdir -p dist/museum/dont-turn-around &&
       cp -r apps/home/dist/. dist/ &&
-      cp -r apps/dont-turn-around/dist/. dist/dont-turn-around/ &&
-      cp -r apps/trail-viewer/dist/. dist/trail-viewer/
+      cp -r apps/world/dist/. dist/world/ &&
+      cp -r apps/museum/dist/. dist/museum/ &&
+      cp -r apps/museum/dont-turn-around/dist/. dist/museum/dont-turn-around/
     staticPublishPath: ./dist
     branch: main
     autoDeploy: true
     routes:
       # Order matters: more specific routes must come before the catch-all below.
       - type: rewrite
-        source: /dont-turn-around/*
-        destination: /dont-turn-around/index.html
+        source: /museum/dont-turn-around/*
+        destination: /museum/dont-turn-around/index.html
       - type: rewrite
-        source: /trail-viewer/*
-        destination: /trail-viewer/index.html
+        source: /museum/*
+        destination: /museum/index.html
+      - type: rewrite
+        source: /world/*
+        destination: /world/index.html
       - type: rewrite
         source: /*
         destination: /index.html

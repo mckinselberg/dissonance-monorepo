@@ -1,0 +1,47 @@
+Tree Small 02
+=============
+
+Source: https://polyhaven.com/a/tree_small_02
+Author: Rico Cilliers
+License: CC0 1.0 Universal
+License details: https://polyhaven.com/license
+
+Runtime derivative
+------------------
+
+Generated from Poly Haven's 1K glTF with gltfpack 1.1:
+
+  gltfpack -i tree_small_02_1k.gltf -o tree_small_02_preview.glb -si 0.025 -sp -kn -km
+
+The pass preserves the original nine 1K JPEG textures. It reduces the model
+from 2,062,487 to 52,353 triangles and packages it as one GLB for the browser
+preview. This derivative is also available under CC0.
+
+Re-simplified further (2026-07-23, gltfpack 1.2, -si 0.015) to 32,854
+triangles — a deliberate art-direction choice (Dan: "decimate the quality
+slightly to give the game a more distinct visual style"), not a performance
+fix; this asset wasn't the bottleneck. Chosen from a 38,676/32,854/27,040
+tri three-way comparison as the smallest reduction that's still
+indistinguishable from the original at normal viewing distance — ~63% of
+the original triangle count, well clear of the ~15%-and-below range where
+the earlier scatter-tier pass (see tree-small-02-scatter/ASSET-LICENSE.txt)
+found visible leaf-card loss.
+
+Trunk+branch diffuse (bark/wood) were further color-normalized (2026-07-23)
+against the other 4 tree species' bark/wood textures — six bark/wood
+diffuse maps across all species were visibly inconsistent in tone (Poly
+Haven luminance ranged 0.22-0.41 across them, different photo shoots),
+blended 60% toward the 6-texture average via the same NumPy/Pillow
+Reinhard-style statistical color transfer used for the ground textures
+(see apps/world/public/textures/rocky-terrain-02's ASSET-LICENSE.txt
+for the technique). Leaves diffuse was deliberately left untouched — it's
+an alpha-cutout card atlas with a transparent background (a whole-image
+tone transform would corrupt it), and different species having different
+foliage color is correct, not something to normalize away.
+
+Meshopt runtime compression is intentionally disabled for this preview so the
+Babylon client does not need to fetch a decoder from an external CDN.
+
+Uses meshoptimizer/gltfpack. Copyright (c) 2016-2026 Arseny Kapoulkine.
+meshoptimizer is distributed under the MIT License:
+https://github.com/zeux/meshoptimizer

@@ -6,12 +6,17 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/dont-turn-around': {
+      '/museum/dont-turn-around': {
+        target: 'http://localhost:5176',
+        changeOrigin: true,
+        ws: true,
+      },
+      '/museum': {
         target: 'http://localhost:5174',
         changeOrigin: true,
         ws: true,
       },
-      '/trail-viewer': {
+      '/world': {
         target: 'http://localhost:5175',
         changeOrigin: true,
         ws: true,

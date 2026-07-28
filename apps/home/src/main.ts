@@ -14,8 +14,8 @@ app.innerHTML = `
       --line: rgba(198, 226, 255, 0.16);
       --text: #edf4ff;
       --muted: #9cb0c7;
-      --accent-game: #d9f06b;
-      --accent-trails: #7cd3ff;
+      --accent-museum: #d9f06b;
+      --accent-world: #7cd3ff;
       --shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
     }
 
@@ -129,12 +129,12 @@ app.innerHTML = `
       outline-offset: 2px;
     }
 
-    .card--game::before {
-      background: radial-gradient(circle, var(--accent-game), transparent 68%);
+    .card--museum::before {
+      background: radial-gradient(circle, var(--accent-museum), transparent 68%);
     }
 
-    .card--trails::before {
-      background: radial-gradient(circle, var(--accent-trails), transparent 68%);
+    .card--world::before {
+      background: radial-gradient(circle, var(--accent-world), transparent 68%);
     }
 
     .label {
@@ -196,41 +196,40 @@ app.innerHTML = `
     <div class="frame">
       <section class="hero">
         <p class="eyebrow">Dissonance Monorepo</p>
-        <h1>Choose where to enter the forest.</h1>
+        <h1>Choose a layer.</h1>
         <p class="summary">
-          The root of this deployment is now a shared launch point. Pick the horror game or the
-          terrain sandbox, and each one stays on its own clean route.
+          Enter the living world, or visit the museum of preserved builds that led here.
         </p>
       </section>
 
       <section class="grid" aria-label="App chooser">
-        <a class="card card--game" href="/dont-turn-around/">
+        <a class="card card--world" href="/world/">
           <div>
-            <p class="label">Playable Experience</p>
-            <h2 class="title">Don&apos;t Turn Around</h2>
+            <p class="label">Living Diorama</p>
+            <h2 class="title">World</h2>
             <p class="desc">
-              Drop straight into the atmospheric game build, with the main menu and saved-session
-              flow intact.
+              Explore the continuous Dissonance world, geographic tools, authored locations,
+              routes, and surveilled interiors.
             </p>
           </div>
           <div class="meta">
-            <span>Open app</span>
-            <span class="path">/dont-turn-around/</span>
+            <span>Enter world</span>
+            <span class="path">/world/</span>
           </div>
         </a>
 
-        <a class="card card--trails" href="/trail-viewer/">
+        <a class="card card--museum" href="/museum/">
           <div>
-            <p class="label">World And Data Tools</p>
-            <h2 class="title">Trail Viewer</h2>
+            <p class="label">Playable Archive</p>
+            <h2 class="title">Museum</h2>
             <p class="desc">
-              Explore the terrain viewer, route overlays, HUD controls, and calibration tools on a
-              dedicated path.
+              Visit preserved experiments and superseded builds without folding their historical
+              assumptions back into the living world.
             </p>
           </div>
           <div class="meta">
-            <span>Open app</span>
-            <span class="path">/trail-viewer/</span>
+            <span>Visit museum</span>
+            <span class="path">/museum/</span>
           </div>
         </a>
       </section>

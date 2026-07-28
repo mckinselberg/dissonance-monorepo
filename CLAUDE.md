@@ -1,73 +1,102 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Repository guidance for the Dissonance monorepo.
 
-## What this is
+## Application layers
 
-"Don't Turn Around" — a first-person horror walking game (procedural forest, mountains, clouds, an unseen pursuer driving audio/visual tension) built with BabylonJS + Tone.js + TypeScript + Vite.
+The applications are dioramic layers:
 
-The repo is a **pnpm/turborepo monorepo in progress**. It is being converted from a single-app prototype into a shared foundation for four planned games (Don't Turn Around, Dissonance, Cultural Runner, Make a Movie With Your Friends) — see `docs/monorepo-docs/260615 Monorepo Prompt.md` for the full long-term architecture vision and `docs/monorepo-docs/pursuer-extraction-prompt.md` for the extraction methodology used so far.
+```text
+apps/home/                       launcher
+apps/world/                      living Dissonance world
+apps/museum/                     playable archive
+apps/museum/dont-turn-around/    preserved DTA exhibit
+```
 
-The old pre-monorepo prototype (root-level `src/`, `index.html`, `vite.config.ts`, `tsconfig.json`) has been removed now that extraction is complete — active development happens in `apps/dont-turn-around/` and `packages/*`. If a behavior-parity question ever comes up about "what the prototype did before extraction," those files are still recoverable from git history (they were never wired into the turbo pipeline, so no build config references them).
+World is the successor foundation: real DEM terrain, atmosphere, authored
+locations, route tools, and future surveilled interiors. Do not add new active
+Dissonance gameplay to the preserved DTA exhibit.
 
 ## Commands
 
-Run from repo root (uses turbo to fan out to workspaces):
+From the repository root:
 
 ```bash
-pnpm install      # install all workspace deps
-pnpm dev          # turbo dev — runs apps/dont-turn-around on Vite (http://localhost:5173)
-pnpm build        # turbo build — tsc + vite build per workspace, respecting dependency order
-pnpm preview      # turbo preview — serve the built app
+pnpm install
+pnpm dev
+pnpm build
+pnpm preview
 ```
 
-Per-app (inside `apps/dont-turn-around`):
+Per-layer:
 
 ```bash
-pnpm dev          # vite
-pnpm build        # tsc && vite build  -> dist/
-pnpm preview      # vite preview
+pnpm --filter home dev
+pnpm --filter museum dev
+pnpm --filter world dev
+pnpm --filter dont-turn-around dev
 ```
 
-There is no test runner configured in this repo. There is no lint script configured — rely on `tsc` (via `pnpm build`) for type checking; `noUnusedLocals`/`noUnusedParameters`/`strict` are on in `tsconfig.base.json`.
+Development ports/base paths:
 
-Deploys via `render.yaml` (Render.com static site blueprint) build with `pnpm turbo build --filter=dont-turn-around`, auto-deploying on push to `main`.
+- Home: `http://localhost:5173/`
+- Museum: `http://localhost:5174/museum/`
+- World: `http://localhost:5175/world/`
+- DTA exhibit: `http://localhost:5176/museum/dont-turn-around/`
 
-## Workspace architecture
+Strict TypeScript is the primary build gate. Focused packages may provide
+Vitest tests. Visual and interactive work requires browser verification.
 
-```
-apps/dont-turn-around/   # the game app — composes packages, owns game-specific logic
-packages/
-  shared-types/          # @dissonance/shared-types — cross-cutting types (no deps), import-only, no logic
-  engine/                # @dissonance/engine — BabylonJS bootstrap: SceneFactory, GameLoop. No game logic.
-  world/                 # @dissonance/world — Terrain, ForestGenerator, CloudSystem, MountainRing,
-                          #   DaylightSystem, WeatherSystem, WatcherEffect
-  player/                # @dissonance/player — PlayerController, AdrenalineSystem, BreathSystem
-  audio/                 # @dissonance/audio — AudioEngine (Tone.js), AmbientAudio, PlayerAudio, HeartbeatAudio
-  pursuit/               # @dissonance/pursuit — generic proximity/aggression state machine (PursuerSystem),
-                          #   config-injected via PursuerConfig — no implicit import of app config
-  glow/                  # @dissonance/glow — generic BPM-synced glow-pulse driver (HeartbeatGlow),
-                          #   takes a Mesh + an existing GlowLayer, no knowledge of "pursuer"
-  input/                 # @dissonance/input — input abstraction (currently a stub; see MovementInputState
-                          #   in shared-types for the target shape)
-  navigation/            # @dissonance/navigation — diegetic nav types (compass/map placards), currently a stub
-  persistence/           # @dissonance/persistence — save/load layer, currently a stub
-```
+## Package architecture
 
-Dependency rule established during extraction: **packages never import from `apps/*`** (one-directional: apps depend on packages, never the reverse). Within `packages/`, dependencies flow `shared-types` ← `engine`/`world`/`audio`/`input`/`navigation`/`pursuit`/`glow` ← `player` (depends on `world`) ← `persistence` (depends on `navigation`).
+Shared systems live in `packages/*`. Important packages include:
 
-Each package's `package.json` points `main`/`types` straight at `src/index.ts` (no build step inside packages — consumers compile the TS directly via Vite/tsc), so adding an export means adding it to that package's `index.ts` barrel.
+- `@dissonance/shared-types`
+- `@dissonance/engine`
+- `@dissonance/world`
+- `@dissonance/player`
+- `@dissonance/audio`
+- `@dissonance/pursuit`
+- `@dissonance/pursuer`
+- `@dissonance/glow`
+- `@dissonance/geo`
+- `@dissonance/navigation`
+- `@dissonance/persistence`
+- `@dissonance/utils`
 
-### What's still app-local (not yet extracted)
+Packages must never import from `apps/*`. Package `main`/`types` entries point
+to source, so add public exports to the package's `src/index.ts` barrel.
 
-`apps/dont-turn-around/src/pursuer/` (`PursuerBody`, `PursuerAudio`) holds what's left of the horror-specific pursuer AI after extraction — see `pursuer-extraction-prompt.md` and `# PURSUER SYSTEM EXTRACTION — CONTINUATI.md` for the methodology. `PursuerSystem` (the proximity/aggression state machine) moved to `@dissonance/pursuit`, and the BPM-synced glow-pulse math moved to `@dissonance/glow`'s `HeartbeatGlow`; `PursuerBody` is now a thin wrapper owning only mesh/material/`ExperienceMode` color-table logic. `PursuerAudio.ts` carries a `// EXTRACTION CANDIDATE` marker — its sound content is forest/DTA-specific, but the tiered timer-scheduling pattern underneath is reusable once a second app needs the same shape. Don't extract further than those docs specify without checking — the rule of thumb in this codebase is "a working system is more valuable than a perfect abstraction; do not over-extract."
+Prefer explicit constructor dependencies and focused modules. Reuse before
+extracting; do not create a shared abstraction until another consumer needs it.
 
-Also app-local: `config/experienceProfiles.ts` and `config/runProfiles.ts` (PS1 vs radio visual/audio profiles, afternoon vs dusk run profiles), `world/DestinationSystem.ts`, and all of `ui/` (DevHUD, MainMenu, ProximityOverlay).
+## World conventions
 
-### Game composition (`apps/dont-turn-around/src/game/Game.ts`)
+- WGS84 is authoritative for geographic features; render coordinates derive
+  through `@dissonance/geo`.
+- Stable feature IDs, not array indexes or mesh names, drive navigation,
+  persistence, docking, and future replication.
+- `apps/world/public/data/locations.json` is the current runtime/data-hybrid
+  authored-location source.
+- Dev HUD changes must persist through saved settings and Copy/Load View when
+  they represent authored environment state.
+- Keep canonical simulation coordinates separate from perceptual distortion.
+- Dispose every mesh, container, material, observer, UI mount, and audio
+  resource owned by a reloadable system.
 
-`Game` is the central orchestrator: constructs the scene via `SceneFactory`, instantiates one instance of every system (terrain, forest, daylight, weather, destination, pursuer, audio layers, watcher, pursuer body, heartbeat, proximity overlay), and drives them all from a single `tick(dt)` called by `GameLoop`. Line-of-sight between player and pursuer is computed directly in `Game` against the forest's collider list. State machine for pursuer proximity (`far`/`near`/`close`/`caught`) lives in `PursuerSystem` and fans out into audio panning, watcher-eye spawning, glow stress, and the proximity vignette.
+## Museum conventions
 
-`DevHUD` (toggle with `` ` ``) exposes live debug state (`Game.getDebugState()`) and runtime controls (`Game.getControls()`) for tuning without restarting — e.g. wind override, mute toggles, force-spawning watcher eyes, pursuer body visibility.
+Museum exhibits are playable archive artifacts. The shell must support multiple
+exhibits. Exhibit-specific code stays nested under its exhibit directory, and
+active World work must not force refactors into an archived build.
 
-Config flow: `MainMenu` → `GameConfig` (experience mode + departure time) → persisted to `localStorage` (`dta_config`) → resumed on reload via a "click to enter" screen, or cleared via Esc back to the menu.
+## Deployment
+
+`render.yaml` builds and assembles:
+
+- `/`
+- `/world/`
+- `/museum/`
+- `/museum/dont-turn-around/`
+
+More-specific rewrites must appear before broader Museum/Home routes.
