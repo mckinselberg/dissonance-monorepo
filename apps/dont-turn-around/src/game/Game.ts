@@ -280,7 +280,7 @@ export class Game {
     this.playerAudio = new PlayerAudio();
     this.riverAudio = this.trail.worldFlavor === 'river' ? new RiverAudio() : null;
     this.watcher = new WatcherEffect(scene, config.experienceMode);
-    this.pursuerBody = new PursuerBody(scene, config.experienceMode);
+    this.pursuerBody = new PursuerBody(scene);
 
     this.heartbeat = new HeartbeatAudio();
     this.proximity = new ProximityOverlay();
@@ -370,7 +370,6 @@ export class Game {
     const isIlluminated = hasLoS && this.player.isPointIlluminated(pursuerCenter);
     const flashlightPressure = hasLoS ? this.player.getFlashlightPressure(pursuerCenter) : 0;
     const artifactRecovered = this.inventory.hasItem(this.trail.artifact.id);
-    this.pursuerBody.setIlluminated(isIlluminated);
     this.lastHasLoS = hasLoS;
     this.lastIlluminated = isIlluminated;
 
@@ -403,7 +402,7 @@ export class Game {
     this.watcher.update(dt, playerPos, camYaw, this.pursuerPos, pursuerModel.state, pursuerGroundY, () =>
       this.player.adrenaline.spike(0.22),
     );
-    this.pursuerBody.update(dt, this.pursuerPos, pursuerGroundY, playerPos2d);
+    this.pursuerBody.update(dt, this.pursuerPos, pursuerGroundY);
 
     this.clouds.update(dt);
     this.wildlife.update(dt, playerPos);
