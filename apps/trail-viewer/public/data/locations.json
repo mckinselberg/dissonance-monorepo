@@ -37,8 +37,42 @@
         { "asset": "building-medium", "grid": [-5, 3], "rotationDegrees": 180 },
         { "asset": "building-large", "grid": [-8, 2], "rotationDegrees": 90 },
         { "asset": "street-lamp", "grid": [-1.5, 1.4], "repeat": { "count": 3, "step": [-2, 0] } },
-        { "asset": "street-lamp", "grid": [-1.5, 2.6], "repeat": { "count": 3, "step": [-2, 0] } }
+        { "asset": "street-lamp", "grid": [-1.5, 2.6], "repeat": { "count": 3, "step": [-2, 0] } },
+
+        { "asset": "street-2lane", "grid": [0, 8.5], "repeat": { "count": 4, "step": [0, 2] } },
+        { "asset": "street-2lane", "grid": [0, 18.5], "repeat": { "count": 2, "step": [0, 2] } },
+        { "asset": "street-tintersection", "grid": [0, 16.5] },
+        { "asset": "sidewalk-straight", "grid": [-0.75, 7], "repeat": { "count": 29, "step": [0, 0.5] } },
+        { "asset": "sidewalk-straight", "grid": [0.75, 7], "repeat": { "count": 29, "step": [0, 0.5] } },
+        { "asset": "building-small", "grid": [-2.8, 9.5], "rotationDegrees": 90 },
+        { "asset": "building-medium", "grid": [-3.2, 14.5], "rotationDegrees": 90 },
+        { "asset": "building-large", "grid": [-3.7, 19.5], "rotationDegrees": 90 },
+        { "asset": "building-medium", "grid": [3.2, 10.5], "rotationDegrees": -90 },
+        { "asset": "building-small", "grid": [2.8, 15.5], "rotationDegrees": -90 },
+        { "asset": "building-large", "grid": [3.7, 19.5], "rotationDegrees": -90 },
+        { "asset": "bollard", "grid": [-0.65, 8], "repeat": { "count": 14, "step": [0, 1] } },
+        { "asset": "bollard", "grid": [0.65, 8], "repeat": { "count": 14, "step": [0, 1] } },
+        { "asset": "planter", "grid": [-1.15, 9.5], "repeat": { "count": 6, "step": [0, 2] } },
+        { "asset": "planter", "grid": [1.15, 10.5], "repeat": { "count": 5, "step": [0, 2] } },
+        { "asset": "street-lamp", "grid": [-1.4, 8], "repeat": { "count": 5, "step": [0, 3] } },
+        { "asset": "street-lamp", "grid": [1.4, 8], "repeat": { "count": 5, "step": [0, 3] } },
+        { "asset": "crosswalk", "grid": [0, 11.5] },
+
+        { "asset": "street-2lane", "grid": [-2, 16.5], "rotationDegrees": 90, "repeat": { "count": 3, "step": [-2, 0] } },
+        { "asset": "sidewalk-straight", "grid": [-1, 15.75], "rotationDegrees": 90, "repeat": { "count": 13, "step": [-0.5, 0] } },
+        { "asset": "sidewalk-straight", "grid": [-1, 17.25], "rotationDegrees": 90, "repeat": { "count": 13, "step": [-0.5, 0] } },
+        { "asset": "building-small", "grid": [-5, 15.5], "rotationDegrees": 0 },
+        { "asset": "building-medium", "grid": [-5, 17.5], "rotationDegrees": 180 },
+        { "asset": "building-large", "grid": [-8, 16.5], "rotationDegrees": 90 },
+        { "asset": "street-lamp", "grid": [-1.5, 15.9], "repeat": { "count": 3, "step": [-2, 0] } },
+        { "asset": "street-lamp", "grid": [-1.5, 17.1], "repeat": { "count": 3, "step": [-2, 0] } }
       ]
+    },
+    "corridor": {
+      "path": [[-90, -18], [90, -18]],
+      "poleSpacingMeters": 40,
+      "wireCount": 2,
+      "extendToWorldBounds": true
     }
   },
   {

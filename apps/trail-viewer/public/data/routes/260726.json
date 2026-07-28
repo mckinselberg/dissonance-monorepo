@@ -1,0 +1,84 @@
+{
+  "name": "new-route",
+  "coordinateSystem": "WGS84",
+  "heightmapUnits": "meters",
+  "points": [
+    {
+      "latLongHeightmap": [
+        40.7300711,
+        -74.2755378,
+        36.73
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.7301202,
+        -74.275563,
+        37.36
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.7301714,
+        -74.275585,
+        38.01
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.7302247,
+        -74.2756036,
+        38.51
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.7302756,
+        -74.2756213,
+        38.99
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.7303296,
+        -74.2756371,
+        39.52
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.730379,
+        -74.2756488,
+        40
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.7304355,
+        -74.2756566,
+        40.62
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.7304832,
+        -74.2756539,
+        40.89
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.730535,
+        -74.2756485,
+        41.13
+      ]
+    },
+    {
+      "latLongHeightmap": [
+        40.7305866,
+        -74.2756396,
+        41.22
+      ]
+    }
+  ]
+}

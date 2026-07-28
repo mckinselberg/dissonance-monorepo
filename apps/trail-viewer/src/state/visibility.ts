@@ -13,6 +13,7 @@ export type VisibilitySignals = {
   clouds: Signal<boolean>;
   grid: Signal<boolean>;
   mountains: Signal<boolean>;
+  powerLines: Signal<boolean>;
 };
 
 export function createVisibilitySignals(): VisibilitySignals {
@@ -24,5 +25,6 @@ export function createVisibilitySignals(): VisibilitySignals {
     clouds: signal(true),
     grid: signal(false),
     mountains: signal(true),
+    powerLines: signal(true),
   };
 }

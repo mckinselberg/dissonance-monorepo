@@ -27,6 +27,24 @@ move, Shift to sprint. **Level 3 (orbit mode):** left-drag to orbit, scroll to
 zoom, right-drag to pan. All three have checkboxes to toggle the terrain/OSM
 trails/GPX track layers, and a live position + ground-height readout.
 
+## Route recorder
+
+The **Navigation & Views** section includes a route recorder for authoring
+wayfinding and location data. Add individual points or record continuously at
+a configurable real-world spacing. Drafts survive reloads in local storage and
+can be copied/downloaded as JSON or exported as GeoJSON.
+
+JSON points use `latLongHeightmap: [latitude, longitude, elevationMeters]`.
+Elevation is sampled from the raw DEM, so the recorded values are unaffected
+by the active level's horizontal scale or vertical exaggeration.
+
+The neighboring **Route replay** control loads committed routes listed in
+`public/data/routes/index.json`, or a local recorder `.json`/`.geojson` export.
+Its transport provides play/pause, start/end jumps, a distance scrubber, and
+real-world playback speeds. In player levels it moves the active traversal
+controller along the terrain; in orbit mode it moves the camera target along
+the route.
+
 ## Build / preview
 
 ```bash

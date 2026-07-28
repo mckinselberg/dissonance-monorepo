@@ -23,6 +23,13 @@ export type AtmosphereSignals = {
   terrainLowColor: Signal<string>;
   terrainHighColor: Signal<string>;
   sunTint: Signal<string>;
+  // City-kit "fake interior" window cards (CompositeLocations.ts) — default
+  // white/0 exactly reproduces the un-tuned baked-texture look every
+  // existing view already has, so adding these fields doesn't change
+  // anything until a profile dials them in deliberately (see the boulevard
+  // concept-art view in views.json).
+  windowTintColor: Signal<string>;
+  windowGlow: Signal<number>;
 };
 
 export function createAtmosphereSignals(defaults: {
@@ -41,6 +48,8 @@ export function createAtmosphereSignals(defaults: {
   terrainLowColor: string;
   terrainHighColor: string;
   sunTint: string;
+  windowTintColor: string;
+  windowGlow: number;
 }): AtmosphereSignals {
   return {
     timeOfDay: signal(defaults.timeOfDay),
@@ -58,5 +67,7 @@ export function createAtmosphereSignals(defaults: {
     terrainLowColor: signal(defaults.terrainLowColor),
     terrainHighColor: signal(defaults.terrainHighColor),
     sunTint: signal(defaults.sunTint),
+    windowTintColor: signal(defaults.windowTintColor),
+    windowGlow: signal(defaults.windowGlow),
   };
 }

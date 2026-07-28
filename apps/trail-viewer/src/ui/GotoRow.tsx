@@ -25,13 +25,19 @@ export type GotoRowProps = {
   // (moved from ViewToolsRow) since it's a position tool, not a view-
   // snapshot one.
   onResetPosition?: () => void;
+  // locations.json's named landmarks (mountain crater, dissonance boulevard,
+  // ...) — a narrower shape than the full LocationEntry (name + latLong
+  // only) so this ui/ module doesn't need to import world/LocationProps.
+  // Optional/omittable the same way savedViews is in ViewToolsRow (empty
+  // array just hides the dropdown, matching that component's own pattern).
+  locations?: Array<{ name: string; latLong: [number, number] }>;
 };
 
 // Lat/lon values for the "go to" inputs aren't persisted or bound to any
 // signal (matching today's behavior — they're read from the DOM only at
 // click-time), so plain uncontrolled inputs via refs are enough here, no
 // signal needed.
-export function GotoRow({ onGo, getCurrentLatLon, onResetPosition }: GotoRowProps) {
+export function GotoRow({ onGo, getCurrentLatLon, onResetPosition, locations = [] }: GotoRowProps) {
   const latLonRef = useRef<HTMLInputElement>(null);
   const [currentLatLon, setCurrentLatLon] = useState('');
   const [copyLabel, setCopyLabel] = useState('📍 Copy current');
@@ -53,6 +59,27 @@ export function GotoRow({ onGo, getCurrentLatLon, onResetPosition }: GotoRowProp
 
   return (
     <div style={groupStyle}>
+      {locations.length > 0 && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+          Locations:{' '}
+          <select
+            style={{ flex: 1 }}
+            value=""
+            onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
+              const index = Number(e.currentTarget.value);
+              e.currentTarget.value = '';
+              if (Number.isNaN(index)) return;
+              const [lat, lon] = locations[index].latLong;
+              onGo(lat, lon);
+            }}
+          >
+            <option value="" disabled>— choose a location —</option>
+            {locations.map((location, index) => (
+              <option key={location.name} value={index}>{location.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
       <div>
         Go to:{' '}
         <input ref={latLonRef} type="text" placeholder="lat, lon" style={{ ...inputStyle, width: '150px' }} />

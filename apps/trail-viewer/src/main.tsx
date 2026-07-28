@@ -9,6 +9,7 @@ import {
   Color4,
   Mesh,
   MeshBuilder,
+  DefaultRenderingPipeline,
 } from '@babylonjs/core';
 import { GameLoop } from '@dissonance/engine';
 import {
@@ -54,6 +55,7 @@ import { createTrailsideScatterSignals } from './state/trailsideScatter';
 import { createBulkForestScatterSignals } from './state/bulkForestScatter';
 import { scatterLocationProps, type LocationEntry } from './world/LocationProps';
 import { loadCompositeLocations } from './world/CompositeLocations';
+import { loadUtilityCorridors } from './world/UtilityCorridors';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
@@ -62,6 +64,8 @@ import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
 import { ViewToolsRow, type SavedView } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
+import { RouteRecorder, type RouteSample } from './ui/RouteRecorder';
+import { RouteReplay, parseRouteDocument, type ReplayRoute } from './ui/RouteReplay';
 import { Section } from './ui/Section';
 import { AudioRow } from './ui/AudioRow';
 import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './world/HeroTreeInstances';
@@ -248,6 +252,8 @@ export type SavedSettings = {
   terrainLowColor?: string;
   terrainHighColor?: string;
   sunTint?: string;
+  windowTintColor?: string;
+  windowGlow?: number;
   hudVisible?: boolean;
   worldBounded?: boolean;
   masterMuted?: boolean;
@@ -337,6 +343,20 @@ async function loadSavedViews(): Promise<SavedView[]> {
 // same as views.json.
 async function loadLocations(): Promise<LocationEntry[]> {
   return fetch(`${import.meta.env.BASE_URL}data/locations.json`).then((r) => r.json());
+}
+
+type RouteManifestEntry = { name: string; file: string };
+
+async function loadReplayRoutes(): Promise<ReplayRoute[]> {
+  const manifestResponse = await fetch(`${import.meta.env.BASE_URL}data/routes/index.json`);
+  if (!manifestResponse.ok) throw new Error(`Could not load route index (${manifestResponse.status}).`);
+  const manifest = await manifestResponse.json() as RouteManifestEntry[];
+  return Promise.all(manifest.map(async ({ name, file }) => {
+    const response = await fetch(`${import.meta.env.BASE_URL}data/routes/${encodeURIComponent(file)}`);
+    if (!response.ok) throw new Error(`Could not load route "${file}" (${response.status}).`);
+    const route = parseRouteDocument(await response.json(), file);
+    return { ...route, id: file, name };
+  }));
 }
 
 function buildPolylineMeshes(
@@ -454,6 +474,8 @@ async function main() {
     terrainLowColor: savedSettings.terrainLowColor ?? '#241c12',
     terrainHighColor: savedSettings.terrainHighColor ?? '#8c8c85',
     sunTint: savedSettings.sunTint ?? '#ffffff',
+    windowTintColor: savedSettings.windowTintColor ?? '#ffffff',
+    windowGlow: savedSettings.windowGlow ?? 0,
   });
 
   // Ported from dont-turn-around (@dissonance/audio) — AmbientAudio and
@@ -949,11 +971,12 @@ async function main() {
     mountains.setVisible(visibility.mountains.value);
   };
 
-  const [trails, gpxTrack, savedViews, locations] = await Promise.all([
+  const [trails, gpxTrack, savedViews, locations, replayRoutes] = await Promise.all([
     loadTrails(),
     loadGpxTrack(),
     loadSavedViews(),
     loadLocations(),
+    loadReplayRoutes(),
   ]);
   let trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
     namePrefix: 'osmTrail',
@@ -1014,6 +1037,17 @@ async function main() {
         </label>
         {level.cameraMode !== 'orbit' && (
           <ToggleLabel label='Bounded world' signal={worldBounded} onCommit={() => {}} />
+        )}
+        {/* utilityCorridors (boulevard power line) only loads in the
+            non-orbit path, same as compositeLocations' buildings — gated
+            here rather than through VisibilityToggles' shared, orbit-safe
+            prop contract. */}
+        {level.cameraMode !== 'orbit' && (
+          <ToggleLabel
+            label='Power lines'
+            signal={visibility.powerLines}
+            onCommit={(checked) => utilityCorridors.setVisible(checked)}
+          />
         )}
       </div>
     </Section>,
@@ -1123,6 +1157,7 @@ async function main() {
           atmosphere={atmosphere}
           onWaterColorCommit={(value) => water.setColor(Color3.FromHexString(value))}
           onTerrainColorCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
+          onWindowTintCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
         />
       )}
     </Section>,
@@ -1274,6 +1309,8 @@ async function main() {
             terrainLowColor: atmosphere.terrainLowColor.value,
             terrainHighColor: atmosphere.terrainHighColor.value,
             sunTint: atmosphere.sunTint.value,
+            windowTintColor: atmosphere.windowTintColor.value,
+            windowGlow: atmosphere.windowGlow.value,
             treeRegionRadius: treeRegionRadius.value,
             trailsideHScale: trailsideScale.hScale.value,
             trailsideVScale: trailsideScale.vScale.value,
@@ -1308,6 +1345,30 @@ async function main() {
             const pos = orbitCamera.position;
             const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
             return worldToLatLon(real, origin);
+          }}
+          locations={locations}
+        />
+        <RouteRecorder
+          storageKey='trail-viewer.route-recorder.v1'
+          getCurrentSample={() => {
+            const pos = orbitCamera.position;
+            const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
+            const latLon = worldToLatLon(real, origin);
+            return {
+              ...latLon,
+              heightmap: sampler.sampleHeight(real),
+              worldX: real.x,
+              worldZ: real.z,
+            } satisfies RouteSample;
+          }}
+        />
+        <RouteReplay
+          routes={replayRoutes}
+          onSeek={({ lat, lon }) => {
+            const real = latLonToWorld({ lat, lon }, origin);
+            const renderX = real.x * level.horizontalScale;
+            const renderZ = real.z * level.horizontalScale;
+            orbitCamera.target = new Vector3(renderX, terrain.getHeightAt(renderX, renderZ), renderZ);
           }}
         />
       </Section>,
@@ -1366,6 +1427,21 @@ async function main() {
     scale: level.playerScale,
   });
   drive.setTerrain(terrain);
+
+  // Conservative bloom-only pass — added so the city kit's emissive window
+  // tint (see atmosphere.windowTintColor/windowGlow, CompositeLocations.ts)
+  // actually reads as a glowing window rather than a flat bright rectangle;
+  // also softens the street lamps' existing emissive globes the same way.
+  // scene.cameras already holds player/flight/drive by this point (each
+  // camera self-registers on construction) — no per-controller wiring
+  // needed. Every other pipeline feature (FXAA, grain, DoF, vignette,
+  // chromatic aberration) stays off; this is scoped to bloom alone.
+  const bloomPipeline = new DefaultRenderingPipeline('bloomPipeline', true, scene, scene.cameras);
+  bloomPipeline.bloomEnabled = true;
+  bloomPipeline.bloomThreshold = 0.65;
+  bloomPipeline.bloomWeight = 0.4;
+  bloomPipeline.bloomKernel = 64;
+  bloomPipeline.bloomScale = 0.5;
 
   // Autosave never restored look direction even before the Copy/Load View
   // mechanism existed (only position) — a real gap, since "the same spot,
@@ -1546,8 +1622,41 @@ async function main() {
     scaleTuning.hScale.value,
     scaleTuning.vExag.value,
     (x, z) => terrain.getHeightAt(x, z),
+    Color3.FromHexString(atmosphere.windowTintColor.value),
+    atmosphere.windowGlow.value,
     sun.getShadowGenerator(),
   );
+  // Same rectangle clampToWorldBounds/mountainRingOptions already treat as
+  // "the edge of the world" (realWidth/realDepth, DEM bbox centered on
+  // origin) — a corridor with `extendToWorldBounds: true` stretches its two
+  // open ends out to this same box instead of stopping at its authored
+  // coordinates.
+  const utilityCorridorWorldBounds = () => ({
+    minX: -(realWidth / 2) * scaleTuning.hScale.value,
+    maxX: (realWidth / 2) * scaleTuning.hScale.value,
+    minZ: -(realDepth / 2) * scaleTuning.hScale.value,
+    maxZ: (realDepth / 2) * scaleTuning.hScale.value,
+  });
+  let utilityCorridors = loadUtilityCorridors(
+    scene,
+    locations,
+    locationToRenderXZ,
+    scaleTuning.hScale.value,
+    scaleTuning.vExag.value,
+    (x, z) => terrain.getHeightAt(x, z),
+    utilityCorridorWorldBounds(),
+    sun.getShadowGenerator(),
+  );
+  utilityCorridors.setVisible(visibility.powerLines.value);
+  // Buildings (compositeLocations) deliberately don't feed this yet — a
+  // circle collider is a poor fit for a rectangular building footprint
+  // (either clips corners or blocks well outside the flat walls); scoped
+  // down to props+poles for now, buildings/Drive-mode collision are a
+  // follow-up (Dan, 2026-07-27).
+  const applyPlayerColliders = () => {
+    player.setColliders([...locationProps.colliders, ...utilityCorridors.colliders]);
+  };
+  applyPlayerColliders();
   const rebuildLocationProps = () => {
     locationProps.dispose();
     locationProps = scatterLocationProps(
@@ -1565,6 +1674,8 @@ async function main() {
       scaleTuning.hScale.value,
       scaleTuning.vExag.value,
       (x, z) => terrain.getHeightAt(x, z),
+      Color3.FromHexString(atmosphere.windowTintColor.value),
+      atmosphere.windowGlow.value,
       sun.getShadowGenerator(),
     )
       .then((next) => {
@@ -1573,6 +1684,19 @@ async function main() {
       .catch((error) => {
         console.error('[CompositeLocations] failed to rebuild', error);
       });
+    utilityCorridors.dispose();
+    utilityCorridors = loadUtilityCorridors(
+      scene,
+      locations,
+      locationToRenderXZ,
+      scaleTuning.hScale.value,
+      scaleTuning.vExag.value,
+      (x, z) => terrain.getHeightAt(x, z),
+      utilityCorridorWorldBounds(),
+      sun.getShadowGenerator(),
+    );
+    utilityCorridors.setVisible(visibility.powerLines.value);
+    applyPlayerColliders();
   };
 
   // Forest fire game mechanic — press F to ignite the nearest tree; fire
@@ -1773,6 +1897,8 @@ async function main() {
               terrainLowColor: atmosphere.terrainLowColor.value,
               terrainHighColor: atmosphere.terrainHighColor.value,
               sunTint: atmosphere.sunTint.value,
+              windowTintColor: atmosphere.windowTintColor.value,
+              windowGlow: atmosphere.windowGlow.value,
               treeRegionRadius: treeRegionRadius.value,
               trailsideHScale: trailsideScale.hScale.value,
               trailsideVScale: trailsideScale.vScale.value,
@@ -1830,6 +1956,33 @@ async function main() {
             saveSettings(levelKey, withoutPosition);
             location.reload();
           }}
+          locations={locations}
+        />
+        <RouteRecorder
+          storageKey='trail-viewer.route-recorder.v1'
+          getCurrentSample={() => {
+            const pos = controllers[movement.activeMode.value].getPosition();
+            const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
+            const latLon = worldToLatLon(real, origin);
+            return {
+              ...latLon,
+              heightmap: sampler.sampleHeight(real),
+              worldX: real.x,
+              worldZ: real.z,
+            } satisfies RouteSample;
+          }}
+        />
+        <RouteReplay
+          routes={replayRoutes}
+          onSeek={({ lat, lon }) => {
+            const real = latLonToWorld({ lat, lon }, origin);
+            const renderX = real.x * scaleTuning.hScale.value;
+            const renderZ = real.z * scaleTuning.hScale.value;
+            const groundY = terrain.getHeightAt(renderX, renderZ);
+            const activeController = controllers[movement.activeMode.value];
+            const y = movement.activeMode.value === 'fly' ? groundY + 5 : groundY;
+            activeController.setPosition(new Vector3(renderX, y, renderZ));
+          }}
         />
       </Section>
     </>,
@@ -1867,6 +2020,8 @@ async function main() {
       terrainLowColor: atmosphere.terrainLowColor.value,
       terrainHighColor: atmosphere.terrainHighColor.value,
       sunTint: atmosphere.sunTint.value,
+      windowTintColor: atmosphere.windowTintColor.value,
+      windowGlow: atmosphere.windowGlow.value,
       treeRegionRadius: treeRegionRadius.value,
       trailsideHScale: trailsideScale.hScale.value,
       trailsideVScale: trailsideScale.vScale.value,

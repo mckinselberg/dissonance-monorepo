@@ -41,6 +41,10 @@ export function VisibilityToggles({
       <ToggleLabel label="Clouds" signal={signals.clouds} onCommit={onCloudsCommit} />
       <ToggleLabel label="Lat/Long Grid" signal={signals.grid} onCommit={onGridCommit} />
       <ToggleLabel label="Mountains" signal={signals.mountains} onCommit={onMountainsCommit} />
+      {/* Power lines deliberately not here — utilityCorridors (main.tsx) only
+          exists in the non-orbit code path, same as the boulevard buildings;
+          it's rendered as its own orbit-gated ToggleLabel next to "Bounded
+          world" instead of through this shared, orbit-safe prop contract. */}
     </>
   );
 }

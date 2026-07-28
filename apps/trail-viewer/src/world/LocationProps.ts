@@ -9,6 +9,7 @@ import {
   Vector3,
 } from '@babylonjs/core';
 import type { ShadowGenerator } from '@babylonjs/core';
+import type { Collider } from '@dissonance/world';
 
 export type LocationEntry = {
   name: string;
@@ -31,9 +32,31 @@ export type LocationEntry = {
       };
     }>;
   };
+  // A utility/power-line corridor — a freeform polyline (not grid-snapped
+  // like `compound`, since a real right-of-way runs at whatever bearing it
+  // actually takes), consumed by UtilityCorridors.ts. Same "local meters
+  // from latLong" anchor convention as `compound`'s grid, so a corridor
+  // moves with its location as one unit. Independent of `compound` — an
+  // entry may have either, both, or neither.
+  corridor?: {
+    path: Array<[number, number]>;
+    poleSpacingMeters: number;
+    wireCount: number;
+    // When true, `path`'s first and last points are only a position +
+    // direction seed — UtilityCorridors.ts extends both open ends outward
+    // along their own line until they hit the loaded DEM's real bounding
+    // box ("the edge of the world"), rather than stopping at the authored
+    // coordinates. Interior points (if any) are left alone.
+    extendToWorldBounds?: boolean;
+  };
 };
 
 export interface LocationPropsHandle {
+  // One collider per placed prop instance, in the same render-space x/z
+  // PlayerController already collides against (see main.tsx's
+  // player.setColliders wiring) — built alongside placement so it can never
+  // drift from what's actually rendered.
+  colliders: Collider[];
   dispose(): void;
 }
 
@@ -142,6 +165,28 @@ export function buildStreetLamp(scene: Scene): Mesh {
   const merged = Mesh.MergeMeshes([poleMerged, globe], true, true, undefined, false, true) ?? poleMerged;
   merged.name = 'locProp_streetLamp';
   return merged;
+}
+
+// Utility pole for power-corridor rows (UtilityCorridors.ts) — same
+// "template mesh, thin-instance the placements" split as buildStreetLamp
+// above, exported for the same reason: a different module needs to place
+// this repeatedly along a spline rather than scatterLocationProps' own
+// jittered-single-instance-per-location path. Built base-up from local
+// y=0 so UtilityCorridors' thin-instance matrices can scale it directly
+// without the min-Y compensation CompositeLocations needs for glTF meshes.
+export function buildUtilityPole(scene: Scene): Mesh {
+  const mat = pbr(scene, 'locProp_utilityPoleMat', new Color3(0.22, 0.16, 0.1), 0.95);
+  const height = 10;
+  const parts: Mesh[] = [];
+  const pole = MeshBuilder.CreateCylinder('utilityPole', {
+    height, diameterBottom: 0.35, diameterTop: 0.22, tessellation: 8,
+  }, scene);
+  pole.position.y = height / 2;
+  parts.push(pole);
+  const crossarm = MeshBuilder.CreateBox('utilityCrossarm', { width: 2.4, height: 0.15, depth: 0.15 }, scene);
+  crossarm.position.y = height - 0.6;
+  parts.push(crossarm);
+  return mergeParts('locProp_utilityPole', parts, mat);
 }
 
 function buildRocks(scene: Scene): Mesh {
@@ -293,6 +338,29 @@ const PROP_BUILDERS: Record<string, (scene: Scene) => Mesh> = {
   'street-lamp': buildStreetLamp,
 };
 
+// One circle per placed instance (PlayerController's collision is
+// circle-only — see @dissonance/world's Collider), eyeballed from each
+// builder's own dimensions above rather than measured off a bounding box.
+// Deliberately generous/round: this is a coarse "don't walk through it"
+// blocker, not a tight hitbox. street-lamp/trash-barrel/post-grill are the
+// odd ones out (radius smaller than their visible globe/top) since the
+// solid part at player-collision height is the thin pole, not the wider
+// cap sitting well above head height.
+const PROP_COLLISION_RADII: Record<string, number> = {
+  trees: 2.5,
+  rocks: 1.5,
+  'stone-steps': 1.2,
+  'picnic-table': 1.2,
+  'trash-barrel': 0.4,
+  'post-grill': 0.4,
+  'root-ball': 1.8,
+  'giant-snag': 0.7,
+  'mossy-log': 1.3,
+  'dead-fountain': 0.6,
+  'shed-shell': 2.2,
+  'street-lamp': 0.3,
+};
+
 // Reads locations.json-shaped entries and thin-instances a crude primitive
 // stand-in for each named prop at (a small jitter from) that location's
 // real coordinates — one template mesh per prop TYPE actually referenced
@@ -306,6 +374,7 @@ export function scatterLocationProps(
   shadowGenerator?: ShadowGenerator,
 ): LocationPropsHandle {
   const matricesByType = new Map<string, Matrix[]>();
+  const colliders: Collider[] = [];
   for (const location of locations) {
     const [lat, lon] = location.latLong;
     const base = toRenderXZ(lat, lon);
@@ -324,6 +393,8 @@ export function scatterLocationProps(
       );
       if (!matricesByType.has(propType)) matricesByType.set(propType, []);
       matricesByType.get(propType)!.push(matrix);
+      const radius = PROP_COLLISION_RADII[propType];
+      if (radius !== undefined) colliders.push({ x, z, radius });
     }
   }
 
@@ -339,6 +410,7 @@ export function scatterLocationProps(
   }
 
   return {
+    colliders,
     dispose: () => templates.forEach((t) => t.dispose()),
   };
 }

@@ -5,6 +5,7 @@ import {
   Mesh,
   PBRMaterial,
   Quaternion,
+  Texture,
   Vector3,
   VertexData,
 } from '@babylonjs/core';
@@ -41,6 +42,104 @@ const CITY_ASSETS: Record<string, string> = {
   'manhole-cover': 'Prop_ManholeCover.gltf',
   drain: 'Prop_Drain.gltf',
 };
+
+// Every "MI_FakeInterior_N" material is a flat card behind a window's glass
+// pane. The kit's own baked photo of a little room (see ASSET-LICENSE.txt —
+// the paid tier has real interior shaders; this free tier only ships the
+// photo) tiled identically across every window of every building instance,
+// which read as a repeated photographed office rather than "a lit window at
+// range" — replaced here (Dan, 2026-07-27) with a plain procedural glow
+// card, no baked room detail at all. albedoColor/emissiveColor still tint
+// and glow it via the same windowTintColor/windowGlow signals; default
+// white/0 leaves it a plain unlit pale card, close enough to the old
+// un-tuned look that every existing view still reads fine.
+const FAKE_INTERIOR_MATERIAL_PREFIX = 'MI_FakeInterior';
+const WINDOW_CARD_SIZE = 128;
+// The window's real UV'd quad (baked into the glTF) isn't a tight crop of
+// exactly the visible glass — it runs a bit past it into the frame/an
+// arched top corner, which the kit's original naturalistic photo texture
+// disguised (its edges were already wall/shadow tones). A flat, bright
+// gradient filled edge-to-edge exposed that overscan as a visible light
+// leak past the frame (Dan, 2026-07-27 screenshot). Insetting the glow
+// inside this margin, dark everywhere else, means any overscan reads as
+// dark frame instead — cheap, and correct regardless of the exact UV fit.
+const WINDOW_CARD_MARGIN_FRACTION = 0.15;
+
+// docs/THREADS.md T7 ("window occupancy") — first, deliberately small cut:
+// one still silhouette on one card's glow texture. NOT the full T7 spec (no
+// rarity roll, no UV-scrolled crossing motion, no scripted stop-and-turn
+// beat) — those need per-instance variation this thin-instancing loader
+// doesn't support (every placement of one asset shares one material set, so
+// this appears on all three "building-large" instances identically, not ~3
+// sightings per walk). Toggle off below if it reads wrong before investing
+// in the real per-instance version.
+const ENABLE_WINDOW_SHADOW_FIGURE = false;
+const SHADOW_FIGURE_ASSET = 'building-large';
+const SHADOW_FIGURE_MATERIAL = 'MI_FakeInterior_1';
+
+// A plain vertical glow gradient — brighter near the top (reads as a
+// ceiling light bleeding down) fading toward the sill — standing in for the
+// baked room photo. `withFigure` layers one still person-shaped silhouette
+// on top, standing on the card's implied floor; see ENABLE_WINDOW_SHADOW_
+// FIGURE above for why only one card ever gets this.
+function buildWindowCardTexture(scene: Scene, withFigure: boolean): Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = WINDOW_CARD_SIZE;
+  canvas.height = WINDOW_CARD_SIZE;
+  const ctx = canvas.getContext('2d')!;
+
+  // Dark everywhere first — this is what shows through the margin (see
+  // WINDOW_CARD_MARGIN_FRACTION above).
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, WINDOW_CARD_SIZE, WINDOW_CARD_SIZE);
+
+  const margin = WINDOW_CARD_SIZE * WINDOW_CARD_MARGIN_FRACTION;
+  const innerSize = WINDOW_CARD_SIZE - margin * 2;
+  const gradient = ctx.createLinearGradient(0, margin, 0, margin + innerSize);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.4, 'rgba(255,255,255,0.6)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0.22)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(margin, margin, innerSize, innerSize);
+
+  if (withFigure) {
+    const figureX = margin + innerSize * 0.6;
+    const floorY = margin + innerSize * 0.94;
+    const figureHeight = innerSize * 0.5;
+    const headRadius = figureHeight * 0.14;
+    ctx.fillStyle = 'rgba(4, 4, 6, 0.92)';
+    ctx.beginPath();
+    ctx.arc(figureX, floorY - figureHeight + headRadius, headRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(figureX, floorY - figureHeight * 0.45, figureHeight * 0.16, figureHeight * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  return new Texture(canvas.toDataURL('image/png'), scene);
+}
+
+function applyWindowTint(
+  container: AssetContainer,
+  asset: string,
+  tintColor: Color3,
+  glow: number,
+  cardTexture: Texture,
+  cardWithFigureTexture: Texture,
+): void {
+  for (const material of container.materials) {
+    if (!material.name.startsWith(FAKE_INTERIOR_MATERIAL_PREFIX)) continue;
+    const mat = material as PBRMaterial;
+    const useFigure = ENABLE_WINDOW_SHADOW_FIGURE
+      && asset === SHADOW_FIGURE_ASSET
+      && material.name === SHADOW_FIGURE_MATERIAL;
+    const texture = useFigure ? cardWithFigureTexture : cardTexture;
+    mat.albedoTexture = texture;
+    mat.albedoColor = tintColor;
+    mat.emissiveTexture = texture;
+    mat.emissiveColor = tintColor.scale(glow);
+  }
+}
 
 // Procedural (non-glTF) compound assets — built once per type directly in
 // Babylon rather than loaded from the city kit, same "template mesh, thin-
@@ -266,8 +365,13 @@ function placeRenderMeshes(
 
 async function loadThinInstancedAsset(
   scene: Scene,
+  asset: string,
   filename: string,
   placements: ExpandedPlacement[],
+  windowTintColor: Color3,
+  windowGlow: number,
+  cardTexture: Texture,
+  cardWithFigureTexture: Texture,
   shadowGenerator?: ShadowGenerator,
 ): Promise<AssetContainer> {
   const container = await LoadAssetContainerAsync(`${CITY_ASSET_BASE}${filename}`, scene);
@@ -276,6 +380,8 @@ async function loadThinInstancedAsset(
     (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0,
   );
   if (renderMeshes.length === 0) throw new Error(`city asset has no renderable meshes: ${filename}`);
+
+  applyWindowTint(container, asset, windowTintColor, windowGlow, cardTexture, cardWithFigureTexture);
 
   placeRenderMeshes(renderMeshes, placements, shadowGenerator);
   return container;
@@ -303,11 +409,18 @@ export async function loadCompositeLocations(
   horizontalScale: number,
   verticalExaggeration: number,
   getHeightAt: (x: number, z: number) => number,
+  windowTintColor: Color3 = Color3.White(),
+  windowGlow: number = 0,
   shadowGenerator?: ShadowGenerator,
 ): Promise<CompositeLocationsHandle> {
   await ensureGltfLoader();
   const byAsset = new Map<string, ExpandedPlacement[]>();
   const gradePads: Mesh[] = [];
+  // Built once and shared by every "fake interior" material across every
+  // building type/instance — see applyWindowTint's own comment for why
+  // these replaced the kit's baked room photo.
+  const windowCardTexture = buildWindowCardTexture(scene, false);
+  const windowCardWithFigureTexture = buildWindowCardTexture(scene, true);
 
   for (const location of locations) {
     if (!location.compound) continue;
@@ -350,7 +463,10 @@ export async function loadCompositeLocations(
       const template = placeProceduralAsset(scene, PROCEDURAL_ASSETS[asset], entries, shadowGenerator);
       proceduralMeshes.push(template);
     } else {
-      const container = await loadThinInstancedAsset(scene, CITY_ASSETS[asset], entries, shadowGenerator);
+      const container = await loadThinInstancedAsset(
+        scene, asset, CITY_ASSETS[asset], entries, windowTintColor, windowGlow,
+        windowCardTexture, windowCardWithFigureTexture, shadowGenerator,
+      );
       containers.push(container);
     }
     console.info(`[CompositeLocations] placed ${entries.length} "${asset}" module(s)`);
@@ -366,6 +482,11 @@ export async function loadCompositeLocations(
       // hScale/vExag slider drag disposes and rebuilds this whole set.
       proceduralMeshes.forEach((mesh) => mesh.dispose(false, true));
       gradePads.forEach((mesh) => mesh.dispose(false, true));
+      // Not tracked in any container's own texture list (built standalone,
+      // shared across every building type's materials) — container.dispose()
+      // above won't reach these, so they'd leak on every rebuild otherwise.
+      windowCardTexture.dispose();
+      windowCardWithFigureTexture.dispose();
     },
   };
 }

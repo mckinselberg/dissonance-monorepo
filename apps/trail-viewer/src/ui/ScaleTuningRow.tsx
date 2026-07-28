@@ -24,12 +24,17 @@ export type ScaleTuningRowProps = {
   // time, same as H-scale/V-exagg — commits on release via a full
   // rebuildWorld(), not a dedicated rebuild path.
   onTerrainColorCommit: () => void;
+  // City-kit "fake interior" window tint/glow (CompositeLocations.ts) —
+  // baked into each building's materials at load time same as terrain
+  // color, so it also commits via a full rebuildWorld().
+  onWindowTintCommit: () => void;
 };
 
 // Rendered only when levelKey === '1' (see main.tsx) — levels 2/3 have no
 // equivalent UI, though the underlying signals exist for every level.
 export function ScaleTuningRow({
   signals, waterMin, waterMax, waterStep, onScaleCommit, atmosphere, onWaterColorCommit, onTerrainColorCommit,
+  onWindowTintCommit,
 }: ScaleTuningRowProps) {
   return (
     <div style={{ marginTop: '8px' }}>
@@ -68,6 +73,18 @@ export function ScaleTuningRow({
         Terrain (low/high){' '}
         <ColorPicker signal={atmosphere.terrainLowColor} commitOn="change" onCommit={onTerrainColorCommit} />
         <ColorPicker signal={atmosphere.terrainHighColor} commitOn="change" onCommit={onTerrainColorCommit} />
+      </label>
+      <label style={labelStyle}>
+        Window tint/glow{' '}
+        <ColorPicker signal={atmosphere.windowTintColor} commitOn="change" onCommit={onWindowTintCommit} />
+        <input
+          type="range" min={0} max={1.5} step={0.05} value={atmosphere.windowGlow.value} style={{ flex: 1 }}
+          onChange={(e: JSX.TargetedEvent<HTMLInputElement>) => {
+            atmosphere.windowGlow.value = parseFloat(e.currentTarget.value);
+            onWindowTintCommit();
+          }}
+        />{' '}
+        <span style={valueStyle}>{atmosphere.windowGlow.value.toFixed(2)}</span>
       </label>
     </div>
   );

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__chrome-devtools__click",
+      "Read(//d/Temp/chrome-devtools-mcp-cLipmV/**)",
+      "Read(//d/Temp/chrome-devtools-mcp-bU3UV2/**)",
+      "mcp__chrome-devtools__evaluate_script",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__handle_dialog"
+    ]
+  }
+}
