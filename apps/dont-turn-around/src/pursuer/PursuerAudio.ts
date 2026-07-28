@@ -1,99 +1,73 @@
 import { AudioEngine } from '@dissonance/audio';
 import type { PursuerState } from '@dissonance/shared-types';
+import { TieredProximityAudioScheduler, type ProximityAudioChannel } from '@dissonance/pursuer';
 
-// EXTRACTION CANDIDATE: the tiered timer-based event scheduling pattern here
-// (probability-gated timers per proximity tier, scaled by weatherMask) is
-// reusable, but the sound content (branch snaps, leaf rustle, footstep
-// cracks) is forest/DTA-specific. Revisit extraction when a second app
-// (e.g. Dissonance's SignalNet patrol audio) needs the same scheduling shape
-// with injected sound callbacks instead of hardcoded AudioEngine.play* calls.
+type AudibleState = Exclude<PursuerState, 'caught'>;
+
+const CHANNELS: ProximityAudioChannel<AudibleState>[] = [
+  {
+    id: 'snap',
+    tiers: {
+      far: {
+        minInterval: 10, intervalRange: 14, maskScale: 0.8,
+        play: (pan) => AudioEngine.playBranchSnap(pan, -40 + Math.random() * 5),
+      },
+      close: {
+        minInterval: 1.4, intervalRange: 1.8, maskScale: 0.2,
+        play: (pan) => AudioEngine.playBranchSnap(pan, -5 + Math.random() * 3),
+      },
+    },
+  },
+  {
+    id: 'footstep',
+    tiers: {
+      near: {
+        minInterval: 0.85, intervalRange: 0.55, maskScale: 0.5,
+        play: (pan) => AudioEngine.playPursuerStep(pan, -22 + Math.random() * 3, Math.random() < 0.10),
+      },
+      close: {
+        minInterval: 0.38, intervalRange: 0.20, maskScale: 0.25,
+        play: (pan) => AudioEngine.playPursuerStep(pan, -6 + Math.random() * 3, Math.random() < 0.18),
+      },
+    },
+  },
+  {
+    id: 'rustle',
+    tiers: {
+      near: {
+        minInterval: 2.8, intervalRange: 3.5, maskScale: 0.4,
+        play: (pan) => AudioEngine.playLeafRustle(pan, -22 + Math.random() * 4),
+      },
+      close: {
+        minInterval: 0.7, intervalRange: 0.9, maskScale: 0.2,
+        play: (pan) => AudioEngine.playLeafRustle(pan, -7 + Math.random() * 3),
+      },
+    },
+  },
+  {
+    id: 'growl',
+    initialTimer: 3.5,
+    tiers: {
+      near: {
+        minInterval: 7.0, intervalRange: 5.0, maskScale: 0.35,
+        play: (pan) => AudioEngine.playPursuerGrowl(pan, -24 + Math.random() * 3, 0.35),
+      },
+      close: {
+        minInterval: 2.4, intervalRange: 2.2, maskScale: 0.15,
+        play: (pan) => AudioEngine.playPursuerGrowl(pan, -13 + Math.random() * 3, 0.8),
+      },
+    },
+  },
+];
+
 export class PursuerAudio {
-  private footstepTimer = 0;
-  private rustleTimer = 0;
-  private snapTimer = 0;
-  private growlTimer = 3.5;
   private muted = false;
+  private scheduler = new TieredProximityAudioScheduler<AudibleState>(CHANNELS);
 
   setMuted(muted: boolean): void { this.muted = muted; }
 
   update(dt: number, pursuerAngle: number, state: PursuerState, weatherMask: number): void {
     if (this.muted || state === 'caught') return;
-    if (state === 'far')   this.updateFar(dt, pursuerAngle, weatherMask);
-    if (state === 'near')  this.updateNear(dt, pursuerAngle, weatherMask);
-    if (state === 'close') this.updateClose(dt, pursuerAngle, weatherMask);
-  }
-
-  private updateFar(dt: number, pan: number, mask: number): void {
-    this.snapTimer -= dt;
-    if (this.snapTimer <= 0) {
-      this.snapTimer = 10 + Math.random() * 14;
-      if (Math.random() > mask * 0.8) {
-        AudioEngine.playBranchSnap(pan, -40 + Math.random() * 5);
-      }
-    }
-  }
-
-  private updateNear(dt: number, pan: number, mask: number): void {
-    this.footstepTimer -= dt;
-    if (this.footstepTimer <= 0) {
-      this.footstepTimer = 0.85 + Math.random() * 0.55;
-      if (Math.random() > mask * 0.5) {
-        const vol = -22 + Math.random() * 3;
-        const crack = Math.random() < 0.10;
-        AudioEngine.playPursuerStep(pan, vol, crack);
-      }
-    }
-
-    this.rustleTimer -= dt;
-    if (this.rustleTimer <= 0) {
-      this.rustleTimer = 2.8 + Math.random() * 3.5;
-      if (Math.random() > mask * 0.4) {
-        AudioEngine.playLeafRustle(pan, -22 + Math.random() * 4);
-      }
-    }
-
-    this.growlTimer -= dt;
-    if (this.growlTimer <= 0) {
-      this.growlTimer = 7.0 + Math.random() * 5.0;
-      if (Math.random() > mask * 0.35) {
-        AudioEngine.playPursuerGrowl(pan, -24 + Math.random() * 3, 0.35);
-      }
-    }
-  }
-
-  private updateClose(dt: number, pan: number, mask: number): void {
-    this.footstepTimer -= dt;
-    if (this.footstepTimer <= 0) {
-      this.footstepTimer = 0.38 + Math.random() * 0.20;
-      if (Math.random() > mask * 0.25) {
-        const vol = -6 + Math.random() * 3;
-        const crack = Math.random() < 0.18;
-        AudioEngine.playPursuerStep(pan, vol, crack);
-      }
-    }
-
-    this.rustleTimer -= dt;
-    if (this.rustleTimer <= 0) {
-      this.rustleTimer = 0.7 + Math.random() * 0.9;
-      if (Math.random() > mask * 0.2) {
-        AudioEngine.playLeafRustle(pan, -7 + Math.random() * 3);
-      }
-    }
-
-    this.snapTimer -= dt;
-    if (this.snapTimer <= 0) {
-      this.snapTimer = 1.4 + Math.random() * 1.8;
-      if (Math.random() > mask * 0.2) {
-        AudioEngine.playBranchSnap(pan, -5 + Math.random() * 3);
-      }
-    }
-
-    this.growlTimer -= dt;
-    if (this.growlTimer <= 0) {
-      this.growlTimer = 2.4 + Math.random() * 2.2;
-      if (Math.random() > mask * 0.15) {
-        AudioEngine.playPursuerGrowl(pan, -13 + Math.random() * 3, 0.8);
-      }
-    }
+    this.scheduler.update(dt, state, pursuerAngle, weatherMask);
   }
 }

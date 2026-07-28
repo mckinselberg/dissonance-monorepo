@@ -20,7 +20,8 @@
     "@dissonance/navigation": "workspace:*",
     "@dissonance/persistence": "workspace:*",
     "@dissonance/pursuit": "workspace:*",
-    "@dissonance/glow": "workspace:*"
+    "@dissonance/glow": "workspace:*",
+    "@dissonance/pursuer": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

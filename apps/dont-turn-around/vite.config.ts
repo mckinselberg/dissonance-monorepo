@@ -17,6 +17,7 @@ export default defineConfig(({ command }) => ({
       '@dissonance/persistence':  path.resolve(__dirname, '../../packages/persistence/src'),
       '@dissonance/pursuit':      path.resolve(__dirname, '../../packages/pursuit/src'),
       '@dissonance/glow':         path.resolve(__dirname, '../../packages/glow/src'),
+      '@dissonance/pursuer':      path.resolve(__dirname, '../../packages/pursuer/src'),
     },
     // pnpm creates separate symlinks per workspace package; force single instance
     dedupe: ['@babylonjs/core', '@babylonjs/loaders', 'tone'],

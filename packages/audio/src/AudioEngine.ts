@@ -119,7 +119,10 @@ export class AudioEngine {
     const squelchFilter = new Tone.Filter(squelchFreq, 'bandpass');
     (squelchFilter as unknown as { Q: { value: number } }).Q.value = 2;
     const squelchEnv = new Tone.AmplitudeEnvelope({
-      attack: 0.001, decay: 0.07 + Math.random() * 0.04, sustain: 0.01, release: 0.04,
+      attack: 0.001,
+      decay: 0.07 + Math.random() * 0.04,
+      sustain: 0.01,
+      release: 0.04,
     });
     const squelchGain = new Tone.Gain(Tone.dbToGain(volumeDb + 1));
     squelchNoise.connect(squelchFilter);
@@ -132,7 +135,10 @@ export class AudioEngine {
     const weightNoise = new Tone.Noise('brown');
     const weightFilter = new Tone.Filter(150, 'lowpass');
     const weightEnv = new Tone.AmplitudeEnvelope({
-      attack: 0.001, decay: 0.04, sustain: 0, release: 0.012,
+      attack: 0.001,
+      decay: 0.04,
+      sustain: 0,
+      release: 0.012,
     });
     const weightGain = new Tone.Gain(Tone.dbToGain(volumeDb - 2));
     weightNoise.connect(weightFilter);
@@ -147,7 +153,10 @@ export class AudioEngine {
       const crackNoise = new Tone.Noise('white');
       const crackFilter = new Tone.Filter(2000 + Math.random() * 700, 'highpass');
       const crackEnv = new Tone.AmplitudeEnvelope({
-        attack: 0.0005, decay: 0.011 + Math.random() * 0.007, sustain: 0, release: 0.006,
+        attack: 0.0005,
+        decay: 0.011 + Math.random() * 0.007,
+        sustain: 0,
+        release: 0.006,
       });
       const crackGain = new Tone.Gain(Tone.dbToGain(volumeDb - 3));
       crackNoise.connect(crackFilter);
@@ -157,16 +166,25 @@ export class AudioEngine {
       crackNoise.start();
       crackEnv.triggerAttackRelease(0.018);
       setTimeout(() => {
-        crackNoise.stop(); crackNoise.dispose();
-        crackFilter.dispose(); crackEnv.dispose(); crackGain.dispose();
+        crackNoise.stop();
+        crackNoise.dispose();
+        crackFilter.dispose();
+        crackEnv.dispose();
+        crackGain.dispose();
       }, 300);
     }
 
     setTimeout(() => {
-      squelchNoise.stop(); squelchNoise.dispose();
-      squelchFilter.dispose(); squelchEnv.dispose(); squelchGain.dispose();
-      weightNoise.stop(); weightNoise.dispose();
-      weightFilter.dispose(); weightEnv.dispose(); weightGain.dispose();
+      squelchNoise.stop();
+      squelchNoise.dispose();
+      squelchFilter.dispose();
+      squelchEnv.dispose();
+      squelchGain.dispose();
+      weightNoise.stop();
+      weightNoise.dispose();
+      weightFilter.dispose();
+      weightEnv.dispose();
+      weightGain.dispose();
       panner.dispose();
     }, 400);
   }
@@ -184,7 +202,10 @@ export class AudioEngine {
     const gritFilter = new Tone.Filter(gritFreq, 'bandpass');
     (gritFilter as unknown as { Q: { value: number } }).Q.value = 1.4;
     const gritEnv = new Tone.AmplitudeEnvelope({
-      attack: 0.001, decay: 0.045 + Math.random() * 0.025, sustain: 0, release: 0.03,
+      attack: 0.001,
+      decay: 0.045 + Math.random() * 0.025,
+      sustain: 0,
+      release: 0.03,
     });
     const gritGain = new Tone.Gain(Tone.dbToGain(volumeDb));
     gritNoise.connect(gritFilter);
@@ -199,7 +220,10 @@ export class AudioEngine {
       const crackNoise = new Tone.Noise('white');
       const crackFilter = new Tone.Filter(3000 + Math.random() * 900, 'highpass');
       const crackEnv = new Tone.AmplitudeEnvelope({
-        attack: 0.0005, decay: 0.009 + Math.random() * 0.006, sustain: 0, release: 0.005,
+        attack: 0.0005,
+        decay: 0.009 + Math.random() * 0.006,
+        sustain: 0,
+        release: 0.005,
       });
       const crackGain = new Tone.Gain(Tone.dbToGain(volumeDb - 2));
       crackNoise.connect(crackFilter);
@@ -209,14 +233,20 @@ export class AudioEngine {
       crackNoise.start();
       crackEnv.triggerAttackRelease(0.014);
       setTimeout(() => {
-        crackNoise.stop(); crackNoise.dispose();
-        crackFilter.dispose(); crackEnv.dispose(); crackGain.dispose();
+        crackNoise.stop();
+        crackNoise.dispose();
+        crackFilter.dispose();
+        crackEnv.dispose();
+        crackGain.dispose();
       }, 300);
     }
 
     setTimeout(() => {
-      gritNoise.stop(); gritNoise.dispose();
-      gritFilter.dispose(); gritEnv.dispose(); gritGain.dispose();
+      gritNoise.stop();
+      gritNoise.dispose();
+      gritFilter.dispose();
+      gritEnv.dispose();
+      gritGain.dispose();
       panner.dispose();
     }, 300);
   }
@@ -234,7 +264,10 @@ export class AudioEngine {
     const thudFilter = new Tone.Filter(thudFreq, 'bandpass');
     (thudFilter as unknown as { Q: { value: number } }).Q.value = 1.8;
     const thudEnv = new Tone.AmplitudeEnvelope({
-      attack: 0.001, decay: 0.11 + Math.random() * 0.05, sustain: 0, release: 0.04,
+      attack: 0.001,
+      decay: 0.11 + Math.random() * 0.05,
+      sustain: 0,
+      release: 0.04,
     });
     const thudGain = new Tone.Gain(Tone.dbToGain(volumeDb + 2));
     thudNoise.connect(thudFilter);
@@ -248,7 +281,10 @@ export class AudioEngine {
     const subNoise = new Tone.Noise('brown');
     const subFilter = new Tone.Filter(80, 'lowpass');
     const subEnv = new Tone.AmplitudeEnvelope({
-      attack: 0.001, decay: 0.09, sustain: 0, release: 0.018,
+      attack: 0.001,
+      decay: 0.09,
+      sustain: 0,
+      release: 0.018,
     });
     const subGain = new Tone.Gain(Tone.dbToGain(volumeDb + 5));
     subNoise.connect(subFilter);
@@ -256,14 +292,17 @@ export class AudioEngine {
     subEnv.connect(subGain);
     subGain.connect(panner);
     subNoise.start();
-    subEnv.triggerAttackRelease(0.10);
+    subEnv.triggerAttackRelease(0.1);
 
     if (withCrack) {
       // Dry branch snap — heavier than player's soft leaf, more percussive
       const crackNoise = new Tone.Noise('brown');
       const crackFilter = new Tone.Filter(1600 + Math.random() * 700, 'highpass');
       const crackEnv = new Tone.AmplitudeEnvelope({
-        attack: 0.001, decay: 0.032 + Math.random() * 0.018, sustain: 0, release: 0.014,
+        attack: 0.001,
+        decay: 0.032 + Math.random() * 0.018,
+        sustain: 0,
+        release: 0.014,
       });
       const crackGain = new Tone.Gain(Tone.dbToGain(volumeDb + 6));
       crackNoise.connect(crackFilter);
@@ -273,16 +312,25 @@ export class AudioEngine {
       crackNoise.start();
       crackEnv.triggerAttackRelease(0.04);
       setTimeout(() => {
-        crackNoise.stop(); crackNoise.dispose();
-        crackFilter.dispose(); crackEnv.dispose(); crackGain.dispose();
+        crackNoise.stop();
+        crackNoise.dispose();
+        crackFilter.dispose();
+        crackEnv.dispose();
+        crackGain.dispose();
       }, 400);
     }
 
     setTimeout(() => {
-      thudNoise.stop(); thudNoise.dispose();
-      thudFilter.dispose(); thudEnv.dispose(); thudGain.dispose();
-      subNoise.stop(); subNoise.dispose();
-      subFilter.dispose(); subEnv.dispose(); subGain.dispose();
+      thudNoise.stop();
+      thudNoise.dispose();
+      thudFilter.dispose();
+      thudEnv.dispose();
+      thudGain.dispose();
+      subNoise.stop();
+      subNoise.dispose();
+      subFilter.dispose();
+      subEnv.dispose();
+      subGain.dispose();
       panner.dispose();
     }, 600);
   }
@@ -299,9 +347,9 @@ export class AudioEngine {
     (filter as unknown as { Q: { value: number } }).Q.value = 3.2;
     const env = new Tone.AmplitudeEnvelope({
       attack: 0.04,
-      decay: 0.26 + intensity * 0.20,
+      decay: 0.26 + intensity * 0.2,
       sustain: 0.18,
-      release: 0.24 + intensity * 0.20,
+      release: 0.24 + intensity * 0.2,
     });
     const gain = new Tone.Gain(Tone.dbToGain(volumeDb));
     const noiseGain = new Tone.Gain(Tone.dbToGain(volumeDb - 7));
@@ -323,10 +371,17 @@ export class AudioEngine {
     env.triggerAttackRelease(0.42 + intensity * 0.28);
 
     setTimeout(() => {
-      osc.stop(); osc.dispose();
-      sub.stop(); sub.dispose();
-      noise.stop(); noise.dispose();
-      filter.dispose(); env.dispose(); gain.dispose(); noiseGain.dispose(); panner.dispose();
+      osc.stop();
+      osc.dispose();
+      sub.stop();
+      sub.dispose();
+      noise.stop();
+      noise.dispose();
+      filter.dispose();
+      env.dispose();
+      gain.dispose();
+      noiseGain.dispose();
+      panner.dispose();
     }, 1200);
   }
 
@@ -340,7 +395,10 @@ export class AudioEngine {
     const filter = new Tone.Filter(3200 + Math.random() * 1400, 'bandpass');
     (filter as unknown as { Q: { value: number } }).Q.value = 1.8;
     const env = new Tone.AmplitudeEnvelope({
-      attack: 0.008, decay: 0.14 + Math.random() * 0.10, sustain: 0, release: 0.16,
+      attack: 0.008,
+      decay: 0.14 + Math.random() * 0.1,
+      sustain: 0,
+      release: 0.16,
     });
     const gain = new Tone.Gain(Tone.dbToGain(vol));
     noise.connect(filter);
@@ -350,8 +408,12 @@ export class AudioEngine {
     noise.start();
     env.triggerAttackRelease(0.26);
     setTimeout(() => {
-      noise.stop(); noise.dispose();
-      filter.dispose(); env.dispose(); gain.dispose(); panner.dispose();
+      noise.stop();
+      noise.dispose();
+      filter.dispose();
+      env.dispose();
+      gain.dispose();
+      panner.dispose();
     }, 800);
   }
 
@@ -363,7 +425,7 @@ export class AudioEngine {
       attack: 0.018,
       decay: 0.18 + intensity * 0.08,
       sustain: 0.05,
-      release: 0.16 + intensity * 0.10,
+      release: 0.16 + intensity * 0.1,
     });
     const gain = new Tone.Gain(Tone.dbToGain(volumeDb + intensity * 3));
 

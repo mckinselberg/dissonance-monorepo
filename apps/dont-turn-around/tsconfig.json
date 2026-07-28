@@ -11,7 +11,8 @@
       "@dissonance/navigation": ["../../packages/navigation/src/index.ts"],
       "@dissonance/persistence": ["../../packages/persistence/src/index.ts"],
       "@dissonance/pursuit": ["../../packages/pursuit/src/index.ts"],
-      "@dissonance/glow": ["../../packages/glow/src/index.ts"]
+      "@dissonance/glow": ["../../packages/glow/src/index.ts"],
+      "@dissonance/pursuer": ["../../packages/pursuer/src/index.ts"]
     }
   },
   "include": ["src"]

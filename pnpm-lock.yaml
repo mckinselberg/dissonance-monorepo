@@ -44,6 +44,9 @@ importers:
       '@dissonance/player':
         specifier: workspace:*
         version: link:../../packages/player
+      '@dissonance/pursuer':
+        specifier: workspace:*
+        version: link:../../packages/pursuer
       '@dissonance/pursuit':
         specifier: workspace:*
         version: link:../../packages/pursuit
@@ -197,6 +200,12 @@ importers:
       '@dissonance/world':
         specifier: workspace:*
         version: link:../world
+
+  packages/pursuer:
+    dependencies:
+      '@babylonjs/core':
+        specifier: ^7.0.0
+        version: 7.54.3
 
   packages/pursuit:
     dependencies:
