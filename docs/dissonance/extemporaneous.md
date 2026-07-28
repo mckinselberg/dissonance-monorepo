@@ -1,0 +1,1 @@
+- since we have water system. let's build an apparatus for underwater exploration. we'll also need clothing system. and equipment system. now it's getting fun. think about ways to make music with simple snorkel and goggle diving vs full scuba suit and gear.

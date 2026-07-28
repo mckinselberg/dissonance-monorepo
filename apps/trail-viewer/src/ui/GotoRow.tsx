@@ -30,7 +30,7 @@ export type GotoRowProps = {
   // only) so this ui/ module doesn't need to import world/LocationProps.
   // Optional/omittable the same way savedViews is in ViewToolsRow (empty
   // array just hides the dropdown, matching that component's own pattern).
-  locations?: Array<{ name: string; latLong: [number, number] }>;
+  locations?: Array<{ id: string; name: string; latLong: [number, number] }>;
 };
 
 // Lat/lon values for the "go to" inputs aren't persisted or bound to any
@@ -66,16 +66,17 @@ export function GotoRow({ onGo, getCurrentLatLon, onResetPosition, locations = [
             style={{ flex: 1 }}
             value=""
             onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
-              const index = Number(e.currentTarget.value);
+              const id = e.currentTarget.value;
               e.currentTarget.value = '';
-              if (Number.isNaN(index)) return;
-              const [lat, lon] = locations[index].latLong;
+              const location = locations.find((candidate) => candidate.id === id);
+              if (!location) return;
+              const [lat, lon] = location.latLong;
               onGo(lat, lon);
             }}
           >
             <option value="" disabled>— choose a location —</option>
-            {locations.map((location, index) => (
-              <option key={location.name} value={index}>{location.name}</option>
+            {locations.map((location) => (
+              <option key={location.id} value={location.id}>{location.name}</option>
             ))}
           </select>
         </label>

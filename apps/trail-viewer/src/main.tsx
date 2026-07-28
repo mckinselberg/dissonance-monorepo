@@ -59,6 +59,7 @@ import { loadUtilityCorridors } from './world/UtilityCorridors';
 import { WorldFeatureRegistry } from './world/WorldFeatureRegistry';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
+import { createDefaultEnvironmentRenderingProfile } from './state/environmentRenderingProfile';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
 import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
@@ -356,13 +357,13 @@ async function loadSavedViews(): Promise<SavedView[]> {
 // for now) — named real-world points, optionally tagged with which
 // LocationProps prop types to thin-instance there. Grows by hand for now,
 // same as views.json.
-async function loadLocations(): Promise<LocationEntry[]> {
+async function loadLocations(): Promise<WorldFeatureRegistry> {
   const response = await fetch(`${import.meta.env.BASE_URL}data/locations.json`);
   if (!response.ok) throw new Error(`Could not load world features (${response.status}).`);
   const raw = await response.json() as unknown;
   if (!Array.isArray(raw)) throw new Error('World feature data must be a JSON array.');
   const entries = raw as LocationEntry[];
-  return new WorldFeatureRegistry(entries).entries;
+  return new WorldFeatureRegistry(entries);
 }
 
 type RouteManifestEntry = { name: string; file: string };
@@ -471,6 +472,14 @@ async function main() {
   const levelKey = currentLevelKey();
   const level = LEVELS[levelKey];
   const savedSettings = loadSavedSettings(levelKey);
+  // First concrete T1/T24 profile seam. Only existing live consumers (fog)
+  // are applied today; chunk/LOD distances remain validated profile data
+  // until their systems land, rather than appearing as inert HUD controls.
+  const environmentProfile = createDefaultEnvironmentRenderingProfile({
+    farClip: level.farClip,
+    fogDensity: savedSettings.fogDensity ?? 0,
+    fogColor: savedSettings.fogColor ?? '#8ca6c7',
+  });
 
   // Not persisted anywhere (no SavedSettings fields for these) — session-only,
   // same as before. Shared by both orbit and player mode.
@@ -480,8 +489,8 @@ async function main() {
   // Preact-rendered #atmosphere-root panel mounted further down.
   const atmosphere = createAtmosphereSignals({
     timeOfDay: savedSettings.timeOfDay ?? 12,
-    fogDensity: savedSettings.fogDensity ?? 0,
-    fogColor: savedSettings.fogColor ?? '#8ca6c7',
+    fogDensity: environmentProfile.atmosphere.fogDensity,
+    fogColor: environmentProfile.atmosphere.fogColor,
     overcast: savedSettings.overcast ?? false,
     starCount: savedSettings.starCount ?? 800,
     cloudCount: savedSettings.cloudCount ?? 16,
@@ -991,13 +1000,14 @@ async function main() {
     mountains.setVisible(visibility.mountains.value);
   };
 
-  const [trails, gpxTrack, savedViews, locations, replayRoutes] = await Promise.all([
+  const [trails, gpxTrack, savedViews, worldFeatures, replayRoutes] = await Promise.all([
     loadTrails(),
     loadGpxTrack(),
     loadSavedViews(),
     loadLocations(),
     loadReplayRoutes(),
   ]);
+  const locations = worldFeatures.entries;
   let trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
     namePrefix: 'osmTrail',
     yLift: OSM_TRAIL_Y_LIFT,
