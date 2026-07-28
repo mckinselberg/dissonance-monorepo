@@ -15,8 +15,9 @@ import type {
   ShadowGenerator,
 } from '@babylonjs/core';
 import type { Collider } from '@dissonance/world';
+import type { FloorSurface } from '@dissonance/player';
 import type { LocationEntry } from './LocationProps';
-import { buildStreetLamp } from './LocationProps';
+import { buildStreetLamp, buildMilosInterior } from './LocationProps';
 import { ensureGltfLoader } from './gltfLoader';
 
 export interface CompositeLocationsHandle {
@@ -24,6 +25,10 @@ export interface CompositeLocationsHandle {
   // BUILDING_COLLISION_RADII/MILOS_BUILDING_ID below. Streets/sidewalks/
   // props/lamps stay walk-through; only buildings are "un-enterable" here.
   colliders: Collider[];
+  // World-space "you can stand here" rectangles for Milo's stairwell steps
+  // and second-floor slab — see PlayerController.setFloorSurfaces. Empty
+  // for every other building (none of them have interior geometry).
+  floorSurfaces: FloorSurface[];
   dispose(): void;
 }
 
@@ -390,6 +395,114 @@ function placeRenderMeshes(
   }
 }
 
+// Same baked-transform + minimumY compensation as placeRenderMeshes, but a
+// regular Node transform (position/rotationQuaternion/scaling) instead of a
+// thin-instance matrix. Needed for Milo's building specifically: only a
+// mesh with a real Node transform supports normal parent/child
+// relationships, and the door/stairwell/second-floor meshes need to be
+// parented to it so they inherit its placement automatically. Assumes a
+// single render mesh (true for every building.gltf checked so far — one
+// merged multi-material mesh per file); logs if that ever stops holding.
+// Returns the world Y that the mesh's own local Y=0 maps to, so callers can
+// place child geometry (or compute FloorSurfaces) in the building's local
+// space and convert it themselves.
+function placeSingleTransformMesh(
+  renderMeshes: Mesh[],
+  placement: ExpandedPlacement,
+  shadowGenerator?: ShadowGenerator,
+): { baseWorldY: number } {
+  if (renderMeshes.length !== 1) {
+    console.warn(`[CompositeLocations] expected exactly one render mesh for a single-transform placement, got ${renderMeshes.length}`);
+  }
+  let minimumY = Number.POSITIVE_INFINITY;
+  for (const mesh of renderMeshes) {
+    mesh.computeWorldMatrix(true);
+    minimumY = Math.min(minimumY, mesh.getBoundingInfo().boundingBox.minimumWorld.y);
+  }
+  if (!Number.isFinite(minimumY)) minimumY = 0;
+
+  const baseWorldY = placement.groundY - minimumY * placement.scaleY;
+  for (const mesh of renderMeshes) {
+    mesh.bakeCurrentTransformIntoVertices();
+    mesh.parent = null;
+    mesh.receiveShadows = true;
+    mesh.position.set(placement.x, baseWorldY, placement.z);
+    mesh.rotationQuaternion = Quaternion.FromEulerAngles(0, placement.rotationRadians, 0);
+    mesh.scaling.set(placement.scaleXZ, placement.scaleY, placement.scaleXZ);
+    shadowGenerator?.addShadowCaster(mesh);
+  }
+  return { baseWorldY };
+}
+
+// Converts one of buildMilosInterior's local-space rectangles into a
+// world-space PlayerController.FloorSurface, applying the exact same
+// rotate/scale/translate the building mesh itself was placed with (see
+// placeSingleTransformMesh) so a rotated placement (Milo's is
+// rotationDegrees: 90) still gets a correctly-positioned rectangle. Uses
+// the AABB of the four rotated corners rather than a true oriented
+// rectangle — exact for the 90-degree-multiple rotations every compound
+// placement in this app actually uses, a safe (over-covering, never
+// under-covering) approximation for anything else.
+function localFloorSurfaceToWorld(
+  local: { minX: number; maxX: number; minZ: number; maxZ: number; y: number },
+  placement: ExpandedPlacement,
+  baseWorldY: number,
+): FloorSurface {
+  const cos = Math.cos(placement.rotationRadians);
+  const sin = Math.sin(placement.rotationRadians);
+  const corners = [
+    [local.minX, local.minZ], [local.maxX, local.minZ],
+    [local.maxX, local.maxZ], [local.minX, local.maxZ],
+  ].map(([lx, lz]) => {
+    const sx = lx * placement.scaleXZ;
+    const sz = lz * placement.scaleXZ;
+    return { x: placement.x + (sx * cos - sz * sin), z: placement.z + (sx * sin + sz * cos) };
+  });
+  return {
+    minX: Math.min(...corners.map((c) => c.x)),
+    maxX: Math.max(...corners.map((c) => c.x)),
+    minZ: Math.min(...corners.map((c) => c.z)),
+    maxZ: Math.max(...corners.map((c) => c.z)),
+    y: baseWorldY + local.y * placement.scaleY,
+  };
+}
+
+// Milo's building specifically (see MILOS_BUILDING_ID) — loaded as its own
+// standalone container rather than folded into the shared "building-medium"
+// thin-instance batch, since thin instances can't carry unique per-instance
+// geometry (the door/stairwell/second floor would otherwise appear on
+// every building-medium on the boulevard, not just this one).
+async function loadMilosBuilding(
+  scene: Scene,
+  placement: ExpandedPlacement,
+  windowTintColor: Color3,
+  windowGlow: number,
+  cardTexture: Texture,
+  cardWithFigureTexture: Texture,
+  shadowGenerator?: ShadowGenerator,
+): Promise<{ container: AssetContainer; extraMeshes: Mesh[]; floorSurfaces: FloorSurface[] }> {
+  const container = await LoadAssetContainerAsync(`${CITY_ASSET_BASE}${CITY_ASSETS['building-medium']}`, scene);
+  container.addAllToScene();
+  const renderMeshes = container.meshes.filter(
+    (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0,
+  );
+  if (renderMeshes.length === 0) throw new Error('milos building has no renderable meshes');
+
+  applyWindowTint(container, 'building-medium', windowTintColor, windowGlow, cardTexture, cardWithFigureTexture);
+  const { baseWorldY } = placeSingleTransformMesh(renderMeshes, placement, shadowGenerator);
+
+  const buildingMesh = renderMeshes[0];
+  const { meshes: extraMeshes, floorSurfaces: localFloorSurfaces } = buildMilosInterior(scene);
+  extraMeshes.forEach((mesh) => {
+    mesh.parent = buildingMesh;
+    mesh.receiveShadows = true;
+    shadowGenerator?.addShadowCaster(mesh);
+  });
+  const floorSurfaces = localFloorSurfaces.map((local) => localFloorSurfaceToWorld(local, placement, baseWorldY));
+
+  return { container, extraMeshes, floorSurfaces };
+}
+
 async function loadThinInstancedAsset(
   scene: Scene,
   asset: string,
@@ -444,6 +557,10 @@ export async function loadCompositeLocations(
   const byAsset = new Map<string, ExpandedPlacement[]>();
   const gradePads: Mesh[] = [];
   const colliders: Collider[] = [];
+  // Set at most once — locations.json is expected to tag MILOS_BUILDING_ID
+  // on exactly one placement. If it's ever tagged twice, the last one wins
+  // silently; not worth a loud validation for a single hand-authored id.
+  let milosPlacement: ExpandedPlacement | undefined;
   // Built once and shared by every "fake interior" material across every
   // building type/instance — see applyWindowTint's own comment for why
   // these replaced the kit's baked room photo.
@@ -478,12 +595,22 @@ export async function loadCompositeLocations(
         console.warn(`[CompositeLocations] unknown asset "${placement.asset}" at "${location.name}"`);
         continue;
       }
+      const expandedPlacement = { ...placement, groundY: planeHeightAt(plane, placement.x, placement.z) };
+
+      if (placement.id === MILOS_BUILDING_ID) {
+        // Not added to byAsset — this one gets its own standalone container
+        // below (loadMilosBuilding) instead of the shared thin-instance
+        // batch, and no collider (it's the one enterable building).
+        milosPlacement = expandedPlacement;
+        continue;
+      }
+
       const entries = byAsset.get(placement.asset) ?? [];
-      entries.push({ ...placement, groundY: planeHeightAt(plane, placement.x, placement.z) });
+      entries.push(expandedPlacement);
       byAsset.set(placement.asset, entries);
 
       const buildingRadius = BUILDING_COLLISION_RADII[placement.asset];
-      if (buildingRadius !== undefined && placement.id !== MILOS_BUILDING_ID) {
+      if (buildingRadius !== undefined) {
         colliders.push({ x: placement.x, z: placement.z, radius: buildingRadius * horizontalScale });
       }
     }
@@ -491,22 +618,36 @@ export async function loadCompositeLocations(
 
   const containers: AssetContainer[] = [];
   const proceduralMeshes: Mesh[] = [];
-  await Promise.all([...byAsset].map(async ([asset, entries]) => {
-    if (asset in PROCEDURAL_ASSETS) {
-      const template = placeProceduralAsset(scene, PROCEDURAL_ASSETS[asset], entries, shadowGenerator);
-      proceduralMeshes.push(template);
-    } else {
-      const container = await loadThinInstancedAsset(
-        scene, asset, CITY_ASSETS[asset], entries, windowTintColor, windowGlow,
+  let floorSurfaces: FloorSurface[] = [];
+  await Promise.all([
+    ...[...byAsset].map(async ([asset, entries]) => {
+      if (asset in PROCEDURAL_ASSETS) {
+        const template = placeProceduralAsset(scene, PROCEDURAL_ASSETS[asset], entries, shadowGenerator);
+        proceduralMeshes.push(template);
+      } else {
+        const container = await loadThinInstancedAsset(
+          scene, asset, CITY_ASSETS[asset], entries, windowTintColor, windowGlow,
+          windowCardTexture, windowCardWithFigureTexture, shadowGenerator,
+        );
+        containers.push(container);
+      }
+      console.info(`[CompositeLocations] placed ${entries.length} "${asset}" module(s)`);
+    }),
+    (async () => {
+      if (!milosPlacement) return;
+      const milos = await loadMilosBuilding(
+        scene, milosPlacement, windowTintColor, windowGlow,
         windowCardTexture, windowCardWithFigureTexture, shadowGenerator,
       );
-      containers.push(container);
-    }
-    console.info(`[CompositeLocations] placed ${entries.length} "${asset}" module(s)`);
-  }));
+      containers.push(milos.container);
+      floorSurfaces = milos.floorSurfaces;
+      console.info(`[CompositeLocations] placed milos-building (door/stairwell/second-floor, ${floorSurfaces.length} floor surfaces)`);
+    })(),
+  ]);
 
   return {
     colliders,
+    floorSurfaces,
     dispose: () => {
       containers.forEach((container) => container.dispose());
       // false/true: skip the (already-null) parent-hierarchy walk, do
@@ -515,6 +656,13 @@ export async function loadCompositeLocations(
       // this is the fix for the leak-on-rebuild noted in review: every
       // hScale/vExag slider drag disposes and rebuilds this whole set.
       proceduralMeshes.forEach((mesh) => mesh.dispose(false, true));
+      // Milo's door/stairwell/second-floor meshes are parented to the
+      // building mesh, which containers.forEach's dispose() above already
+      // tears down — Babylon disposes a mesh's children along with it, so
+      // these would double-dispose (harmless — dispose() on an
+      // already-disposed mesh is a no-op) if listed too; skipped here to
+      // keep this loop's own semantics clear (every mesh in it owns a
+      // freshly-constructed material, which containers' meshes do not).
       gradePads.forEach((mesh) => mesh.dispose(false, true));
       // Not tracked in any container's own texture list (built standalone,
       // shared across every building type's materials) — container.dispose()

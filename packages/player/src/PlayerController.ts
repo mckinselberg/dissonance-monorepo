@@ -9,6 +9,29 @@ const STAND_HEIGHT = 1.7;
 const CROUCH_HEIGHT = 0.9;
 const PLAYER_RADIUS = 0.38;
 
+// An axis-aligned "you can stand here" rectangle at a fixed height — stairs,
+// a second-floor slab, anything indoors that isn't the outdoor DEM terrain
+// getHeightAt already follows. World-space, same x/z the camera uses.
+// Deliberately not a general raycast-against-scene-geometry system (2026-
+// 07-27, Milo's building interior) — a flat list of rectangles is enough
+// for hand-authored stairs/floors and costs nothing per frame at the scale
+// this app places them (tens, not thousands).
+export interface FloorSurface {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  y: number;
+}
+
+// How far above the player's current feet height a floor surface may sit
+// and still be climbed onto this frame. Small enough that walking under an
+// elevated floor from outdoor ground level doesn't snap you up onto it
+// (Milo's second floor sits ~4m up — nowhere close to this), generous
+// enough that each stair step's rise (~0.36m for Milo's stairwell) reads as
+// a normal step instead of a wall you can't climb.
+const FLOOR_STEP_UP_TOLERANCE = 0.6;
+
 export type PlayerControllerOptions = {
   // Uniform multiplier on the player's own physical size (eye height,
   // crouch height, collision radius) — not on movement speed. Lets a
@@ -55,6 +78,7 @@ export class PlayerController {
 
   private terrain: ITerrain | null = null;
   private colliders: Collider[] = [];
+  private floorSurfaces: FloorSurface[] = [];
   private worldBoundaryRadius: number | null = null;
   // Extra Y added on top of the normal stand/crouch eye height — a scene-level
   // "raise the camera a bit" tweak, independent of the scale-driven eye
@@ -169,6 +193,10 @@ export class PlayerController {
     this.colliders = colliders;
   }
 
+  setFloorSurfaces(surfaces: FloorSurface[]): void {
+    this.floorSurfaces = surfaces;
+  }
+
   // Decorative meshes (mountains) aren't real colliders — without this the
   // player can walk straight through the mountain ring. A simple distance-
   // from-origin cap is far cheaper than deriving collision geometry from
@@ -265,7 +293,20 @@ export class PlayerController {
     const targetEye = this.isCrouching ? this.crouchHeight : this.standHeight;
     this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 10);
 
-    const groundY = this.terrain?.getHeightAt(this.camera.position.x, this.camera.position.z) ?? 0;
+    const terrainY = this.terrain?.getHeightAt(this.camera.position.x, this.camera.position.z) ?? 0;
+    // this.camera.position.y still holds last frame's value here (this
+    // frame's hasn't been assigned yet) — good enough as "current feet
+    // height" for the step-up check below; eyeHeight's own smoothing means
+    // it barely differs from last frame's anyway.
+    const currentFeetY = this.camera.position.y - this.eyeHeight - this.heightOffset;
+    let groundY = terrainY;
+    for (const surface of this.floorSurfaces) {
+      if (this.camera.position.x < surface.minX || this.camera.position.x > surface.maxX) continue;
+      if (this.camera.position.z < surface.minZ || this.camera.position.z > surface.maxZ) continue;
+      if (surface.y <= groundY) continue;
+      if (surface.y > currentFeetY + FLOOR_STEP_UP_TOLERANCE) continue;
+      groundY = surface.y;
+    }
     this.camera.position.y = groundY + this.eyeHeight + this.heightOffset;
 
     this.shakeTime += dt * 3.0;

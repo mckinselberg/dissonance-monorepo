@@ -89,9 +89,21 @@ export class Sun {
       // slider moves this light live, so the shadow map is deliberately left
       // at its default (continuous) refresh rate rather than RENDER_ONCE —
       // a perf tradeoff worth revisiting if the scene gets much heavier.
-      this.shadowGenerator = new ShadowGenerator(1024, this.light);
+      this.shadowGenerator = new ShadowGenerator(2048, this.light);
       this.shadowGenerator.usePercentageCloserFiltering = true;
       this.shadowGenerator.bias = 0.002;
+      // Trail-viewer's shadow frustum auto-fits to the whole visible scene
+      // (mountains, forest, the boulevard) by default — at that extent, each
+      // shadow-map texel covers meters of ground, and flat receivers (the
+      // sidewalk especially) show it as visible banding at low sun angles.
+      // normalBias softens exactly that self-shadowing aliasing; doubling
+      // the map resolution above helps too. Doesn't fix the root cause
+      // (texel density over a multi-km frustum) — a fixed, camera-centered
+      // shadowFrustumSize would, but that's a bigger change with real
+      // "shadows fade out at distance" tradeoffs worth seeing live before
+      // committing to (2026-07-27, Dan reported the artifact from a
+      // screenshot, unverified live yet).
+      this.shadowGenerator.normalBias = 0.02;
     }
 
     if (options.lensFlare) {

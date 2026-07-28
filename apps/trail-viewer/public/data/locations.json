@@ -1,10 +1,12 @@
 [
   {
+    "id": "mountain-crater",
     "name": "mountain crater",
     "latLong": [40.755397, -74.274582],
     "props": ["rocks"]
   },
   {
+    "id": "dissonance-boulevard",
     "name": "dissonance boulevard",
     "latLong": [40.728908, -74.275161],
     "compound": {
@@ -76,41 +78,49 @@
     }
   },
   {
+    "id": "old-picnic-grounds",
     "name": "old picnic grounds",
     "latLong": [40.735, -74.305],
     "props": ["picnic-table", "trash-barrel", "post-grill"]
   },
   {
+    "id": "stone-stairway",
     "name": "stone stairway",
     "latLong": [40.748, -74.295],
     "props": ["stone-steps"]
   },
   {
+    "id": "root-ball-hollow",
     "name": "root ball hollow",
     "latLong": [40.725, -74.285],
     "props": ["root-ball"]
   },
   {
+    "id": "giant-snag-ridge",
     "name": "giant snag ridge",
     "latLong": [40.755, -74.31],
     "props": ["giant-snag"]
   },
   {
+    "id": "mossy-creek-bend",
     "name": "mossy creek bend",
     "latLong": [40.73, -74.265],
     "props": ["mossy-log", "rocks"]
   },
   {
+    "id": "dead-fountain-circle",
     "name": "dead fountain circle",
     "latLong": [40.742, -74.318],
     "props": ["dead-fountain"]
   },
   {
+    "id": "abandoned-shed",
     "name": "abandoned shed",
     "latLong": [40.72, -74.3],
     "props": ["shed-shell"]
   },
   {
+    "id": "boulder-field",
     "name": "boulder field",
     "latLong": [40.75, -74.27],
     "props": ["rocks"]

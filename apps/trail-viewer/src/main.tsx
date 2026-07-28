@@ -56,6 +56,7 @@ import { createBulkForestScatterSignals } from './state/bulkForestScatter';
 import { scatterLocationProps, type LocationEntry } from './world/LocationProps';
 import { loadCompositeLocations } from './world/CompositeLocations';
 import { loadUtilityCorridors } from './world/UtilityCorridors';
+import { WorldFeatureRegistry } from './world/WorldFeatureRegistry';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
@@ -342,7 +343,12 @@ async function loadSavedViews(): Promise<SavedView[]> {
 // LocationProps prop types to thin-instance there. Grows by hand for now,
 // same as views.json.
 async function loadLocations(): Promise<LocationEntry[]> {
-  return fetch(`${import.meta.env.BASE_URL}data/locations.json`).then((r) => r.json());
+  const response = await fetch(`${import.meta.env.BASE_URL}data/locations.json`);
+  if (!response.ok) throw new Error(`Could not load world features (${response.status}).`);
+  const raw = await response.json() as unknown;
+  if (!Array.isArray(raw)) throw new Error('World feature data must be a JSON array.');
+  const entries = raw as LocationEntry[];
+  return new WorldFeatureRegistry(entries).entries;
 }
 
 type RouteManifestEntry = { name: string; file: string };
@@ -1661,6 +1667,9 @@ async function main() {
   // (only PlayerController/Walk does) — still a real follow-up, unchanged.
   const applyPlayerColliders = () => {
     player.setColliders([...locationProps.colliders, ...utilityCorridors.colliders, ...compositeLocations.colliders]);
+    // Milo's stairwell steps + second-floor slab (2026-07-27) — the only
+    // FloorSurfaces that exist today; empty for every other building.
+    player.setFloorSurfaces(compositeLocations.floorSurfaces);
   };
   applyPlayerColliders();
   const rebuildLocationProps = () => {
