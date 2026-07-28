@@ -33,22 +33,33 @@ export interface CompositeLocationsHandle {
 }
 
 // Real footprint dimensions read straight off each glTF's own position
-// accessor min/max (checked directly, not guessed) — small: 12.46x14.54m,
-// medium: 15.06x13.06m, large: 20.64x16.64m. A circle can't fit a
-// rectangle exactly (this is the "buildings are a follow-up" gap flagged
-// when props/poles shipped, 2026-07-27); radius = average of the two
-// half-extents, not the half-diagonal, so the collider stays inside the
-// footprint on the flat walls instead of bulging past them into the
-// sidewalk — undershoots at the corners, which is the safer failure mode.
-const BUILDING_COLLISION_RADII: Record<string, number> = {
+// accessor min/max (checked directly, not guessed): buildings small
+// 12.46x14.54m, medium 15.06x13.06m, large 20.64x16.64m — radius = average
+// of the two half-extents, not the half-diagonal, so a circle stays inside
+// the footprint on the flat walls instead of bulging past them into the
+// sidewalk (undershoots at the corners, the safer failure mode; a circle
+// can't fit a rectangle exactly). bollard 0.216x0.227m, planter 2x2m —
+// both round enough that half-extent and half-diagonal barely differ, no
+// real corner-vs-flat tradeoff to make. street-lamp reuses the same 0.3
+// LocationProps.ts's own PROP_COLLISION_RADII already settled on for the
+// identical buildStreetLamp mesh — same asset, different placement path
+// (CompositeLocations' compound grid here vs. scatterLocationProps'
+// jittered single point there), same collision radius.
+// Everything else placeable on a compound (streets, sidewalks, crosswalk
+// decals, manhole covers, drains) is flat ground, deliberately excluded —
+// walking ON these is the point, not blocked BY them.
+const OBSTACLE_COLLISION_RADII: Record<string, number> = {
   'building-small': 6.5,
   'building-medium': 7,
   'building-large': 9,
+  bollard: 0.15,
+  planter: 1.0,
+  'street-lamp': 0.3,
 };
 // One building on "dissonance boulevard" is tagged this id in locations.json
 // (Dan, 2026-07-27: "all buildings but milo's apartment building
 // un-enterable") — excluded from the collider list below so the player can
-// walk into its footprint; everything else with a BUILDING_COLLISION_RADII
+// walk into its footprint; everything else with an OBSTACLE_COLLISION_RADII
 // entry is solid.
 const MILOS_BUILDING_ID = 'milos-building';
 
@@ -609,9 +620,9 @@ export async function loadCompositeLocations(
       entries.push(expandedPlacement);
       byAsset.set(placement.asset, entries);
 
-      const buildingRadius = BUILDING_COLLISION_RADII[placement.asset];
-      if (buildingRadius !== undefined) {
-        colliders.push({ x: placement.x, z: placement.z, radius: buildingRadius * horizontalScale });
+      const obstacleRadius = OBSTACLE_COLLISION_RADII[placement.asset];
+      if (obstacleRadius !== undefined) {
+        colliders.push({ x: placement.x, z: placement.z, radius: obstacleRadius * horizontalScale });
       }
     }
   }
