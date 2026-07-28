@@ -129,6 +129,20 @@ const GRID_LINE_SAMPLES = 64;
 const GRID_LINE_COLOR = new Color3(0.4, 0.75, 0.8);
 const GRID_LINE_ALPHA = 0.35;
 
+// Underwater look — WaterPlane's own "murky underside" mesh already gives a
+// plausible ceiling when you dip below the surface (Fly/Drive have no
+// collision, so this is easy to do by accident), but nothing before this
+// changed how the *rest* of the view reads once you're actually submerged:
+// scene fog stayed at whatever the outdoor atmosphere sliders had it set
+// to. This overrides fog color/density while the active controller's Y is
+// below the water plane's current render-space level, restoring the
+// atmosphere-driven values the moment it isn't — same fogMode (EXP2,
+// already set once below), just a denser, murkier reading while submerged.
+// Deliberately fog-only for a first pass — a real screen tint/caustics
+// pass would read better but is a separate, riskier visual change.
+const UNDERWATER_FOG_COLOR = Color3.FromHexString('#0a2e33');
+const UNDERWATER_FOG_DENSITY = 0.04;
+
 type LevelConfig = {
   label: string;
   gridResolution: number;
@@ -2012,6 +2026,13 @@ async function main() {
 
   const SAVE_INTERVAL_SECONDS = 2;
   let timeSinceSave = 0;
+  // Tracked so the underwater fog override (see UNDERWATER_FOG_COLOR above)
+  // only touches scene.fogColor/fogDensity on the frame the player actually
+  // crosses the water surface, not every frame — the atmosphere sliders'
+  // own effect()s already own those properties while above water, and
+  // fighting them every frame would make live-dragging Fog while surfaced
+  // pointless.
+  let wasSubmerged = false;
   const persistSettings = () => {
     const activeCamera = controllers[movement.activeMode.value].camera;
     const pos = controllers[movement.activeMode.value].getPosition();
@@ -2089,6 +2110,23 @@ async function main() {
 
     const pos = controllers[movement.activeMode.value].getPosition();
     const groundY = terrain.getHeightAt(pos.x, pos.z);
+
+    // See UNDERWATER_FOG_COLOR/wasSubmerged's own comments — matches
+    // WaterPlane.setScale's own level*verticalExaggeration render-space math
+    // rather than adding a getter to that class for one call site.
+    const waterY = scaleTuning.waterLevel.value * scaleTuning.vExag.value;
+    const isSubmerged = visibility.water.value && pos.y < waterY;
+    if (isSubmerged !== wasSubmerged) {
+      if (isSubmerged) {
+        scene.fogColor = UNDERWATER_FOG_COLOR;
+        scene.fogDensity = UNDERWATER_FOG_DENSITY;
+      } else {
+        scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
+        scene.fogDensity = atmosphere.fogDensity.value;
+      }
+      wasSubmerged = isSubmerged;
+    }
+
     const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
     const latLon = worldToLatLon(real, origin);
     const controlsHint =
