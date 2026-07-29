@@ -17,6 +17,12 @@ World is the successor foundation: real DEM terrain, atmosphere, authored
 locations, route tools, and future surveilled interiors. Do not add new active
 Dissonance gameplay to the preserved DTA exhibit.
 
+`apps/trail-viewer/` and `apps/dont-turn-around/` still exist on disk but hold
+only `dist/`/`node_modules/` leftovers from before the "establish diorama app
+layers" reorg — no `src/` or `package.json`. Their active successors are
+`apps/world/` and `apps/museum/dont-turn-around/`. Don't edit or reference the
+old paths.
+
 ## Commands
 
 From the repository root:
@@ -45,7 +51,10 @@ Development ports/base paths:
 - DTA exhibit: `http://localhost:5176/museum/dont-turn-around/`
 
 Strict TypeScript is the primary build gate. Focused packages may provide
-Vitest tests. Visual and interactive work requires browser verification.
+Vitest tests — currently only `@dissonance/geo`. There's no root `test`
+script; run `pnpm --filter @dissonance/geo test` (or `cd packages/geo && npx
+vitest run`) rather than `pnpm test`. Visual and interactive work requires
+browser verification.
 
 ## Package architecture
 
@@ -63,6 +72,10 @@ Shared systems live in `packages/*`. Important packages include:
 - `@dissonance/navigation`
 - `@dissonance/persistence`
 - `@dissonance/utils`
+
+`@dissonance/pursuit` and `@dissonance/pursuer` are distinct: `pursuit` is the
+generic proximity/aggression state machine; `pursuer` holds the DTA-specific
+locomotion and tiered proximity-audio scheduling extracted out of the app.
 
 Packages must never import from `apps/*`. Package `main`/`types` entries point
 to source, so add public exports to the package's `src/index.ts` barrel.
@@ -89,6 +102,13 @@ extracting; do not create a shared abstraction until another consumer needs it.
 Museum exhibits are playable archive artifacts. The shell must support multiple
 exhibits. Exhibit-specific code stays nested under its exhibit directory, and
 active World work must not force refactors into an archived build.
+
+## Docs
+
+`docs/THREADS.md` is the living tracker of every active/parked/blocked design
+and engineering thread across both games — check it first for current state
+before reading other docs under `docs/`, most of which are handoff prompts or
+reference material it indexes and summarizes.
 
 ## Deployment
 

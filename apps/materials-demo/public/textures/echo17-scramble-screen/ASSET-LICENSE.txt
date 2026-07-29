@@ -1,0 +1,32 @@
+Echo-17 Scramble Screen (emissive data pattern)
+================================================
+
+Source: AI-generated reference art produced for this project (the "Echo-17"
+Dissonance/Fracture Cell character sheet, "Visual Scramble Screen" detail
+panel). Same provenance caveat as echo17-worn-leather-wrap/ASSET-LICENSE.txt
+in this textures/ directory — not a cleared third-party asset, project-owned
+pending Dan's confirmation.
+
+Crop
+----
+packages/materials/scripts/bake-emissive.mjs, pattern "echo17-scramble-screen":
+source file viz-scramble-screen.webp (724x1568 native), rect
+{left:30, top:280, width:660, height:560}. Two earlier attempts (top:230,
+height:660) bled the "VISUAL SCRAMBLE SCREEN" header text and page-margin
+gray into the crop — visible as a solid gray stripe once tiled, not a
+healing artifact. Nudged down/shortened until a raw-crop inspection showed
+pure glyph-grid content with no text or margin.
+
+Runtime derivative
+-------------------
+Same offset-and-heal technique as the leather swatch (see that directory's
+ASSET-LICENSE.txt for the full explanation), tuned differently: high-contrast
+graphic content (bright glyphs on near-black) turns a blurred seam band into
+an obvious flat-gray stripe rather than a soft smudge, so this bake uses a
+narrower band (featherPx 8, blur sigma = featherPx/10) and skips the
+post-blur contrast push entirely (it makes flat-gray banding worse on this
+content, not better).
+
+512x512, JPEG. Meant for UV-scrolling (EmissiveDataPatternMaterial in
+@dissonance/materials), so seamless tiling was verified along both axes via
+a 3x3 repeat render, not just the scroll axis.

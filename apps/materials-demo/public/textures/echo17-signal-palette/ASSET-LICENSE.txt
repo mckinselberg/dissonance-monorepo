@@ -1,0 +1,35 @@
+Echo-17 Signal Palette / Live Feed (emissive data pattern)
+===========================================================
+
+Source: AI-generated reference art produced for this project (the "Echo-17"
+Dissonance/Fracture Cell character sheet, "Signal Palette (Live Feed)"
+detail panel). Same provenance caveat as echo17-worn-leather-wrap/ASSET-LICENSE.txt
+in this textures/ directory — not a cleared third-party asset, project-owned
+pending Dan's confirmation.
+
+Crop
+----
+packages/materials/scripts/bake-emissive.mjs, pattern "echo17-signal-palette":
+source file signal-palette-(live-feed).webp (865x320 native), rect
+{left:20, top:112, width:820, height:120}. Went through three tightening
+passes — the panel's own thin gray top border kept surviving into the crop
+(at only 1-3px in the source, easy to miss on inspection) and then showing
+up as a wide solid gray band after this bake's ~3.4x vertical upscale
+(150px source height -> 512) plus the offset-heal's quadrant swap moving
+that edge into the tile's center. Final rect confirmed clean via a raw,
+unprocessed extract before baking.
+
+Runtime derivative
+-------------------
+Same offset-and-heal technique as echo17-scramble-screen (narrow feather,
+no post-blur contrast push — see that directory's ASSET-LICENSE.txt).
+This source's ~3.4x vertical stretch (150px crop height -> 512 square)
+made the seam band unusually sensitive to any leftover flat-color content
+at the crop edges; feather was tightened further (3px) specifically for
+this asset.
+
+512x512, JPEG, despite the source being a thin horizontal strip — this
+material's real use is a horizontally-scrolling readout band
+(EmissiveDataPatternMaterial), so only horizontal-axis seamlessness was
+load-bearing; vertical tiling was verified anyway (3x3 repeat render) but
+wasn't the design target.

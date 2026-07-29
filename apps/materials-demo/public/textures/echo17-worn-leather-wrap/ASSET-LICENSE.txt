@@ -1,0 +1,63 @@
+Echo-17 Worn Leather Wrap
+=========================
+
+Source: AI-generated reference art produced for this project (the "Echo-17"
+Dissonance/Fracture Cell character sheet). NOT a Poly Haven / third-party
+CC0 download like this directory's siblings — flagged per the Phase 0 audit
+in docs/dissonance/instanced-material-pipeline-prompt-v1.md, which required
+explicit confirmation before baking AI-generated art into a shipped
+texture. Licensing terms of the generating tool/account were not
+independently verified by the session that produced this file; treat as
+project-owned pending Dan's confirmation, not as a cleared third-party asset.
+
+Stands in for the pipeline doc's "frayed fabric"/"charcoal weave" swatch
+bucket — visually it's tooled/worn leather, not fabric or weave. Used
+because it was the only crop with enough native resolution to bake
+honestly; the doc's other named swatches (rust, cracked plastic,
+duct-tape/wrap) only exist as ~65x65px thumbnails in the source sheet and
+were skipped rather than upscaled into a fake "seamless" result.
+
+Crop
+----
+packages/materials/scripts/bake-swatches.mjs, swatch "echo17-worn-leather-wrap":
+source file collar-noise-emitter.webp (1008x1180 native), rect
+{left:280, top:895, width:200, height:190} — a clean patch of the tooled
+leather visible behind the collar noise emitter prop, chosen to avoid the
+device housing and the panel's gray gutter border.
+
+Runtime derivative
+-------------------
+Baked via packages/materials/scripts/bake-swatches.mjs + scripts/lib/tile-utils.mjs
+using sharp:
+
+1. Extracted the crop above from the native webp (no resize yet).
+2. Made it seamless via "offset and heal": swapped the image's four
+   quadrants diagonally (a half-width/half-height wraparound roll), which
+   relocates the tile-to-tile wrap seam into a single cross through the
+   tile's own center — the outer tile edges become seamless automatically
+   because they land on originally-adjacent source pixels. The new center
+   seam was then hidden with a ~18px blurred band (sigma = featherPx/3),
+   with contrast pushed back up afterward (linear 1.35x, -25) since blur
+   flattens local contrast and reads as a lighter smudge otherwise.
+   (A quad-mirror seamless-tiling approach was tried first and rejected —
+   it produced an obvious kaleidoscope/diamond artifact on this source's
+   diagonal tooling pattern; see git history on this file's bake script.)
+3. Roughness: greyscale of the sealed albedo, remapped from [0,255] to
+   [140,230] (~0.55-0.90 encoded) via a linear levels transform — worn
+   leather isn't matte-flat, but crevices should still read near-diffuse.
+   Approximate/derived, not authored or measured.
+4. Normal: greyscale-as-heightfield through a 3x3 Sobel gradient (see
+   heightToNormal in scripts/lib/tile-utils.mjs), strength 2.0. Fine for
+   shallow relief (leather tooling); not a substitute for a baked
+   high-poly normal.
+
+All three maps are 512x512, seamless-tiling verified via a 3x3 repeat
+render (scripts/_out/echo17-worn-leather-wrap/_tile_test_3x3.png, not
+committed — regenerate with `pnpm bake` in packages/materials).
+
+Known cosmetic tradeoff: the offset-heal seam is visible on close
+inspection as a faint darker cross through the tile (reads plausibly as a
+stitched leather panel seam rather than an obvious render artifact,
+especially once per-instance hue/value jitter is applied via
+ScatterVariationMaterialPlugin — but it is a real, intentional
+simplification, not a fully healed seamless capture).

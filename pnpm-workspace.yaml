@@ -2,3 +2,8 @@ packages:
   - 'apps/*'
   - 'apps/*/*'
   - 'packages/*'
+
+# sharp needs its postinstall script to fetch a prebuilt native binary —
+# used only by packages/materials' authoring-time bake script, never shipped.
+onlyBuiltDependencies:
+  - sharp

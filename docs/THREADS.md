@@ -1,7 +1,7 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.48
-**Date:** 2026-07-28
+**Version:** 9.49
+**Date:** 2026-07-29
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
 
 > **North star:** Audio is the key element of this game. Sound and music are not a subsystem — they are a first-class simulated world force woven through every system: ecology, bodies, behavior, institutions, identity, navigation, threat, and play. Every thread below either produces sound, consumes it, or is shaped by it. When in doubt, decide in favor of the dream: a world you learn by listening.
@@ -42,6 +42,7 @@
 | T27 | Zone-field atmosphere blending | new 2026-07-27 — salvaged from parked instance-placement-prompt-v1.md, scoped down |
 | T28 | Rural infrastructure backlog (silos, windmills, water towers, self-storage, airport, highway, compass) | new 2026-07-27 — backlog only; power lines already shipped, see T21 |
 | T29 | Diegetic communications / terminal layer | experimental — offline docking slice first; networking remains T11 |
+| T30 | Instanced material pipeline (scatter-prop variation + emissive data patterns) | first pass landed 2026-07-29 — see entry for what's deferred |
 
 ---
 
@@ -273,6 +274,55 @@ Compact index of `dta-session-notes.md` §1–4 (all PROVISIONAL; the notes doc 
 - **Owning doc:** `plans/addendum-reconciliation-implementation-v1.md`.
 - **Ties:** T10 (lore/factions), T11 (network authority), T20 (acoustic infrastructure), T26 (stable dock identity), T28 (physical infrastructure).
 
+### T30 — Instanced material pipeline 🆕
+Turn reference-art material swatches into tileable PBR textures + a
+thin-instance per-instance variation shader, plus a reusable UV-scrolled
+emissive material for machine-readout surfaces.
+- **Handoff:** `instanced-material-pipeline-prompt-v1.md`. Constants/tradeoffs:
+  `instanced-material-pipeline-constants.md` (both in `docs/dissonance/`).
+- **Landed (first pass):** new package `packages/materials`
+  (`@dissonance/materials`) — `ScatterVariationMaterialPlugin` (per-thin-instance
+  hue/value jitter via an instance buffer, `MaterialPluginBase` sibling to
+  `@dissonance/world`'s `FoliageSwayPlugin`), `createScatterMaterial`,
+  `EmissiveDataPatternMaterial` (UV-scrolled, standalone, no device logic
+  wired in). Verified live in a real browser (`apps/materials-demo`, dev-only,
+  not deployed): 144 thin instances, visible per-instance variation, both
+  emissive planes scrolling, no shader errors, 60fps — the
+  `CUSTOM_FRAGMENT_UPDATE_ALBEDO` injection point was unverified guesswork
+  going in, confirmed working now.
+- **Package home resolved (was open decision #1 in the handoff doc):** Dan
+  called `packages/materials` over app-scoped, since the instance-builder
+  consumers (`ForestGenerator`, `apps/world`'s `CompositeLocations`/
+  `HeroTreeInstances`/etc.) already live under `packages/world`/`apps/world`,
+  not DTA — **and DTA is explicitly out of scope for any new work
+  permanently**, not just this thread (it's the frozen museum exhibit; see
+  CLAUDE.md).
+- **Deferred, not resolved:**
+  1. Only one of the doc's five named swatch families got baked (a
+     worn-leather/tooled-leather patch standing in for "frayed
+     fabric"/"charcoal weave") — rust, cracked plastic, and duct-tape/wrap
+     only exist as ~65×65px thumbnails in the source sheet, too low-res to
+     bake honestly. Needs dedicated higher-res crops before those three can
+     be built.
+  2. Seamless tiling uses an "offset and heal" technique (quadrant swap +
+     blurred center seam) — no content-aware seamless-texture tool was
+     available. A visible-on-close-inspection seam remains; a mirror-quad
+     approach was tried first and rejected (obvious kaleidoscope artifact).
+  3. Atlas vs. single-tile-plus-variation (handoff doc's open decision #2):
+     not decided, moot for now — only one swatch family exists, so there's
+     no second tile to index. Revisit once a second family lands.
+  4. **Asset licensing not independently confirmed** (Phase 0 audit's
+     explicit "flag if uncertain, do not assume"): the source images are
+     AI-generated project-original art (the "Echo-17" character sheet) Dan
+     supplied directly, not a verified-clean third-party asset. Each baked
+     texture's `ASSET-LICENSE.txt` (under `apps/world/public/textures/echo17-*/`)
+     carries this caveat explicitly rather than asserting it's cleared.
+- **Ties:** shares the thin-instance/`MaterialPluginBase` pattern with T21/T24
+  (`@dissonance/world`'s forest instancing, `FoliageSwayPlugin`); its emissive
+  material is a substrate for T29's terminal layer and any future
+  Vane/Lineglass-style readout surface, but embeds no device state logic
+  itself (same "substrate, not the device" boundary the handoff doc set).
+
 ### T11 — Provenance / multiplayer
 - **Status:** parked architecture; no network implementation session until T29's offline terminal and in-process Scrambler contract prove the interaction boundary.
 - **Scope after v9.43 addendum reconciliation:** server-authoritative sessions, reconnect, terminal messages, player traces/presence, stable-feature replication, event ordering/provenance, and server-owned faction affiliation (Synod / Independents / Chorus / Null). Conflict remains infrastructure-centric and must conform to D2 nonviolence.
@@ -365,6 +415,10 @@ Surveillance Boulevard PoC mined for: boulevard axial layout (urban-edge level d
 10. **O10. Does T4 need T3 Phase C?** (added 2026-07-17) — T3's Phases A/B (PursuerSystem, HeartbeatGlow split) are already done; only Phase C (PursuerAudio extraction) was deliberately deferred pending a second consumer. T4 wants an `AudioProfile` composable axis — does that requirement actually need `PursuerAudio` to already be a package, or can T4 start now? Unblocks T4 immediately if the answer is "A/B is enough."
 11. **O11. Does O8's audio single-writer queue still apply?** (added 2026-07-17) — O8 queues T20 Phases 2+ behind T3's audio-touching work. T3's audio phase (C) isn't happening on its current trajectory (see T3 entry). Either re-scope O8 to whatever eventually does Phase C, or confirm T20 Phases 2+ can proceed now that nothing is actively about to write `@dissonance/audio` under T3's name.
 12. **O12. Perceptual vs. authoritative spatial distortion** (added 2026-07-27 from the v9.20 addendum reconciliation) — proposed first slice keeps WGS84/world simulation, navigation, collision, saves, and multiplayer canonical while zone fields distort rendering/atmosphere/audio only. Confirm before Synod Capital work whether any later design actually requires authoritative geometry deformation; that choice would expand replication, physics, and navmesh scope substantially.
+13. **O13. Rust/cracked-plastic/duct-tape swatch crops** (T30, added 2026-07-29) — need dedicated higher-res reference crops; only ~65×65px thumbnails exist today. Skipped rather than baked from an 8x upscale.
+14. **O14. Atlas vs. single-tile for scatter variation** (T30, added 2026-07-29) — moot until a second swatch family exists; the handoff doc's open decision #2 restated, not resolved.
+15. **O15. Echo-17 reference-art licensing** (T30, added 2026-07-29) — AI-generated project-original art, supplied directly by Dan; generating tool/account's output-rights terms not independently verified this session. Each baked texture's `ASSET-LICENSE.txt` flags this rather than asserting it's cleared — confirm before any of it ships in a build others see.
+16. **O16. Seamless-tiling quality bar** (T30, added 2026-07-29) — the offset-and-heal technique leaves a faint seam on close inspection; acceptable for a first pass. Decide whether that's good enough long-term or whether a real content-aware seamless-texture tool is worth adopting before more swatch families get baked.
 
 ---
 
@@ -457,6 +511,7 @@ T3 was believed to be the single biggest unlock still to run. **2026-07-17 audit
 
 | Version | Date | Change |
 |---|---|---|
+| 9.49 | 2026-07-29 | **T30 opened and landed (first pass):** `instanced-material-pipeline-prompt-v1.md` run locally — new `packages/materials` (`ScatterVariationMaterialPlugin`, `createScatterMaterial`, `EmissiveDataPatternMaterial`), baked textures under `apps/world/public/textures/echo17-*/`, verified live via a new dev-only `apps/materials-demo` (144 thin instances, both emissive planes, no shader errors). Package-location open decision resolved to `packages/materials` (Dan) — DTA confirmed permanently out of scope for new work, not just this thread. Four items deferred, not resolved: three of five named swatch families skipped (source-resolution too low), atlas-vs-single-tile moot until a second family exists, offset-and-heal tiling leaves a faint seam (mirror-quad tried first, rejected — kaleidoscope artifact), and Echo-17 reference-art licensing not independently verified (Dan-supplied AI-generated project art, flagged in each texture's `ASSET-LICENSE.txt` rather than assumed clear). New O13–O16; constants/tradeoffs detail in `instanced-material-pipeline-constants.md`. |
 | 9.48 | 2026-07-28 | Docs folder reorg (Dan: "can you reorganize the docs folder for me"): extended the `dissonance/`/`dta/` per-game split Dan had already started to the rest of `docs/` — `trail-viewer-poc/`→`dissonance/world/`, `game-story-and-trails-plan.md`→`dissonance/`, `monorepo-docs/`→`monorepo/`, `generation-systems-audit.md`→`monorepo/`, and a new `archive/` for the two superseded THREADS docs. Moves only (`git mv`, no content rewrites); every broken cross-reference across the repo (2 app READMEs, one source comment, one plans/ doc, and this file's own Doc Inventory + 3 inline citations) found via a full-repo grep and fixed; `docs/README.md` rewritten to match. `plans/` deliberately left flat. Full detail in the Doc Inventory section's new reorg note. |
 | 9.47 | 2026-07-28 | Persistence/export parity audit (Dan: "every editable param to be saveable to storage and to exported jsons"): both Copy-View `buildSnapshot()`s gained the 3 fields `persistSettings()` already had (`hudVisible`, `worldBounded`, `lineglassPartIds`). Bigger gap found and fixed: the Toggles-section visibility checkboxes (terrain/OSM/GPX/water/clouds/grid/mountains/power lines/mech dog) were deliberately session-only until now — `createVisibilitySignals()` takes a defaults object, `SavedSettings` gained 9 `*Visible` fields, all three serialization sites updated. Grid/OSM/GPX carefully composed with existing Lineglass unlock gating rather than bypassing it. Full detail in T21's matching bullet. |
 | 9.46 | 2026-07-28 | Lineglass parts: a small, explicitly scoped slice of `dissonance-lineglass-engineering-review-prompt.md` (§7.6 geo-reference layer + §6 progressive unlock only, not the full 21-section device) — 3 diegetic pickups on the boulevard, proximity-collected, progressively unlock the previously-always-on grid/GPX/OSM HUD toggles (1 part→grid, 2→GPX, 3→OSM). New `state/lineglass.ts` + `world/LineglassParts.ts`; `LocationEntry` gained `lineglassParts`; collected ids persist through the existing autosave path. Full detail in T21's matching bullet. |

@@ -114,6 +114,16 @@ See also **[plans/dissonance-trail-data-poc-prompt.md](plans/dissonance-trail-da
 under "dissonance/" above — the original prompt that kicked off the World
 terrain POC.
 
+## Instanced material pipeline
+
+- **[dissonance/instanced-material-pipeline-prompt-v1.md](dissonance/instanced-material-pipeline-prompt-v1.md)**
+  — the handoff prompt: turning reference-art material swatches into
+  tileable PBR textures + a thin-instance variation shader. See THREADS.md
+  T30 for status.
+- **[dissonance/instanced-material-pipeline-constants.md](dissonance/instanced-material-pipeline-constants.md)**
+  — named constants inventory + known tradeoffs from the first
+  implementation pass (`packages/materials`, `apps/materials-demo`).
+
 ## `monorepo/` — architecture & extraction history (shared, cross-game)
 
 - **["monorepo/260615 Monorepo Prompt.md"](monorepo/260615%20Monorepo%20Prompt.md)**
