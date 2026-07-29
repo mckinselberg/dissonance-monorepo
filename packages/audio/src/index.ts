@@ -1,4 +1,4 @@
-export { AudioEngine } from './AudioEngine';
+export { AudioEngine, type WhistleNote } from './AudioEngine';
 export { AmbientAudio } from './AmbientAudio';
 export { PlayerAudio } from './PlayerAudio';
 export { TrailPlayerAudio } from './TrailPlayerAudio';

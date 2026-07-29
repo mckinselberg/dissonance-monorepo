@@ -1,5 +1,10 @@
 import * as Tone from 'tone';
 
+// `time`/`duration` are seconds relative to when playWhistleMelody is
+// called, not Tone.Transport position — matching every other one-shot SFX
+// in this file, none of which use the transport.
+export type WhistleNote = { note: string; time: number; duration: number };
+
 export class AudioEngine {
   private static started = false;
 
@@ -485,5 +490,36 @@ export class AudioEngine {
         filter.frequency.rampTo(360 + effort * 680, 0.65);
       },
     };
+  }
+
+  // Player's diegetic whistle call — a breathy sine + light vibrato reads
+  // closer to a human whistle than a plain synth tone. Melody content
+  // (which notes, in what order) is caller-supplied so apps own their own
+  // whistle "vocabulary" rather than this package hardcoding a tune.
+  static playWhistleMelody(notes: WhistleNote[], volumeDb: number = -8): void {
+    if (notes.length === 0) return;
+
+    const vibrato = new Tone.Vibrato({ frequency: 5.5, depth: 0.12 });
+    const gain = new Tone.Gain(Tone.dbToGain(volumeDb));
+    const synth = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.05, decay: 0.06, sustain: 0.65, release: 0.15 },
+    });
+    synth.connect(vibrato);
+    vibrato.connect(gain);
+    gain.toDestination();
+
+    const now = Tone.now();
+    let latestEnd = 0;
+    for (const { note, time, duration } of notes) {
+      synth.triggerAttackRelease(note, duration, now + time);
+      latestEnd = Math.max(latestEnd, time + duration);
+    }
+
+    setTimeout(() => {
+      synth.dispose();
+      vibrato.dispose();
+      gain.dispose();
+    }, (latestEnd + 0.6) * 1000);
   }
 }

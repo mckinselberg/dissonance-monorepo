@@ -1,10 +1,11 @@
 import { signal, type Signal } from '@preact/signals';
 
-// Not persisted anywhere in SavedSettings (confirmed — no such fields exist
-// today), but still signals rather than component-local state: rebuildWorld
-// (the H/V-scale rebuild in main.tsx) and rebuildClouds/rebuildTrees all
-// need to re-read the current checked state from outside VisibilityToggles
-// itself after disposing/recreating meshes.
+// Signals rather than component-local state: rebuildWorld (the H/V-scale
+// rebuild in main.tsx) and rebuildClouds/rebuildTrees all need to re-read
+// the current checked state from outside VisibilityToggles itself after
+// disposing/recreating meshes. Persisted via SavedSettings/persistSettings
+// and both buildSnapshot() export paths — see createVisibilitySignals below
+// for the restore defaults.
 export type VisibilitySignals = {
   terrain: Signal<boolean>;
   osm: Signal<boolean>;
@@ -14,17 +15,31 @@ export type VisibilitySignals = {
   grid: Signal<boolean>;
   mountains: Signal<boolean>;
   powerLines: Signal<boolean>;
+  mechDog: Signal<boolean>;
 };
 
-export function createVisibilitySignals(): VisibilitySignals {
+export type VisibilitySignalDefaults = Partial<{
+  terrain: boolean;
+  osm: boolean;
+  gpx: boolean;
+  water: boolean;
+  clouds: boolean;
+  grid: boolean;
+  mountains: boolean;
+  powerLines: boolean;
+  mechDog: boolean;
+}>;
+
+export function createVisibilitySignals(defaults: VisibilitySignalDefaults = {}): VisibilitySignals {
   return {
-    terrain: signal(true),
-    osm: signal(true),
-    gpx: signal(true),
-    water: signal(true),
-    clouds: signal(true),
-    grid: signal(false),
-    mountains: signal(true),
-    powerLines: signal(true),
+    terrain: signal(defaults.terrain ?? true),
+    osm: signal(defaults.osm ?? true),
+    gpx: signal(defaults.gpx ?? true),
+    water: signal(defaults.water ?? true),
+    clouds: signal(defaults.clouds ?? true),
+    grid: signal(defaults.grid ?? false),
+    mountains: signal(defaults.mountains ?? true),
+    powerLines: signal(defaults.powerLines ?? true),
+    mechDog: signal(defaults.mechDog ?? true),
   };
 }

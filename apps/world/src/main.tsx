@@ -29,6 +29,7 @@ import {
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
 import { AmbientAudio, AudioEngine, HeartbeatAudio, TrailPlayerAudio } from '@dissonance/audio';
+import { PursuerSystem, type PursuerConfig } from '@dissonance/pursuit';
 import type { WeatherMode } from '@dissonance/shared-types';
 import { preventAccidentalClose } from '@dissonance/utils';
 import {
@@ -73,12 +74,36 @@ import { RouteReplay, parseRouteDocument, type ReplayRoute } from './ui/RouteRep
 import { Section } from './ui/Section';
 import { AudioRow } from './ui/AudioRow';
 import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './world/HeroTreeInstances';
+import { MechDogBody, type MechDogSkin } from './pursuer/MechDogBody';
+import { WHISTLE_MELODIES } from './state/whistle';
 
 const OSM_TRAIL_Y_LIFT = 0.5;
 // Slightly higher than the OSM trails so the recorded track sits visibly on
 // top of them instead of z-fighting where the two coincide.
 const GPX_TRACK_Y_LIFT = 0.7;
 const GPX_TRACK_COLOR = new Color3(1.0, 0.1, 0.1);
+
+// World's first pursuer slice deliberately keeps the behavior small: the
+// dog closes from directly ahead, then holds a readable standoff instead of
+// triggering DTA's catch/end-run flow. The reusable movement state machine
+// remains in @dissonance/pursuit; World owns this tuning and presentation.
+const WORLD_MECH_DOG_CONFIG: PursuerConfig = {
+  startDistance: 12,
+  baseSpeed: 2.6,
+  maxSpeed: 7.5,
+  catchRadius: 0.5,
+  nearThreshold: 20,
+  closeThreshold: 8,
+  sprintAggressionGain: 0.016,
+  stillAggressionLoss: 0.006,
+  aggressionDecayRate: 0.002,
+  stunMin: 0.8,
+  stunRange: 0.4,
+  orbitStrength: 0.2,
+  reengageDelay: 1,
+};
+const MECH_DOG_STANDOFF_DISTANCE = 3.5;
+const MECH_DOG_VISUAL_HEIGHT = 0.65;
 
 // Ported from dont-turn-around's MountainRing (@dissonance/world) to mask
 // the DEM's rectangular edge — without it the terrain just stops and the
@@ -278,6 +303,18 @@ export type SavedSettings = {
   lineglassPartIds?: string[];
   hudVisible?: boolean;
   worldBounded?: boolean;
+  // Toggles section checkboxes (state/visibility.ts). grid/gpx/osm are
+  // combined with Lineglass unlock state on restore — see the createLineglassSignals
+  // call site — so a saved `true` only takes effect once that layer is unlocked.
+  terrainVisible?: boolean;
+  osmVisible?: boolean;
+  gpxVisible?: boolean;
+  waterVisible?: boolean;
+  cloudsVisible?: boolean;
+  gridVisible?: boolean;
+  mountainsVisible?: boolean;
+  powerLinesVisible?: boolean;
+  mechDogVisible?: boolean;
   masterMuted?: boolean;
   windVolume?: number;
   footstepMuted?: boolean;
@@ -487,25 +524,42 @@ async function main() {
     fogColor: savedSettings.fogColor ?? '#8ca6c7',
   });
 
-  // Not persisted anywhere (no SavedSettings fields for these) — session-only,
-  // same as before. Shared by both orbit and player mode.
-  const visibility = createVisibilitySignals();
+  // Persisted via SavedSettings/persistSettings and both buildSnapshot()
+  // export paths — grid/gpx/osm are handled separately below since they're
+  // also gated by Lineglass unlock state. Shared by both orbit and player mode.
+  const visibility = createVisibilitySignals({
+    terrain: savedSettings.terrainVisible,
+    water: savedSettings.waterVisible,
+    clouds: savedSettings.cloudsVisible,
+    mountains: savedSettings.mountainsVisible,
+    powerLines: savedSettings.powerLinesVisible,
+    mechDog: savedSettings.mechDogVisible,
+  });
+  let mechDogBody: MechDogBody | null = null;
+  // Same rig/animations, reskinned — 'default' reads as the menacing mech
+  // pursuer, 'black' reads closer to a plain pet dog. Session-only; not worth
+  // a SavedSettings field yet (visibility.mechDog, the on/off toggle, is).
+  const mechDogSkin = signal<MechDogSkin>('default');
+  // Index into WHISTLE_MELODIES — number keys 1-9 change it, 'M' plays
+  // whichever one it currently points at. Session-only, same as above.
+  const whistleMelodyIndex = signal(0);
 
   // state/lineglass.ts — restores whichever parts were already collected
-  // last session, then overrides createVisibilitySignals' own osm:true/
-  // gpx:true/grid:false defaults with the actually-unlocked state before
-  // anything downstream reads visibility.osm/gpx/grid.value (the initial
-  // setMeshesEnabled(trailMeshes/gridMeshes, ...) calls further down, and
-  // ScaleTuning/VisibilityToggles' own gating). A part never re-locks a
-  // layer the player already earned — unlockedLineglassLayers is a pure
-  // function of collected count, monotonic by construction.
+  // last session, then combines that unlock state with the saved on/off
+  // preference (defaulting to visible once unlocked, matching the historical
+  // auto-enable-on-unlock behavior) before anything downstream reads
+  // visibility.osm/gpx/grid.value (the initial setMeshesEnabled(trailMeshes/
+  // gridMeshes, ...) calls further down, and ScaleTuning/VisibilityToggles'
+  // own gating). A part never re-locks a layer the player already earned —
+  // unlockedLineglassLayers is a pure function of collected count, monotonic
+  // by construction.
   const lineglass = createLineglassSignals({
     collectedPartIds: savedSettings.lineglassPartIds ?? [],
   });
   const lineglassUnlocked = unlockedLineglassLayers(lineglass.collectedPartIds.value.length);
-  visibility.grid.value = lineglassUnlocked.has('grid');
-  visibility.gpx.value = lineglassUnlocked.has('gpx');
-  visibility.osm.value = lineglassUnlocked.has('osm');
+  visibility.grid.value = lineglassUnlocked.has('grid') && (savedSettings.gridVisible ?? true);
+  visibility.gpx.value = lineglassUnlocked.has('gpx') && (savedSettings.gpxVisible ?? true);
+  visibility.osm.value = lineglassUnlocked.has('osm') && (savedSettings.osmVisible ?? true);
 
   // Atmosphere-row pilot (see docs/THREADS.md) — these 6 signals back the
   // Preact-rendered #atmosphere-root panel mounted further down.
@@ -1102,6 +1156,34 @@ async function main() {
             onCommit={(checked) => utilityCorridors.setVisible(checked)}
           />
         )}
+        {level.cameraMode !== 'orbit' && (
+          <ToggleLabel
+            label='Mech dog'
+            signal={visibility.mechDog}
+            onCommit={(checked) => mechDogBody?.setVisible(checked)}
+          />
+        )}
+        {/* Same rig/animations underneath either way — this just swaps
+            which glTF reskins it, from the menacing mech-dog default
+            toward a plainer pet-dog look. Not a ToggleLabel: more than two
+            skins may land later (see MechDogSkin), so this is a <select>
+            rather than a boolean checkbox. */}
+        {level.cameraMode !== 'orbit' && (
+          <label>
+            Dog skin{' '}
+            <select
+              value={mechDogSkin.value}
+              onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
+                const skin = e.currentTarget.value as MechDogSkin;
+                mechDogSkin.value = skin;
+                mechDogBody?.setSkin(skin);
+              }}
+            >
+              <option value='default'>Mech (default)</option>
+              <option value='black'>Black (pet-friend)</option>
+            </select>
+          </label>
+        )}
       </div>
     </Section>,
     document.getElementById('toggles-root') as HTMLDivElement,
@@ -1377,6 +1459,18 @@ async function main() {
             windVolume: audio.windVolume.value,
             footstepMuted: audio.footstepMuted.value,
             breathMuted: audio.breathMuted.value,
+            hudVisible,
+            worldBounded: worldBounded.value,
+            lineglassPartIds: lineglass.collectedPartIds.value,
+            terrainVisible: visibility.terrain.value,
+            osmVisible: visibility.osm.value,
+            gpxVisible: visibility.gpx.value,
+            waterVisible: visibility.water.value,
+            cloudsVisible: visibility.clouds.value,
+            gridVisible: visibility.grid.value,
+            mountainsVisible: visibility.mountains.value,
+            powerLinesVisible: visibility.powerLines.value,
+            mechDogVisible: visibility.mechDog.value,
           })}
           levelKey={levelKey}
           validLevelKeys={Object.keys(LEVELS)}
@@ -1805,6 +1899,26 @@ async function main() {
   };
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyF') igniteAtActiveController();
+
+    // 'M' whistles the currently-selected melody (number keys 1-9 pick
+    // which one — see WHISTLE_MELODIES); 'P' pets the dog if it's close
+    // enough (mechDogPursuit/PET_DISTANCE, declared further down but
+    // already initialized by the time any of this can fire from a real
+    // keypress). Both are best-effort against mechDogBody, same as the
+    // Mech dog visibility toggle above — a null body (orbit mode/still
+    // loading) just no-ops.
+    if (e.code === 'KeyM') {
+      AudioEngine.playWhistleMelody(WHISTLE_MELODIES[whistleMelodyIndex.value].notes);
+      mechDogBody?.reactToWhistle();
+    }
+    const melodyDigit = /^Digit([1-9])$/.exec(e.code);
+    if (melodyDigit) {
+      const index = Number(melodyDigit[1]) - 1;
+      if (index < WHISTLE_MELODIES.length) whistleMelodyIndex.value = index;
+    }
+    if (e.code === 'KeyP' && mechDogPursuit.getModel().distance < PET_DISTANCE) {
+      mechDogBody?.reactToPet();
+    }
   });
 
   // Extra lift on top of both grounded controllers' own (scale-adjusted)
@@ -1856,6 +1970,30 @@ async function main() {
     switchMode(savedSettings.activeMode);
   }
 
+  // The concrete spawn is selected on the first frame, after the active
+  // controller has grounded/raised its camera. Initial construction happens
+  // before that first update, so using camera Y here would test sightlines
+  // from the terrain surface instead of from the player's actual eye.
+  const initialMechDogTarget = controllers[movement.activeMode.value];
+  const initialMechDogTargetPosition = initialMechDogTarget.getPosition();
+  const mechDogPosition = {
+    x: initialMechDogTargetPosition.x,
+    z: initialMechDogTargetPosition.z,
+  };
+  const mechDogPursuit = new PursuerSystem(
+    WORLD_MECH_DOG_CONFIG,
+    WORLD_MECH_DOG_CONFIG.startDistance,
+  );
+  mechDogBody = new MechDogBody(scene, sun.getShadowGenerator(), mechDogSkin.value);
+  // 'P' only does something within this range — petting from across the
+  // clearing doesn't make sense. Loose enough to allow for the dog's own
+  // standoff-distance wobble around the player.
+  const PET_DISTANCE = 4;
+  mechDogBody.setVisible(visibility.mechDog.value);
+  let mechDogSpawned = false;
+  let lastMechDogTargetX = initialMechDogTargetPosition.x;
+  let lastMechDogTargetZ = initialMechDogTargetPosition.z;
+
   // Live scale tuning — level 1 only. Rebuilds the terrain mesh and both
   // trail overlays from scratch with new scale values, preserving the
   // active camera's real-world lat/long (and, for fly mode, its height
@@ -1864,6 +2002,7 @@ async function main() {
   // signals exist for every level (see scaleTuning's own comment) — only
   // this rebuild function and the slider UI below are level-1-gated.
   const rebuildWorld = (newHScale: number, newVExag: number) => {
+    const horizontalScaleRatio = newHScale / scaleTuning.hScale.value;
     const activeController = controllers[movement.activeMode.value];
     const beforePos = activeController.getPosition();
     const beforeGroundY = terrain.getHeightAt(beforePos.x, beforePos.z);
@@ -1879,6 +2018,8 @@ async function main() {
 
     scaleTuning.hScale.value = newHScale;
     scaleTuning.vExag.value = newVExag;
+    mechDogPosition.x *= horizontalScaleRatio;
+    mechDogPosition.z *= horizontalScaleRatio;
 
     terrain = new HeightmapTerrain(scene, sampler, contract, origin, {
       gridResolution: level.gridResolution,
@@ -2003,6 +2144,18 @@ async function main() {
               windVolume: audio.windVolume.value,
               footstepMuted: audio.footstepMuted.value,
               breathMuted: audio.breathMuted.value,
+              hudVisible,
+              worldBounded: worldBounded.value,
+              lineglassPartIds: lineglass.collectedPartIds.value,
+              terrainVisible: visibility.terrain.value,
+              osmVisible: visibility.osm.value,
+              gpxVisible: visibility.gpx.value,
+              waterVisible: visibility.water.value,
+              cloudsVisible: visibility.clouds.value,
+              gridVisible: visibility.grid.value,
+              mountainsVisible: visibility.mountains.value,
+              powerLinesVisible: visibility.powerLines.value,
+              mechDogVisible: visibility.mechDog.value,
             };
           }}
           levelKey={levelKey}
@@ -2136,6 +2289,15 @@ async function main() {
       footstepMuted: audio.footstepMuted.value,
       breathMuted: audio.breathMuted.value,
       lineglassPartIds: lineglass.collectedPartIds.value,
+      terrainVisible: visibility.terrain.value,
+      osmVisible: visibility.osm.value,
+      gpxVisible: visibility.gpx.value,
+      waterVisible: visibility.water.value,
+      cloudsVisible: visibility.clouds.value,
+      gridVisible: visibility.grid.value,
+      mountainsVisible: visibility.mountains.value,
+      powerLinesVisible: visibility.powerLines.value,
+      mechDogVisible: visibility.mechDog.value,
     });
   };
   window.addEventListener('beforeunload', persistSettings);
@@ -2167,6 +2329,53 @@ async function main() {
 
     const pos = controllers[movement.activeMode.value].getPosition();
     const groundY = terrain.getHeightAt(pos.x, pos.z);
+    if (!mechDogSpawned) {
+      const forward = controllers[movement.activeMode.value].camera.getForwardRay().direction;
+      const horizontalForwardLength = Math.hypot(forward.x, forward.z);
+      const forwardX = horizontalForwardLength > 0.001 ? forward.x / horizontalForwardLength : 0;
+      const forwardZ = horizontalForwardLength > 0.001 ? forward.z / horizontalForwardLength : 1;
+      const candidateDistances = [12, 10, 8, 6, 4];
+      const clearDistance = candidateDistances.find((distance) => {
+        const candidateX = pos.x + forwardX * distance;
+        const candidateZ = pos.z + forwardZ * distance;
+        const dogTopY = terrain.getHeightAt(candidateX, candidateZ) + MECH_DOG_VISUAL_HEIGHT;
+        for (let sample = 1; sample < 8; sample++) {
+          const t = sample / 8;
+          const sampleX = pos.x + (candidateX - pos.x) * t;
+          const sampleZ = pos.z + (candidateZ - pos.z) * t;
+          const sightlineY = pos.y + (dogTopY - pos.y) * t;
+          if (terrain.getHeightAt(sampleX, sampleZ) + 0.05 > sightlineY) return false;
+        }
+        return true;
+      }) ?? candidateDistances[candidateDistances.length - 1];
+      mechDogPosition.x = pos.x + forwardX * clearDistance;
+      mechDogPosition.z = pos.z + forwardZ * clearDistance;
+      lastMechDogTargetX = pos.x;
+      lastMechDogTargetZ = pos.z;
+      mechDogSpawned = true;
+    }
+    const targetDx = pos.x - lastMechDogTargetX;
+    const targetDz = pos.z - lastMechDogTargetZ;
+    const targetSpeed = dt > 0 ? Math.hypot(targetDx, targetDz) / dt : 0;
+    lastMechDogTargetX = pos.x;
+    lastMechDogTargetZ = pos.z;
+
+    const dogDx = pos.x - mechDogPosition.x;
+    const dogDz = pos.z - mechDogPosition.z;
+    const dogDistance = Math.hypot(dogDx, dogDz);
+    if (dogDistance > MECH_DOG_STANDOFF_DISTANCE) {
+      mechDogPursuit.update(
+        dt,
+        targetSpeed,
+        pos,
+        mechDogPosition,
+        true,
+        movement.activeMode.value === 'walk' && player.isCrouching,
+      );
+    }
+    const mechDogGroundY = terrain.getHeightAt(mechDogPosition.x, mechDogPosition.z);
+    mechDogBody?.update(dt, mechDogPosition, mechDogGroundY);
+    const mechDogModel = mechDogPursuit.getModel();
 
     // state/lineglass.ts — walking within pickup range collects a part
     // outright, no interact key (matching this app's existing "proximity is
@@ -2217,6 +2426,8 @@ async function main() {
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `lat/lon: ${latLon.lat.toFixed(6)}, ${latLon.lon.toFixed(6)}\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
+      `mech dog: ${mechDogModel.distance.toFixed(1)}m (${mechDogModel.state})\n` +
+      `whistle [M]: "${WHISTLE_MELODIES[whistleMelodyIndex.value].label}" (1-${WHISTLE_MELODIES.length} to pick) — pet [P]${mechDogModel.distance < PET_DISTANCE ? '' : ' (get closer)'}\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
     scene.render();

@@ -14,6 +14,8 @@
     "@dissonance/engine": "workspace:*",
     "@dissonance/geo": "workspace:*",
     "@dissonance/player": "workspace:*",
+    "@dissonance/pursuer": "workspace:*",
+    "@dissonance/pursuit": "workspace:*",
     "@dissonance/shared-types": "workspace:*",
     "@dissonance/utils": "workspace:*",
     "@dissonance/world": "workspace:*",

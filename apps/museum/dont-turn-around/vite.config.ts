@@ -20,7 +20,7 @@ export default defineConfig(({ command }) => ({
       '@dissonance/pursuer':      path.resolve(__dirname, '../../../packages/pursuer/src'),
     },
     // pnpm creates separate symlinks per workspace package; force single instance
-    dedupe: ['@babylonjs/core', '@babylonjs/loaders', 'tone'],
+    dedupe: ['@babylonjs/core', 'tone'],
   },
   server: {
     port: 5176,
@@ -32,7 +32,7 @@ export default defineConfig(({ command }) => ({
   optimizeDeps: {
     // @babylonjs/core is native ESM ("type":"module") — excluding prevents the
     // re-optimization loop caused by Vite discovering it via 4 different pnpm symlink paths
-    exclude: ['@babylonjs/core', '@babylonjs/loaders'],
+    exclude: ['@babylonjs/core'],
     include: ['tone'],
   },
 }));

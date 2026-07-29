@@ -10,12 +10,9 @@ import type { ExperienceMode } from '@dissonance/shared-types';
 import { HeartbeatGlow } from '@dissonance/glow';
 import { StalkerLocomotion } from '@dissonance/pursuer';
 
-// Procedural humanoid devil body — the original pursuer visual, now retired
-// from the active Morrow Pine Loop trail in favor of DogBody/PursuerBody
-// (see game-story-and-trails-plan.md). Kept intact and unwired rather than
-// deleted: the trail plan still calls for a humanoid "devil" archetype on
-// later trails (Devil's Acre), so this is the implementation to reconnect
-// when that trail is built, not dead code to clean up.
+// Procedural humanoid devil body retained as the Museum DTA exhibit's
+// app-scoped pursuer presentation. The animated dog belongs to World; only
+// generic locomotion remains shared through @dissonance/pursuer.
 export class DevilBody {
   private body: Mesh;
   private glowLayer: GlowLayer;

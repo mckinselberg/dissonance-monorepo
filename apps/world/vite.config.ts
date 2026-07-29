@@ -16,6 +16,8 @@ export default defineConfig(({ command }) => ({
       '@dissonance/world':  path.resolve(__dirname, '../../packages/world/src'),
       '@dissonance/geo':    path.resolve(__dirname, '../../packages/geo/src'),
       '@dissonance/player': path.resolve(__dirname, '../../packages/player/src'),
+      '@dissonance/pursuer': path.resolve(__dirname, '../../packages/pursuer/src'),
+      '@dissonance/pursuit': path.resolve(__dirname, '../../packages/pursuit/src'),
       '@dissonance/shared-types': path.resolve(__dirname, '../../packages/shared-types/src'),
       '@dissonance/utils': path.resolve(__dirname, '../../packages/utils/src'),
     },

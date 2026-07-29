@@ -33,7 +33,7 @@ import { DEFAULT_TRAIL_ID, TRAILS } from '../config/trails';
 import type { TrailDefinition } from '../config/trails';
 import { DestinationSystem } from '../world/DestinationSystem';
 import { PursuerAudio } from '../pursuer/PursuerAudio';
-import { PursuerBody } from '../pursuer/PursuerBody';
+import { DevilBody } from '../pursuer/DevilBody';
 import { ProximityOverlay } from '../ui/ProximityOverlay';
 import { BreathOverlay } from '../ui/BreathOverlay';
 import { InventoryUI } from '../ui/InventoryUI';
@@ -122,7 +122,7 @@ export class Game {
   private playerAudio: PlayerAudio;
   private riverAudio: RiverAudio | null = null;
   private watcher: WatcherEffect;
-  private pursuerBody: PursuerBody;
+  private pursuerBody: DevilBody;
   private terrain: Terrain;
   private clouds: CloudSystem;
   private mountains: MountainRing;
@@ -280,7 +280,7 @@ export class Game {
     this.playerAudio = new PlayerAudio();
     this.riverAudio = this.trail.worldFlavor === 'river' ? new RiverAudio() : null;
     this.watcher = new WatcherEffect(scene, config.experienceMode);
-    this.pursuerBody = new PursuerBody(scene);
+    this.pursuerBody = new DevilBody(scene, config.experienceMode);
 
     this.heartbeat = new HeartbeatAudio();
     this.proximity = new ProximityOverlay();
@@ -370,6 +370,7 @@ export class Game {
     const isIlluminated = hasLoS && this.player.isPointIlluminated(pursuerCenter);
     const flashlightPressure = hasLoS ? this.player.getFlashlightPressure(pursuerCenter) : 0;
     const artifactRecovered = this.inventory.hasItem(this.trail.artifact.id);
+    this.pursuerBody.setIlluminated(isIlluminated);
     this.lastHasLoS = hasLoS;
     this.lastIlluminated = isIlluminated;
 
@@ -402,7 +403,7 @@ export class Game {
     this.watcher.update(dt, playerPos, camYaw, this.pursuerPos, pursuerModel.state, pursuerGroundY, () =>
       this.player.adrenaline.spike(0.22),
     );
-    this.pursuerBody.update(dt, this.pursuerPos, pursuerGroundY);
+    this.pursuerBody.update(dt, this.pursuerPos, pursuerGroundY, playerPos2d);
 
     this.clouds.update(dt);
     this.wildlife.update(dt, playerPos);
