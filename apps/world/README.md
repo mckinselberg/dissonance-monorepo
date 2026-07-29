@@ -29,4 +29,4 @@ pnpm --filter world build
 ```
 
 The original terrain/data-pipeline documentation remains under
-[`docs/trail-viewer-poc`](../../docs/trail-viewer-poc/README.md).
+[`docs/dissonance/world`](../../docs/dissonance/world/README.md).

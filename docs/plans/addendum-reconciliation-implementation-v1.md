@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Implement the useful systems proposed by `docs/THREADS-v9.20-addendum.md`
+Implement the useful systems proposed by `docs/archive/THREADS-v9.20-addendum.md`
 without reusing its obsolete T26/T27 IDs or contradicting the runtime/data-
 hybrid placement decision already recorded in canonical `THREADS.md`.
 

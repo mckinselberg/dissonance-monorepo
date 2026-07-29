@@ -20,7 +20,7 @@ const SCALE_JITTER_MAX = 1.18;
 const jitterScale = (base: number) => base * (SCALE_JITTER_MIN + Math.random() * (SCALE_JITTER_MAX - SCALE_JITTER_MIN));
 
 // Scatters ONE loaded GLB as GPU thin instances — the hero-zone half of the
-// two-tier plan in docs/THREADS-fold-in.260721.md (T8): full-detail real
+// two-tier plan in docs/archive/THREADS-fold-in.260721.md (T8): full-detail real
 // geometry close to the player, in place of a decimated scatter-tier asset
 // that doesn't exist yet. Originally written for tree_small_02 (see
 // public/models/tree-small-02/ASSET-LICENSE.txt — 52k tris/tree), now

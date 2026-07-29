@@ -27,4 +27,4 @@ pnpm preview   # serve the build locally
 - `` ` `` to toggle the Dev HUD (wind override, mute toggles, force-spawn watcher eyes, pursuer body visibility, etc.)
 - Esc to return to the main menu
 
-See the root [CLAUDE.md](../../../CLAUDE.md) for architecture details (workspace layout, the `Game.ts` orchestrator, config flow) and `docs/monorepo-docs/` for the extraction history behind the current package structure.
+See the root [CLAUDE.md](../../../CLAUDE.md) for architecture details (workspace layout, the `Game.ts` orchestrator, config flow) and `docs/monorepo/` for the extraction history behind the current package structure.
