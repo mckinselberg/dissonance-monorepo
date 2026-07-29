@@ -29,7 +29,16 @@ export interface CompositeLocationsHandle {
   // and second-floor slab — see PlayerController.setFloorSurfaces. Empty
   // for every other building (none of them have interior geometry).
   floorSurfaces: FloorSurface[];
+  // Stable interaction metadata derived from the authored placement.
+  milosEntrance: SurveilledLocationEntrance | null;
   dispose(): void;
+}
+
+export interface SurveilledLocationEntrance {
+  featureId: 'milos-building';
+  position: Vector3;
+  cameraRotation: Vector3;
+  interactionRadius: number;
 }
 
 // Real footprint dimensions read straight off each glTF's own position
@@ -478,6 +487,22 @@ function localFloorSurfaceToWorld(
   };
 }
 
+function localPointToWorld(
+  local: Vector3,
+  placement: ExpandedPlacement,
+  baseWorldY: number,
+): Vector3 {
+  const cos = Math.cos(placement.rotationRadians);
+  const sin = Math.sin(placement.rotationRadians);
+  const scaledX = local.x * placement.scaleXZ;
+  const scaledZ = local.z * placement.scaleXZ;
+  return new Vector3(
+    placement.x + (scaledX * cos - scaledZ * sin),
+    baseWorldY + local.y * placement.scaleY,
+    placement.z + (scaledX * sin + scaledZ * cos),
+  );
+}
+
 // Milo's building specifically (see MILOS_BUILDING_ID) — loaded as its own
 // standalone container rather than folded into the shared "building-medium"
 // thin-instance batch, since thin instances can't carry unique per-instance
@@ -491,7 +516,12 @@ async function loadMilosBuilding(
   cardTexture: Texture,
   cardWithFigureTexture: Texture,
   shadowGenerator?: ShadowGenerator,
-): Promise<{ container: AssetContainer; extraMeshes: Mesh[]; floorSurfaces: FloorSurface[] }> {
+): Promise<{
+  container: AssetContainer;
+  extraMeshes: Mesh[];
+  floorSurfaces: FloorSurface[];
+  entrance: SurveilledLocationEntrance;
+}> {
   const container = await LoadAssetContainerAsync(`${CITY_ASSET_BASE}${CITY_ASSETS['building-medium']}`, scene);
   container.addAllToScene();
   const renderMeshes = container.meshes.filter(
@@ -510,8 +540,21 @@ async function loadMilosBuilding(
     shadowGenerator?.addShadowCaster(mesh);
   });
   const floorSurfaces = localFloorSurfaces.map((local) => localFloorSurfaceToWorld(local, placement, baseWorldY));
+  const position = localPointToWorld(new Vector3(-2, 0, 1.75), placement, baseWorldY);
+  const doorTarget = localPointToWorld(new Vector3(-2, 1.15, 0), placement, baseWorldY);
+  const direction = doorTarget.subtract(position);
+  const entrance: SurveilledLocationEntrance = {
+    featureId: MILOS_BUILDING_ID,
+    position,
+    cameraRotation: new Vector3(
+      Math.atan2(-direction.y, Math.hypot(direction.x, direction.z)),
+      Math.atan2(direction.x, direction.z),
+      0,
+    ),
+    interactionRadius: 3 * placement.scaleXZ,
+  };
 
-  return { container, extraMeshes, floorSurfaces };
+  return { container, extraMeshes, floorSurfaces, entrance };
 }
 
 async function loadThinInstancedAsset(
@@ -630,6 +673,7 @@ export async function loadCompositeLocations(
   const containers: AssetContainer[] = [];
   const proceduralMeshes: Mesh[] = [];
   let floorSurfaces: FloorSurface[] = [];
+  let milosEntrance: SurveilledLocationEntrance | null = null;
   await Promise.all([
     ...[...byAsset].map(async ([asset, entries]) => {
       if (asset in PROCEDURAL_ASSETS) {
@@ -652,6 +696,7 @@ export async function loadCompositeLocations(
       );
       containers.push(milos.container);
       floorSurfaces = milos.floorSurfaces;
+      milosEntrance = milos.entrance;
       console.info(`[CompositeLocations] placed milos-building (door/stairwell/second-floor, ${floorSurfaces.length} floor surfaces)`);
     })(),
   ]);
@@ -659,6 +704,7 @@ export async function loadCompositeLocations(
   return {
     colliders,
     floorSurfaces,
+    milosEntrance,
     dispose: () => {
       containers.forEach((container) => container.dispose());
       // false/true: skip the (already-null) parent-hierarchy walk, do

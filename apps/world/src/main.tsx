@@ -76,6 +76,19 @@ import { AudioRow } from './ui/AudioRow';
 import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './world/HeroTreeInstances';
 import { MechDogBody, type MechDogSkin } from './pursuer/MechDogBody';
 import { WHISTLE_MELODIES } from './state/whistle';
+import {
+  MILOS_APARTMENT_ROUTE,
+  WorldSessionCoordinator,
+  parseWorldRoute,
+  pathForWorldRoute,
+  type ExteriorReturnSnapshot,
+} from './state/worldSession';
+import {
+  loadMilosApartmentInterior,
+  type SurveillanceInteriorHandle,
+} from './interiors/MilosApartmentInterior';
+import { InteriorDebugRow } from './ui/InteriorDebugRow';
+import { SurveillanceCameraControls } from './ui/SurveillanceCameraControls';
 
 const OSM_TRAIL_Y_LIFT = 0.5;
 // Slightly higher than the OSM trails so the recorded track sits visibly on
@@ -1994,6 +2007,188 @@ async function main() {
   let lastMechDogTargetX = initialMechDogTargetPosition.x;
   let lastMechDogTargetZ = initialMechDogTargetPosition.z;
 
+  const worldSession = new WorldSessionCoordinator(window.location.pathname);
+  const interactionPrompt = document.getElementById('interaction-prompt') as HTMLDivElement;
+  let surveillanceInterior: SurveillanceInteriorHandle | null = null;
+  let interiorLoadGeneration = 0;
+
+  const snapshotExterior = (): ExteriorReturnSnapshot => {
+    const controller = controllers[movement.activeMode.value];
+    const position = controller.getPosition();
+    const rotation = controller.camera.rotation;
+    return {
+      featureId: 'milos-building',
+      traversalMode: movement.activeMode.value,
+      position: { x: position.x, y: position.y, z: position.z },
+      cameraRotation: { x: rotation.x, y: rotation.y, z: rotation.z },
+      hadPointerLock: document.pointerLockElement === canvas,
+    };
+  };
+
+  const doorwayReturnSnapshot = (): ExteriorReturnSnapshot => {
+    const entrance = compositeLocations.milosEntrance;
+    if (!entrance) return snapshotExterior();
+    return {
+      featureId: entrance.featureId,
+      traversalMode: 'walk',
+      position: {
+        x: entrance.position.x,
+        y: terrain.getHeightAt(entrance.position.x, entrance.position.z),
+        z: entrance.position.z,
+      },
+      cameraRotation: {
+        x: entrance.cameraRotation.x,
+        y: entrance.cameraRotation.y,
+        z: entrance.cameraRotation.z,
+      },
+      hadPointerLock: false,
+    };
+  };
+
+  const setHistoryRoute = (path: string, mode: 'push' | 'replace'): void => {
+    const url = `${path}${window.location.search}${window.location.hash}`;
+    const state = path === MILOS_APARTMENT_ROUTE
+      ? { ...window.history.state, dissonanceWorldInterior: true }
+      : { ...window.history.state, dissonanceWorldInterior: false };
+    if (mode === 'push') window.history.pushState(state, '', url);
+    else window.history.replaceState(state, '', url);
+  };
+
+  const enterSurveillanceInterior = async (
+    source: 'interaction' | 'history' | 'deep-link' | 'debug',
+  ): Promise<void> => {
+    if (!worldSession.isExterior()) return;
+
+    const loadGeneration = ++interiorLoadGeneration;
+    worldSession.setTransition('entering');
+    worldSession.exteriorSnapshot.value =
+      source === 'deep-link' ? doorwayReturnSnapshot() : snapshotExterior();
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    worldSession.setRoute({ kind: 'surveillance', locationId: 'milos-apartment' });
+    if (source === 'interaction' || source === 'debug') {
+      setHistoryRoute(pathForWorldRoute(worldSession.route.value), 'push');
+    }
+    interactionPrompt.textContent = 'Loading Milo’s apartment…';
+    interactionPrompt.style.display = 'block';
+
+    try {
+      const loadedInterior = await loadMilosApartmentInterior(scene);
+      if (loadGeneration !== interiorLoadGeneration) {
+        loadedInterior.dispose();
+        return;
+      }
+      surveillanceInterior = loadedInterior;
+      scene.activeCamera = surveillanceInterior.cameraController.camera;
+      render(
+        <SurveillanceCameraControls controller={surveillanceInterior.cameraController} />,
+        document.getElementById('surveillance-camera-controls-root') as HTMLDivElement,
+      );
+      worldSession.setTransition('interior');
+      interactionPrompt.textContent = 'E — Exit Milo’s apartment';
+    } catch (error) {
+      if (loadGeneration !== interiorLoadGeneration) return;
+      console.error('[MilosApartment] failed to load runtime capture', error);
+      worldSession.setRoute({ kind: 'exterior' });
+      worldSession.setTransition('exterior');
+      setHistoryRoute(pathForWorldRoute(worldSession.route.value), 'replace');
+      interactionPrompt.textContent = 'Milo’s apartment failed to load';
+      window.setTimeout(() => {
+        if (worldSession.isExterior()) interactionPrompt.style.display = 'none';
+      }, 2500);
+    }
+  };
+
+  const exitSurveillanceInterior = (historyMode: 'none' | 'replace'): void => {
+    if (worldSession.transition.value === 'entering') {
+      interiorLoadGeneration++;
+      worldSession.setRoute({ kind: 'exterior' });
+      worldSession.setTransition('exterior');
+      interactionPrompt.style.display = 'none';
+      if (historyMode === 'replace') {
+        setHistoryRoute(pathForWorldRoute(worldSession.route.value), 'replace');
+      }
+      return;
+    }
+    if (worldSession.transition.value !== 'interior') return;
+    interiorLoadGeneration++;
+    worldSession.setTransition('exiting');
+
+    render(null, document.getElementById('surveillance-camera-controls-root') as HTMLDivElement);
+    surveillanceInterior?.dispose();
+    surveillanceInterior = null;
+
+    const snapshot = worldSession.exteriorSnapshot.value ?? doorwayReturnSnapshot();
+    switchMode(snapshot.traversalMode);
+    const controller = controllers[snapshot.traversalMode];
+    controller.setPosition(new Vector3(snapshot.position.x, snapshot.position.y, snapshot.position.z));
+    controller.camera.rotation.copyFromFloats(
+      snapshot.cameraRotation.x,
+      snapshot.cameraRotation.y,
+      snapshot.cameraRotation.z,
+    );
+    controller.clearLookDelta();
+    scene.activeCamera = controller.camera;
+
+    worldSession.setRoute({ kind: 'exterior' });
+    worldSession.setTransition('exterior');
+    interactionPrompt.style.display = 'none';
+    if (historyMode === 'replace') {
+      setHistoryRoute(pathForWorldRoute(worldSession.route.value), 'replace');
+    }
+    if (snapshot.hadPointerLock) {
+      void canvas.requestPointerLock().catch(() => {
+        // History navigation may not carry a user gesture. A subsequent
+        // canvas click restores the controller's normal pointer lock.
+      });
+    }
+  };
+
+  const requestInteriorExit = (): void => {
+    if (window.history.state?.dissonanceWorldInterior === true) window.history.back();
+    else exitSurveillanceInterior('replace');
+  };
+
+  window.addEventListener('popstate', () => {
+    const route = parseWorldRoute(window.location.pathname);
+    if (route.kind === 'surveillance') {
+      void enterSurveillanceInterior('history');
+    } else {
+      exitSurveillanceInterior('none');
+      worldSession.setRoute(route);
+    }
+  });
+
+  const isNearMilosEntrance = (): boolean => {
+    const entrance = compositeLocations.milosEntrance;
+    if (!entrance || !worldSession.isExterior()) return false;
+    const position = controllers[movement.activeMode.value].getPosition();
+    return Math.hypot(position.x - entrance.position.x, position.z - entrance.position.z)
+      <= entrance.interactionRadius;
+  };
+
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyE' || event.repeat) return;
+    if (worldSession.transition.value === 'interior') requestInteriorExit();
+    else if (isNearMilosEntrance()) void enterSurveillanceInterior('interaction');
+  });
+
+  render(
+    <Section title='Surveillance Interior'>
+      <InteriorDebugRow
+        route={worldSession.route}
+        transition={worldSession.transition}
+        exteriorSnapshot={worldSession.exteriorSnapshot}
+        onEnter={() => { void enterSurveillanceInterior('debug'); }}
+        onExit={requestInteriorExit}
+      />
+    </Section>,
+    document.getElementById('interior-debug-root') as HTMLDivElement,
+  );
+
+  if (worldSession.route.value.kind === 'surveillance') {
+    void enterSurveillanceInterior('deep-link');
+  }
+
   // Live scale tuning — level 1 only. Rebuilds the terrain mesh and both
   // trail overlays from scratch with new scale values, preserving the
   // active camera's real-world lat/long (and, for fly mode, its height
@@ -2088,6 +2283,7 @@ async function main() {
         <MovementRow
           signals={movement}
           onModeChange={(mode) => {
+            if (!worldSession.isExterior()) return;
             switchMode(mode);
             persistSettings();
           }}
@@ -2304,8 +2500,10 @@ async function main() {
   window.addEventListener('pagehide', persistSettings);
 
   const gameLoop = new GameLoop(engine, (dt) => {
-    controllers[movement.activeMode.value].update(dt);
-    clampToWorldBounds(controllers[movement.activeMode.value]);
+    if (worldSession.isExterior()) {
+      controllers[movement.activeMode.value].update(dt);
+      clampToWorldBounds(controllers[movement.activeMode.value]);
+    }
     clouds.update(dt);
     weatherSystem.update(dt, (windIntensity) => {
       ambientAudio.setWeatherIntensity(windIntensity * audio.windVolume.value);
@@ -2317,7 +2515,7 @@ async function main() {
     // with no breath/adrenaline (see their own file comments) — so this
     // only runs while walking, and stops footsteps immediately otherwise.
     const breathReadout = document.getElementById('breath-load-value');
-    if (movement.activeMode.value === 'walk') {
+    if (worldSession.isExterior() && movement.activeMode.value === 'walk') {
       const breathLoad = player.breath.getLoad();
       trailPlayerAudio.updateBreath(breathLoad);
       trailPlayerAudio.updateFootsteps(player.getSpeed());
@@ -2383,7 +2581,9 @@ async function main() {
     // binding for one feature). Newly-unlocked layers auto-enable their
     // visibility signal so the moment of unlock is immediately visible,
     // not just newly-toggleable.
-    const newlyCollected = lineglassParts.update(dt, pos.x, pos.z);
+    const newlyCollected = worldSession.isExterior()
+      ? lineglassParts.update(dt, pos.x, pos.z)
+      : [];
     if (newlyCollected.length > 0) {
       const before = unlockedLineglassLayers(lineglass.collectedPartIds.value.length);
       lineglass.collectedPartIds.value = [...lineglass.collectedPartIds.value, ...newlyCollected];
@@ -2417,12 +2617,18 @@ async function main() {
     const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
     const latLon = worldToLatLon(real, origin);
     const controlsHint =
-      movement.activeMode.value === 'fly'
+      worldSession.transition.value === 'interior'
+        ? 'surveillance interior placeholder — press E to exit'
+        : movement.activeMode.value === 'fly'
         ? 'click canvas to look around, WASD to fly, space/ctrl up/down, shift to boost'
         : movement.activeMode.value === 'drive'
           ? 'click canvas to look around, WASD to drive, shift to boost'
           : 'click canvas to look around, WASD to move, shift to run';
+    const routeLabel = worldSession.route.value.kind === 'exterior'
+      ? 'exterior'
+      : `surveillance/${worldSession.route.value.locationId}`;
     readout.textContent =
+      `route: ${routeLabel} (${worldSession.transition.value})\n` +
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `lat/lon: ${latLon.lat.toFixed(6)}, ${latLon.lon.toFixed(6)}\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
@@ -2430,6 +2636,15 @@ async function main() {
       `whistle [M]: "${WHISTLE_MELODIES[whistleMelodyIndex.value].label}" (1-${WHISTLE_MELODIES.length} to pick) — pet [P]${mechDogModel.distance < PET_DISTANCE ? '' : ' (get closer)'}\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
+
+    if (worldSession.isExterior()) {
+      if (isNearMilosEntrance()) {
+        interactionPrompt.textContent = 'E — Enter Milo’s apartment';
+        interactionPrompt.style.display = 'block';
+      } else {
+        interactionPrompt.style.display = 'none';
+      }
+    }
     scene.render();
 
     timeSinceSave += dt;
