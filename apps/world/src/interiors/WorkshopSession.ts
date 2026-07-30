@@ -13,6 +13,11 @@ import {
 import type { ActiveMode, MovementSignals } from '../state/movement';
 import type { TraversalController } from '../world/TraversalRig';
 import type { WorldFeaturesSystem } from '../world/WorldFeaturesSystem';
+import {
+  buildWorkshopTestCorridor,
+  createUndergroundCorridor,
+  type CorridorDiagnostics,
+} from './UndergroundCorridor';
 
 const INTERIOR_ORIGIN = new Vector3(60_000, -1_000, 60_000);
 const WORKBENCH_POSITION = INTERIOR_ORIGIN.add(new Vector3(0, 0, 22));
@@ -22,6 +27,9 @@ export interface WorkshopSession {
   isInterior(): boolean;
   isNearEntrance(): boolean;
   isNearExit(): boolean;
+  corridorDiagnostics(): CorridorDiagnostics;
+  isCorridorUnlocked(): boolean;
+  setCorridorUnlocked(unlocked: boolean): void;
   enter(): void;
   exit(): void;
   update(): void;
@@ -41,10 +49,20 @@ export function createWorkshopSession(deps: {
   locationFeatures: WorldFeaturesSystem;
   controllers: Record<ActiveMode, TraversalController>;
   movement: MovementSignals;
+  corridorSeed: number;
   onEntered: () => void;
   onWorkbenchEntered: () => void;
 }): WorkshopSession {
-  const { scene, canvas, locationFeatures, controllers, movement, onEntered, onWorkbenchEntered } = deps;
+  const {
+    scene,
+    canvas,
+    locationFeatures,
+    controllers,
+    movement,
+    corridorSeed,
+    onEntered,
+    onWorkbenchEntered,
+  } = deps;
   const root = new TransformNode('undergroundWorkshop', scene);
   root.position.copyFrom(INTERIOR_ORIGIN);
   root.setEnabled(false);
@@ -74,7 +92,33 @@ export function createWorkshopSession(deps: {
   box('workshopCeiling', { width: 8, height: 0.3, depth: 34 }, new Vector3(0, 3.8, 10));
   box('workshopLeftWall', { width: 0.35, height: 4, depth: 34 }, new Vector3(-4, 1.9, 10));
   box('workshopRightWall', { width: 0.35, height: 4, depth: 34 }, new Vector3(4, 1.9, 10));
-  box('workshopRearWall', { width: 8, height: 4, depth: 0.35 }, new Vector3(0, 1.9, 27));
+  // The rear wall now reads as a real continuation: portal-shaped masonry,
+  // a locked gate, and a deterministic validation corridor behind it.
+  box('workshopRearWallLeft', { width: 2.8, height: 4, depth: 0.35 }, new Vector3(-2.6, 1.9, 27));
+  box('workshopRearWallRight', { width: 2.8, height: 4, depth: 0.35 }, new Vector3(2.6, 1.9, 27));
+  box('workshopRearWallLintel', { width: 2.4, height: 0.75, depth: 0.35 }, new Vector3(0, 3.625, 27));
+  const corridorGate = box(
+    'workshopLockedContinuation',
+    { width: 2.35, height: 3.25, depth: 0.22 },
+    new Vector3(0, 1.625, 27.05),
+    steel,
+  );
+  const corridor = createUndergroundCorridor(
+    scene,
+    root,
+    buildWorkshopTestCorridor(corridorSeed),
+  );
+  let corridorUnlocked = false;
+  const finalSegment = corridor.metadata.segments[corridor.metadata.segments.length - 1];
+  const finalEnd = Vector3.FromArray(finalSegment.end);
+  const finalHeading = finalSegment.headingDegrees * Math.PI / 180;
+  const finalGate = box(
+    'workshopTestCorridorEndGate',
+    { width: 5.1, height: 3.3, depth: 0.22 },
+    new Vector3(finalEnd.x, finalEnd.y + 1.65, finalEnd.z),
+    steel,
+  );
+  finalGate.rotation.y = finalHeading;
   box('workshopThresholdDoor', { width: 3, height: 3.2, depth: 0.35 }, new Vector3(2.3, 1.6, -7), steel);
 
   // Zone 2: a compressed service passage, cluttered enough to slow the read.
@@ -178,6 +222,12 @@ export function createWorkshopSession(deps: {
     isInterior: () => interior,
     isNearEntrance,
     isNearExit,
+    corridorDiagnostics: () => ({ ...corridor.diagnostics, errors: [...corridor.diagnostics.errors] }),
+    isCorridorUnlocked: () => corridorUnlocked,
+    setCorridorUnlocked: (unlocked) => {
+      corridorUnlocked = unlocked;
+      corridorGate.setEnabled(!unlocked);
+    },
     enter,
     exit,
     update: () => {
@@ -190,6 +240,7 @@ export function createWorkshopSession(deps: {
       exit();
       camera.dispose();
       light.dispose();
+      corridor.dispose();
       meshes.forEach((mesh) => mesh.dispose(false, true));
       root.dispose();
     },

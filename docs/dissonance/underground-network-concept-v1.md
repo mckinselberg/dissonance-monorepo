@@ -164,3 +164,19 @@ but remains blocked on its name, trust economy, and tonal-language design.
 5. Only then design another authored node.
 
 T31 v2 hardware construction and T33 remain out of scope for this sequence.
+
+## V1 validation slice
+
+The workshop rear wall now contains a locked utility portal backed by one
+seeded three-segment corridor (`straight → bend → service-bay`). The corridor
+is built from metadata, validates stable/unique IDs and connected endpoints,
+and proves that reversing the segment sequence returns through the same
+endpoints. Its floor, ceiling, and two walls per segment are collision meshes.
+
+The T32 Dev HUD reports topology validity, segment/collider counts, and reverse
+validity. A debug-only unlock opens the workshop gate so the corridor can be
+walked in both directions without making it canonical progression.
+
+Production build validation is complete. Manual full-speed checks remain
+required for wall seams, the small elevation step, camera collision, and
+returning through the unlocked portal on the slow authoring machine.

@@ -1050,6 +1050,7 @@ async function main() {
     locationFeatures,
     controllers,
     movement,
+    corridorSeed: getOrCreateRunSeed(),
     onEntered: () => {
       commitExteriorState('workshop');
       story.set('shelterAlarmSilenced');
@@ -1063,6 +1064,7 @@ async function main() {
     },
   });
   const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
+  const corridorDiagnostics = workshop.corridorDiagnostics();
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyE' || event.repeat || !worldSession.isExterior()) return;
     if (workshop.isInterior()) {
@@ -1125,6 +1127,22 @@ async function main() {
         >
           Go to crater shelter
         </button>
+        <div>
+          Corridor: {corridorDiagnostics.valid ? 'valid' : 'invalid'} ·{' '}
+          {corridorDiagnostics.segmentCount} segments ·{' '}
+          {corridorDiagnostics.collisionMeshCount} collision meshes ·{' '}
+          reverse {corridorDiagnostics.reversible ? 'yes' : 'no'}
+        </div>
+        <label>
+          <input
+            type='checkbox'
+            checked={workshop.isCorridorUnlocked()}
+            onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
+              workshop.setCorridorUnlocked(event.currentTarget.checked);
+            }}
+          />{' '}
+          Unlock workshop test corridor (debug only)
+        </label>
       </Section>
       <Section title='Surveillance Interior'>
         <InteriorDebugRow
