@@ -1167,6 +1167,7 @@ async function main() {
       ? baseAmbientColor.add(new Color3(0.16, 0.18, 0.22))
       : baseAmbientColor;
     forestFire.update(dt);
+    locationFeatures.updatePatrolDrones(dt);
 
     // Breath/footsteps: PlayerController (walk) is the only controller with
     // a BreathSystem — Fly/Drive are deliberately simpler traversal tools

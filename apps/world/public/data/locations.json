@@ -370,7 +370,15 @@
       "poleSpacingMeters": 40,
       "wireCount": 2,
       "extendToWorldBounds": true
-    }
+    },
+    "patrolDrones": [
+      {
+        "id": "boulevard-patrol-01",
+        "route": [[-2, -5], [2, 11], [-2, 26], [2, 41]],
+        "speedMetersPerSecond": 3.2,
+        "altitudeMeters": 4.2
+      }
+    ]
   },
   {
     "id": "old-picnic-grounds",

@@ -1,4 +1,5 @@
 import { MembraneSynth, Gain, Oscillator } from 'tone';
+import { audioBuses } from './AudioBuses';
 
 export class HeartbeatAudio {
   private lub: MembraneSynth;
@@ -12,7 +13,7 @@ export class HeartbeatAudio {
   private timerId: number | null = null;
 
   constructor() {
-    this.masterGain = new Gain(0).toDestination();
+    this.masterGain = new Gain(0).connect(audioBuses.interior);
 
     this.lub = new MembraneSynth({
       pitchDecay: 0.12,
@@ -26,7 +27,7 @@ export class HeartbeatAudio {
       envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.06 },
     }).connect(this.masterGain);
 
-    this.droneGain = new Gain(0).toDestination();
+    this.droneGain = new Gain(0).connect(audioBuses.interior);
     this.droneOsc  = new Oscillator(48, 'sine').connect(this.droneGain);
     this.droneOsc.start();
   }
@@ -40,6 +41,7 @@ export class HeartbeatAudio {
     if (!this.running) return;
     const intervalMs = 60_000 / this.bpm;
     this.timerId = window.setTimeout(() => {
+      audioBuses.duckAmbientForPriority(0.38);
       this.lub.triggerAttackRelease('C2', '16n');
       window.setTimeout(() => {
         if (this.running) this.dub.triggerAttackRelease('E2', '16n');

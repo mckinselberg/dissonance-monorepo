@@ -9,6 +9,11 @@ import { scatterLocationProps, type LocationEntry, type LocationPropsHandle } fr
 import { loadCompositeLocations, type CompositeLocationsHandle, type SurveilledLocationEntrance } from './CompositeLocations';
 import { loadUtilityCorridors, type UtilityCorridorsHandle } from './UtilityCorridors';
 import { loadLineglassParts, type LineglassPartsHandle } from './LineglassParts';
+import {
+  loadBoulevardPatrolDrones,
+  type BoulevardPatrolDronesHandle,
+  type PatrolDroneSnapshot,
+} from './BoulevardPatrolDrones';
 
 function worldBounds(realWidth: number, realDepth: number, scaleTuning: ScaleTuningSignals) {
   return {
@@ -47,6 +52,7 @@ export class WorldFeaturesSystem {
     private compositeLocations: CompositeLocationsHandle,
     private utilityCorridors: UtilityCorridorsHandle,
     private lineglassParts: LineglassPartsHandle,
+    private patrolDrones: BoulevardPatrolDronesHandle,
   ) {
     this.applyPlayerColliders();
   }
@@ -82,10 +88,13 @@ export class WorldFeaturesSystem {
     const lineglassParts = loadLineglassParts(
       scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, new Set(lineglass.collectedPartIds.value),
     );
+    const patrolDrones = loadBoulevardPatrolDrones(
+      scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
+    );
 
     return new WorldFeaturesSystem(
       scene, locations, toRenderXZ, scaleTuning, terrain, atmosphere, powerLinesVisible, lineglass, realWidth, realDepth,
-      shadowGenerator, player, locationProps, compositeLocations, utilityCorridors, lineglassParts,
+      shadowGenerator, player, locationProps, compositeLocations, utilityCorridors, lineglassParts, patrolDrones,
     );
   }
 
@@ -102,6 +111,18 @@ export class WorldFeaturesSystem {
   // main.tsx's game loop for the newly-unlocked-layer follow-up.
   updateLineglass(dt: number, playerX: number, playerZ: number): string[] {
     return this.lineglassParts.update(dt, playerX, playerZ);
+  }
+
+  updatePatrolDrones(dt: number): void {
+    this.patrolDrones.update(dt);
+  }
+
+  getPatrolDrone(id: string): PatrolDroneSnapshot | null {
+    return this.patrolDrones.get(id);
+  }
+
+  setPatrolDroneInert(id: string): boolean {
+    return this.patrolDrones.setInert(id);
   }
 
   // Buildings joined props/poles here 2026-07-27 ("make all buildings but
@@ -163,6 +184,11 @@ export class WorldFeaturesSystem {
     this.lineglassParts = loadLineglassParts(
       this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt,
       new Set(this.lineglass.collectedPartIds.value),
+    );
+
+    this.patrolDrones.dispose();
+    this.patrolDrones = loadBoulevardPatrolDrones(
+      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
     );
   }
 }
