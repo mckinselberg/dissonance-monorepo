@@ -17,6 +17,11 @@ export class DroneRecovery {
     this.recoverablePosition = position.clone();
   }
 
+  restore(flags: RecoveryFlags, recoverablePosition: Vector3 | null): void {
+    this.flags = { ...flags };
+    this.recoverablePosition = recoverablePosition?.clone() ?? null;
+  }
+
   isAvailable(playerPosition: Vector3): boolean {
     return (
       this.recoverablePosition !== null &&

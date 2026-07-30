@@ -4,7 +4,6 @@ import type { AtmosphereSignals } from './atmosphere';
 import type { ScaleTuningSignals } from './scaleTuning';
 import type { VisibilitySignals } from './visibility';
 import type { AudioSignals } from './audio';
-import type { LineglassSignals } from './lineglass';
 import type { TrailsideScatterSignals } from './trailsideScatter';
 import type { BulkForestScatterSignals } from './bulkForestScatter';
 import type { SavedSettings } from './settingsStorage';
@@ -55,7 +54,6 @@ export type SharedSettingsSnapshot = Pick<
   | 'breathMuted'
   | 'hudVisible'
   | 'worldBounded'
-  | 'lineglassPartIds'
   | 'terrainVisible'
   | 'osmVisible'
   | 'gpxVisible'
@@ -72,7 +70,6 @@ export function buildSharedSettingsSnapshot(deps: {
   atmosphere: AtmosphereSignals;
   visibility: VisibilitySignals;
   audio: AudioSignals;
-  lineglass: LineglassSignals;
   trailsideScale: TrailsideScatterSignals;
   bulkForestScale: BulkForestScatterSignals;
   treeRegionRadius: Signal<number>;
@@ -85,7 +82,7 @@ export function buildSharedSettingsSnapshot(deps: {
   worldBounded: Signal<boolean>;
 }): SharedSettingsSnapshot {
   const {
-    scaleTuning, atmosphere, visibility, audio, lineglass,
+    scaleTuning, atmosphere, visibility, audio,
     trailsideScale, bulkForestScale, treeRegionRadius, bulkForestRadius,
     weatherMode, precipitationMode, hudVisible, worldBounded,
   } = deps;
@@ -126,7 +123,6 @@ export function buildSharedSettingsSnapshot(deps: {
     breathMuted: audio.breathMuted.value,
     hudVisible,
     worldBounded: worldBounded.value,
-    lineglassPartIds: lineglass.collectedPartIds.value,
     terrainVisible: visibility.terrain.value,
     osmVisible: visibility.osm.value,
     gpxVisible: visibility.gpx.value,

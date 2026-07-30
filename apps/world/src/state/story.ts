@@ -1,7 +1,7 @@
 import { signal, type Signal } from '@preact/signals';
 import type { WorldFeatureRegistry } from '../world/WorldFeatureRegistry';
 
-const STORY_STORAGE_KEY = 'dissonance:world-story-flags:v1';
+const LEGACY_STORY_STORAGE_KEY = 'dissonance:world-story-flags:v1';
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const FLAG_PATTERN = /^[a-z][A-Za-z0-9]*$/;
 
@@ -117,7 +117,7 @@ export function parseStoryManifest(
 
 function loadFlags(): string[] {
   try {
-    const raw = localStorage.getItem(STORY_STORAGE_KEY);
+    const raw = localStorage.getItem(LEGACY_STORY_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -129,12 +129,19 @@ function loadFlags(): string[] {
   }
 }
 
-export function createStoryState(manifest: StoryManifest): StoryState {
-  const flags = signal<readonly string[]>(loadFlags());
+export function createStoryState(
+  manifest: StoryManifest,
+  persistence?: {
+    initialFlags: readonly string[];
+    save(flags: readonly string[]): void;
+  },
+): StoryState {
+  const flags = signal<readonly string[]>(persistence?.initialFlags ?? loadFlags());
   const beats = new Map(manifest.beats.map((beat) => [beat.id, beat]));
   const persist = (next: readonly string[]) => {
     flags.value = next;
-    localStorage.setItem(STORY_STORAGE_KEY, JSON.stringify(next));
+    if (persistence) persistence.save(next);
+    else localStorage.setItem(LEGACY_STORY_STORAGE_KEY, JSON.stringify(next));
   };
   return {
     flags,

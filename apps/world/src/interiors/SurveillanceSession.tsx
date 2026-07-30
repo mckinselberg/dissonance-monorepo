@@ -43,12 +43,23 @@ export function createSurveillanceSession(deps: {
   controllers: Record<ActiveMode, TraversalController>;
   movement: MovementSignals;
   switchMode: (mode: ActiveMode) => void;
+  onBeforeEnter?: () => void;
   // Also written directly by main.tsx's game loop (the exterior "E — Enter
   // Milo's apartment" proximity prompt) — shared rather than looked up
   // twice, so there's one DOM node both sides agree on.
   interactionPrompt: HTMLDivElement;
 }): SurveillanceSession {
-  const { scene, canvas, terrain, locationFeatures, controllers, movement, switchMode, interactionPrompt } = deps;
+  const {
+    scene,
+    canvas,
+    terrain,
+    locationFeatures,
+    controllers,
+    movement,
+    switchMode,
+    onBeforeEnter,
+    interactionPrompt,
+  } = deps;
 
   const worldSession = new WorldSessionCoordinator(window.location.pathname);
   let surveillanceInterior: SurveillanceInteriorHandle | null = null;
@@ -99,6 +110,7 @@ export function createSurveillanceSession(deps: {
   const enterInterior = async (source: EnterInteriorSource): Promise<void> => {
     if (!worldSession.isExterior()) return;
 
+    onBeforeEnter?.();
     const loadGeneration = ++interiorLoadGeneration;
     worldSession.setTransition('entering');
     worldSession.exteriorSnapshot.value =

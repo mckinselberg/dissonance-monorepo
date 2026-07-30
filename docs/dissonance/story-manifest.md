@@ -80,5 +80,7 @@ HUD tuning into game state. At minimum, verify:
 - the archived museum app and its existing save key are not migrated or
   overwritten by World.
 
-Treat this as a mandatory gate before T31 v2 hardware construction, T32 network
-expansion, or T33 trust progression.
+This audit landed in the versioned contract documented by
+`docs/dissonance/world-save-contract.md`. Treat its build and reload checks as
+a mandatory gate before T31 v2 hardware construction, T32 network expansion,
+or T33 trust progression.

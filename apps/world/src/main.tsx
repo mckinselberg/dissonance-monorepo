@@ -80,6 +80,7 @@ import { createWorkshopSession } from './interiors/WorkshopSession';
 import { InteriorDebugRow } from './ui/InteriorDebugRow';
 import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
 import { createStoryState } from './state/story';
+import { WorldSaveStore, type WorldRouteId } from './state/worldSave';
 
 // Underwater look — WaterPlane's own "murky underside" mesh already gives a
 // plausible ceiling when you dip below the surface (Fly/Drive have no
@@ -128,6 +129,24 @@ async function main() {
   const levelKey = currentLevelKey();
   const level = LEVELS[levelKey];
   const savedSettings = loadSavedSettings(levelKey);
+  const worldSave = new WorldSaveStore({
+    levelKey,
+    mode: savedSettings.activeMode,
+    position: savedSettings.x !== undefined && savedSettings.y !== undefined && savedSettings.z !== undefined
+      ? { x: savedSettings.x, y: savedSettings.y, z: savedSettings.z }
+      : undefined,
+    rotation: savedSettings.rotationX !== undefined && savedSettings.rotationY !== undefined
+      ? { x: savedSettings.rotationX, y: savedSettings.rotationY, z: 0 }
+      : undefined,
+    lineglassPartIds: savedSettings.lineglassPartIds,
+  });
+  const restoredExterior = worldSave.snapshot().lastExterior;
+  const restoredHere = restoredExterior?.levelKey === levelKey ? restoredExterior : null;
+  if (worldSave.snapshot().activeRoute !== 'exterior') {
+    // Interior cameras/geometry are runtime resources, not safe reload
+    // targets. A reload resumes from the last committed exterior transform.
+    worldSave.setActiveRoute('exterior');
+  }
   // First concrete T1/T24 profile seam. Only existing live consumers (fog)
   // are applied today; chunk/LOD distances remain validated profile data
   // until their systems land, rather than appearing as inert HUD controls.
@@ -163,7 +182,7 @@ async function main() {
   // unlockedLineglassLayers is a pure function of collected count, monotonic
   // by construction.
   const lineglass = createLineglassSignals({
-    collectedPartIds: savedSettings.lineglassPartIds ?? [],
+    collectedPartIds: worldSave.snapshot().progression.inventory.lineglassPartIds,
   });
   const lineglassUnlocked = unlockedLineglassLayers(lineglass.collectedPartIds.value.length);
   visibility.grid.value = lineglassUnlocked.has('grid') && (savedSettings.gridVisible ?? true);
@@ -366,7 +385,10 @@ async function main() {
     loadReplayRoutes(),
   ]);
   const storyManifest = await loadStoryManifest(worldFeatures);
-  const story = createStoryState(storyManifest);
+  const story = createStoryState(storyManifest, {
+    initialFlags: worldSave.snapshot().progression.storyFlags,
+    save: (flags) => worldSave.setStoryFlags(flags),
+  });
   if (story.has('shelterAlarmSilenced')) shelterAlarmAudio.silence();
   const locations = worldFeatures.entries;
   // Owns the terrain mesh plus its OSM/GPX/grid overlays as one unit — see
@@ -716,7 +738,7 @@ async function main() {
             orbitBeta: orbitCamera.beta,
             orbitRadius: orbitCamera.radius,
             ...buildSharedSettingsSnapshot({
-              scaleTuning, atmosphere, visibility, audio, lineglass,
+              scaleTuning, atmosphere, visibility, audio,
               trailsideScale,
               bulkForestScale: bulkForest.bulkForestScale,
               treeRegionRadius: bulkForest.treeRegionRadius,
@@ -819,12 +841,16 @@ async function main() {
   // — unless a saved position exists for this level from a previous visit.
   const spawnPoint = gpxTrack[0]?.points[0];
   const spawnReal = spawnPoint ? latLonToWorld(spawnPoint, origin) : { x: 0, z: 0 };
-  const spawnRenderX = savedSettings.x ?? spawnReal.x * scaleTuning.hScale.value;
-  const spawnRenderZ = savedSettings.z ?? spawnReal.z * scaleTuning.hScale.value;
+  const spawnRenderX = restoredHere?.position.x ?? savedSettings.x ?? spawnReal.x * scaleTuning.hScale.value;
+  const spawnRenderZ = restoredHere?.position.z ?? savedSettings.z ?? spawnReal.z * scaleTuning.hScale.value;
   const spawnGroundY = terrain.getHeightAt(spawnRenderX, spawnRenderZ);
   // Y is a placeholder — PlayerController.update() overwrites it with
   // groundY + its own (scale-adjusted) eye height on the very first frame.
-  const startPosition = new Vector3(spawnRenderX, spawnGroundY, spawnRenderZ);
+  const startPosition = new Vector3(
+    spawnRenderX,
+    restoredHere?.position.y ?? savedSettings.y ?? spawnGroundY,
+    spawnRenderZ,
+  );
 
   const player = new PlayerController(scene, startPosition, { scale: level.playerScale, farClip: level.farClip });
   player.setTerrain(terrain);
@@ -868,8 +894,12 @@ async function main() {
   // facing the default direction" isn't the same view at all. Applied to
   // all three controllers so whichever mode ends up active (see
   // switchMode's own restore below) already has the right look direction.
-  if (savedSettings.rotationX !== undefined && savedSettings.rotationY !== undefined) {
-    const savedRotation = new Vector3(savedSettings.rotationX, savedSettings.rotationY, 0);
+  const restoredRotation = restoredHere?.rotation ??
+    (savedSettings.rotationX !== undefined && savedSettings.rotationY !== undefined
+      ? { x: savedSettings.rotationX, y: savedSettings.rotationY, z: 0 }
+      : null);
+  if (restoredRotation) {
+    const savedRotation = new Vector3(restoredRotation.x, restoredRotation.y, restoredRotation.z);
     player.camera.rotation.copyFrom(savedRotation);
     flight.camera.rotation.copyFrom(savedRotation);
     drive.camera.rotation.copyFrom(savedRotation);
@@ -922,6 +952,11 @@ async function main() {
     },
   );
   strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
+  strikeAcquisition.restoreProgress({
+    droneStrikeWitnessed: story.has('droneStrikeWitnessed'),
+    emitterAcquired: story.has('emitterAcquired'),
+    chassisRecovered: story.has('chassisRecovered'),
+  });
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyE' || event.repeat) return;
     const flags = strikeAcquisition.recover(
@@ -960,7 +995,13 @@ async function main() {
   });
 
   // Walk/Fly/Drive mode-switching — see TraversalRig's own comment.
-  const { controllers, movement, switchMode } = createTraversalRig(scene, terrain, player, flight, drive, savedSettings);
+  const traversalDefaults = {
+    ...savedSettings,
+    activeMode: restoredHere?.mode ?? savedSettings.activeMode,
+  };
+  const { controllers, movement, switchMode } = createTraversalRig(
+    scene, terrain, player, flight, drive, traversalDefaults,
+  );
 
   // The concrete spawn is selected on the controller's first update() call
   // (see MechDogController), after the active controller has grounded/
@@ -977,8 +1018,30 @@ async function main() {
   // Milo's-apartment surveillance-interior routing — see
   // SurveillanceSession's own comment.
   const interactionPrompt = document.getElementById('interaction-prompt') as HTMLDivElement;
+  const commitExteriorState = (activeRoute: WorldRouteId) => {
+    const controller = controllers[movement.activeMode.value];
+    const position = controller.getPosition();
+    worldSave.saveRuntime(activeRoute, {
+      levelKey,
+      mode: movement.activeMode.value,
+      position: { x: position.x, y: position.y, z: position.z },
+      rotation: {
+        x: controller.camera.rotation.x,
+        y: controller.camera.rotation.y,
+        z: controller.camera.rotation.z,
+      },
+    });
+  };
   const surveillance = createSurveillanceSession({
-    scene, canvas, terrain, locationFeatures, controllers, movement, switchMode, interactionPrompt,
+    scene,
+    canvas,
+    terrain,
+    locationFeatures,
+    controllers,
+    movement,
+    switchMode,
+    onBeforeEnter: () => commitExteriorState('surveillance'),
+    interactionPrompt,
   });
   const { worldSession } = surveillance;
   const workshop = createWorkshopSession({
@@ -988,6 +1051,7 @@ async function main() {
     controllers,
     movement,
     onEntered: () => {
+      commitExteriorState('workshop');
       story.set('shelterAlarmSilenced');
       shelterAlarmAudio.silence();
     },
@@ -1181,7 +1245,7 @@ async function main() {
               rotationY: activeCamera.rotation.y,
               cameraHeightOffset: movement.cameraHeightOffset.value,
               ...buildSharedSettingsSnapshot({
-                scaleTuning, atmosphere, visibility, audio, lineglass,
+                scaleTuning, atmosphere, visibility, audio,
                 trailsideScale,
                 bulkForestScale: bulkForest.bulkForestScale,
                 treeRegionRadius: bulkForest.treeRegionRadius,
@@ -1276,6 +1340,24 @@ async function main() {
   const persistSettings = () => {
     const activeCamera = controllers[movement.activeMode.value].camera;
     const pos = controllers[movement.activeMode.value].getPosition();
+    const activeRoute = workshop.isInterior()
+      ? 'workshop'
+      : worldSession.route.value.kind === 'surveillance'
+        ? 'surveillance'
+        : 'exterior';
+    worldSave.saveRuntime(
+      activeRoute,
+      isExteriorGameplay() ? {
+        levelKey,
+        mode: movement.activeMode.value,
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        rotation: {
+          x: activeCamera.rotation.x,
+          y: activeCamera.rotation.y,
+          z: activeCamera.rotation.z,
+        },
+      } : undefined,
+    );
     saveSettings(levelKey, {
       x: pos.x,
       y: pos.y,
@@ -1285,7 +1367,7 @@ async function main() {
       activeMode: movement.activeMode.value,
       cameraHeightOffset: movement.cameraHeightOffset.value,
       ...buildSharedSettingsSnapshot({
-        scaleTuning, atmosphere, visibility, audio, lineglass,
+        scaleTuning, atmosphere, visibility, audio,
         trailsideScale,
         bulkForestScale: bulkForest.bulkForestScale,
         treeRegionRadius: bulkForest.treeRegionRadius,
@@ -1389,6 +1471,7 @@ async function main() {
     if (newlyCollected.length > 0) {
       const before = unlockedLineglassLayers(lineglass.collectedPartIds.value.length);
       lineglass.collectedPartIds.value = [...lineglass.collectedPartIds.value, ...newlyCollected];
+      worldSave.setLineglassPartIds(lineglass.collectedPartIds.value);
       const after = unlockedLineglassLayers(lineglass.collectedPartIds.value.length);
       if (after.has('grid') && !before.has('grid')) visibility.grid.value = true;
       if (after.has('gpx') && !before.has('gpx')) visibility.gpx.value = true;

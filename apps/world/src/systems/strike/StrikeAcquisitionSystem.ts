@@ -115,6 +115,25 @@ export class StrikeAcquisitionSystem {
     this.workshopDiscovered = discovered;
   }
 
+  restoreProgress(flags: {
+    droneStrikeWitnessed: boolean;
+    emitterAcquired: boolean;
+    chassisRecovered: boolean;
+  }): void {
+    if (!flags.droneStrikeWitnessed) return;
+    const drone = this.drones.get(this.gate.anchor.patrolDroneRef);
+    if (!drone) return;
+    this.drones.setInert(this.gate.anchor.patrolDroneRef);
+    this.gate.restoreSpent();
+    this.recovery.restore(
+      {
+        emitterAcquired: flags.emitterAcquired,
+        chassisRecovered: flags.chassisRecovered,
+      },
+      flags.chassisRecovered ? null : drone.position,
+    );
+  }
+
   recover(playerPosition: Vector3): RecoveryFlags | null {
     if (!this.recovery.isAvailable(playerPosition)) return null;
     const flags = this.recovery.recover();
