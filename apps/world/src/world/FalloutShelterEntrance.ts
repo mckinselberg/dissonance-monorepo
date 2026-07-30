@@ -3,6 +3,7 @@ import {
   MeshBuilder,
   PBRMaterial,
   StandardMaterial,
+  Texture,
   TransformNode,
   Vector3,
   type AbstractMesh,
@@ -11,6 +12,7 @@ import {
 } from '@babylonjs/core';
 import type { Collider } from '@dissonance/world';
 import type { LocationEntry } from './LocationProps';
+import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './HeroTreeInstances';
 
 const SHELTER_WIDTH = 13;
 const SHELTER_DEPTH = 8;
@@ -19,6 +21,9 @@ const PORTAL_WIDTH = 3.4;
 const PORTAL_HEIGHT = 2.7;
 const FENCE_RADIUS = 10;
 const TREE_COUNT = 22;
+const HERO_TREE_URL = `${import.meta.env.BASE_URL}models/tree-small-02/tree_small_02_preview.glb`;
+const PINE_SAPLING_URL = `${import.meta.env.BASE_URL}models/pine-sapling-medium/pine_sapling_medium_preview.glb`;
+const FIR_SAPLING_URL = `${import.meta.env.BASE_URL}models/fir-sapling-medium/fir_sapling_medium_preview.glb`;
 
 export interface FalloutShelterEntranceHandle {
   colliders: Collider[];
@@ -40,6 +45,47 @@ function material(
   return result;
 }
 
+function texturedMaterial(
+  scene: Scene,
+  name: string,
+  paths: { albedo: string; normal?: string; roughness?: string; orm?: string },
+  textureScale: number,
+): PBRMaterial {
+  const result = new PBRMaterial(name, scene);
+  const albedo = new Texture(paths.albedo, scene);
+  albedo.uScale = textureScale;
+  albedo.vScale = textureScale;
+  result.albedoTexture = albedo;
+  if (paths.normal) {
+    const normal = new Texture(paths.normal, scene);
+    normal.uScale = textureScale;
+    normal.vScale = textureScale;
+    result.bumpTexture = normal;
+  }
+  if (paths.roughness) {
+    const roughness = new Texture(paths.roughness, scene);
+    roughness.uScale = textureScale;
+    roughness.vScale = textureScale;
+    result.metallicTexture = roughness;
+    result.useRoughnessFromMetallicTextureGreen = true;
+    result.useMetallnessFromMetallicTextureBlue = false;
+    result.useRoughnessFromMetallicTextureAlpha = false;
+  } else if (paths.orm) {
+    const orm = new Texture(paths.orm, scene);
+    orm.uScale = textureScale;
+    orm.vScale = textureScale;
+    result.metallicTexture = orm;
+    result.useRoughnessFromMetallicTextureGreen = true;
+    result.useMetallnessFromMetallicTextureBlue = true;
+    result.useRoughnessFromMetallicTextureAlpha = false;
+    result.ambientTexture = orm;
+    result.useAmbientOcclusionFromMetallicTextureRed = true;
+  }
+  result.metallic = 0;
+  result.roughness = 1;
+  return result;
+}
+
 function seeded(index: number, salt: number): number {
   const value = Math.sin(index * 127.1 + salt * 311.7) * 43758.5453;
   return value - Math.floor(value);
@@ -54,6 +100,8 @@ export function loadFalloutShelterEntrance(
   shadowGenerator?: ShadowGenerator,
 ): FalloutShelterEntranceHandle {
   const meshes: AbstractMesh[] = [];
+  const heroTreeHandles: HeroTreeInstancesHandle[] = [];
+  let disposed = false;
   const colliders: Collider[] = [];
   let entrancePosition: Vector3 | null = null;
 
@@ -69,11 +117,15 @@ export function loadFalloutShelterEntrance(
     root.position.copyFrom(entrancePosition);
     root.rotation.y = location.shelterEntrance.headingDegrees * Math.PI / 180;
 
-    const concrete = material(
+    const concrete = texturedMaterial(
       scene,
       'shelterWeatheredConcrete',
-      new Color3(0.26, 0.28, 0.25),
-      0.96,
+      {
+        albedo: `${import.meta.env.BASE_URL}models/downtown-city-megakit/T_Concrete_BaseColor.png`,
+        normal: `${import.meta.env.BASE_URL}models/downtown-city-megakit/T_Concrete_Normal.png`,
+        orm: `${import.meta.env.BASE_URL}models/downtown-city-megakit/T_Concrete_ORM.png`,
+      },
+      2.5,
     );
     const darkConcrete = material(
       scene,
@@ -81,18 +133,26 @@ export function loadFalloutShelterEntrance(
       new Color3(0.11, 0.12, 0.105),
       0.98,
     );
-    const rust = material(
+    const rust = texturedMaterial(
       scene,
       'shelterDoorRust',
-      new Color3(0.19, 0.09, 0.045),
-      0.82,
-      0.65,
+      {
+        albedo: `${import.meta.env.BASE_URL}models/downtown-city-megakit/T_MetalConcrete_BaseColor.png`,
+        normal: `${import.meta.env.BASE_URL}models/downtown-city-megakit/T_MetalConcrete_Normal.png`,
+        orm: `${import.meta.env.BASE_URL}models/downtown-city-megakit/T_MetalConcrete_ORM.png`,
+      },
+      2,
     );
-    const earth = material(
+    rust.albedoColor = new Color3(0.45, 0.24, 0.13);
+    rust.metallic = 0.6;
+    const earth = texturedMaterial(
       scene,
       'shelterEarthCover',
-      new Color3(0.12, 0.16, 0.09),
-      1,
+      {
+        albedo: `${import.meta.env.BASE_URL}textures/forest-ground-04/forest_ground_04_diff_512.jpg`,
+        normal: `${import.meta.env.BASE_URL}textures/forest-ground-04/forest_ground_04_nor_gl_512.png`,
+      },
+      3,
     );
 
     // Two low horizontal concrete drums, buried past their midpoint so only
@@ -214,36 +274,49 @@ export function loadFalloutShelterEntrance(
     }
 
     // Dense, deliberately irregular thicket around the flanks and rear.
-    const bark = material(scene, 'shelterThicketBark', new Color3(0.075, 0.052, 0.035), 1);
-    const foliage = material(scene, 'shelterThicketFoliage', new Color3(0.035, 0.09, 0.035), 1);
+    // Uses the same full-detail GLBs as the trail hero tier; this authored
+    // cluster is small enough that the high-detail source remains appropriate.
+    const heroPositions: Vector3[] = [];
+    const pinePositions: Vector3[] = [];
+    const firPositions: Vector3[] = [];
+    const cosHeading = Math.cos(root.rotation.y);
+    const sinHeading = Math.sin(root.rotation.y);
     for (let index = 0; index < TREE_COUNT; index++) {
       const angle = (index / TREE_COUNT) * Math.PI * 2;
       const radius = 7.5 + seeded(index, 2) * 5;
       // Preserve a narrow approach gap at the front (local -Z).
       if (Math.abs(Math.sin(angle)) < 0.36 && Math.cos(angle) < 0) continue;
-      const treeX = Math.sin(angle) * radius;
-      const treeZ = Math.cos(angle) * radius + 1.5;
-      const height = 5 + seeded(index, 4) * 4;
-      const trunk = MeshBuilder.CreateCylinder(
-        `shelterThicketTrunk:${index}`,
-        { height, diameter: 0.28 + seeded(index, 6) * 0.24, tessellation: 7 },
-        scene,
-      );
-      trunk.position.set(treeX, height / 2, treeZ);
-      trunk.material = bark;
-      trunk.parent = root;
-      meshes.push(trunk);
-      const crown = MeshBuilder.CreateSphere(
-        `shelterThicketCrown:${index}`,
-        { diameter: 2.2 + seeded(index, 7) * 2.2, segments: 7 },
-        scene,
-      );
-      crown.position.set(treeX, height * 0.82, treeZ);
-      crown.scaling.y = 1.25 + seeded(index, 8) * 0.5;
-      crown.material = foliage;
-      crown.parent = root;
-      meshes.push(crown);
+      const localX = Math.sin(angle) * radius;
+      const localZ = Math.cos(angle) * radius + 1.5;
+      const worldX = x + localX * cosHeading + localZ * sinHeading;
+      const worldZ = z - localX * sinHeading + localZ * cosHeading;
+      const position = new Vector3(worldX, getHeightAt(worldX, worldZ), worldZ);
+      const species = index % 5;
+      if (species === 0) pinePositions.push(position);
+      else if (species === 1) firPositions.push(position);
+      else heroPositions.push(position);
     }
+    const queueHeroAsset = (url: string, positions: Vector3[], scale: number) => {
+      if (positions.length === 0) return;
+      void loadHeroTreeInstances(
+        scene,
+        url,
+        positions,
+        horizontalScale * scale,
+        horizontalScale * scale,
+        shadowGenerator,
+      )
+        .then((handle) => {
+          if (disposed) handle.dispose();
+          else heroTreeHandles.push(handle);
+        })
+        .catch((error) => {
+          console.error(`[FalloutShelter] failed to load thicket asset ${url}`, error);
+        });
+    };
+    queueHeroAsset(HERO_TREE_URL, heroPositions, 0.72);
+    queueHeroAsset(PINE_SAPLING_URL, pinePositions, 0.9);
+    queueHeroAsset(FIR_SAPLING_URL, firPositions, 0.9);
 
     const heading = root.rotation.y;
     const sideX = Math.cos(heading) * SHELTER_WIDTH * 0.28;
@@ -258,6 +331,8 @@ export function loadFalloutShelterEntrance(
     colliders,
     position: entrancePosition,
     dispose() {
+      disposed = true;
+      heroTreeHandles.forEach((handle) => handle.dispose());
       meshes.forEach((mesh) => mesh.dispose(false, true));
     },
   };
