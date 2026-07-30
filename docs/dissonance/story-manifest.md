@@ -58,3 +58,27 @@ silences its exterior locator alarm, reaching the workshop workbench sets
 `workshopDiscovered`, T31 records the witnessed strike, and recovery records
 both acquired parts. The HUD checkbox remains as an explicit persistent debug
 override for slow-machine strike authoring.
+
+## Required integration follow-up
+
+Before adding another gameplay beat, audit and consolidate the World game-state
+and player-state seams. The current vertical slice spans three independent
+stores: level/view settings in `settingsStorage`, narrative flags in the
+app-local story store, and the older `@dissonance/persistence`
+`PlayerPersistence` contract. Interior routing is also split between
+`WorldSessionCoordinator` and the workshop session.
+
+The follow-up must establish explicit ownership and one versioned save boundary
+for durable player progression without folding temporary presentation or Dev
+HUD tuning into game state. At minimum, verify:
+
+- exterior/interior route and return transforms survive save/reload safely;
+- story flags, recovered hardware, and Lineglass inventory have stable IDs and
+  restore atomically;
+- traversal/camera state cannot continue updating behind an active interior;
+- debug overrides are visibly separate from canonical progression;
+- the archived museum app and its existing save key are not migrated or
+  overwritten by World.
+
+Treat this as a mandatory gate before T31 v2 hardware construction, T32 network
+expansion, or T33 trust progression.
