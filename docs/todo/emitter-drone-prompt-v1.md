@@ -169,6 +169,22 @@ SPENT:
 - **Flash too bright.** Keep `flashIntensity` subtle — weather through overcast/canopy, not a set-piece strobe. Bright strobing breaks the phone-HDR overcast look (T6.1) and the tone wall.
 - **Second drone inspects the downed unit.** For v1, the network does NOT react (the ambiguous non-response is authored per the recovery beat). Ensure no existing detection code auto-dispatches a drone to the inert one during this beat.
 
+### Follow-up validation flag — stronger machine
+
+- The acquisition slice is implemented, but the complete witnessed-strike
+  sequence still needs a full-speed playtest on Dan's stronger machine.
+- Use the live T31 HUD blocker readout while the drone crosses the selected
+  anchor. Pay particular attention to `drone not in line of sight` and
+  `holding for witnessed LOS`; the current slow authoring machine may miss the
+  short drone-at-anchor + Babylon ray-pick overlap.
+- If a visibly unobstructed pass still reports an LOS blocker at full speed,
+  replace the generic per-frame mesh pick with a stable terrain/building-only
+  occlusion test. Do **not** remove the witnessed-strike requirement or widen
+  the rule blindly.
+- Also complete the original dry-entry, wet-entry, LOS-loss hold, one-shot,
+  seed-determinism, recovery-boundary, audio-route, and HUD round-trip checks
+  below before declaring T31 production-verified.
+
 ---
 
 ## Validation steps
