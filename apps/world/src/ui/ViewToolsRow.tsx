@@ -1,6 +1,6 @@
 import { useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
-import type { SavedSettings } from '../main';
+import type { SavedSettings } from '../state/settingsStorage';
 
 const textareaStyle: JSX.CSSProperties = {
   width: '100%', boxSizing: 'border-box', font: '11px monospace', background: '#111', color: '#eee',
