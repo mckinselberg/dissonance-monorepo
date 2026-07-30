@@ -83,6 +83,10 @@ export type LocationEntry = {
     eligible: boolean;
     weight?: number;
   }>;
+  shelterEntrance?: {
+    local: [number, number];
+    headingDegrees: number;
+  };
 };
 
 export interface LocationPropsHandle {

@@ -1,4 +1,4 @@
-import { Color3, type ShadowGenerator, type Scene } from '@babylonjs/core';
+import { Color3, Vector3, type ShadowGenerator, type Scene } from '@babylonjs/core';
 import type { ITerrain, Collider } from '@dissonance/world';
 import type { PlayerController } from '@dissonance/player';
 import type { Signal } from '@preact/signals';
@@ -14,6 +14,10 @@ import {
   type BoulevardPatrolDronesHandle,
   type PatrolDroneSnapshot,
 } from './BoulevardPatrolDrones';
+import {
+  loadFalloutShelterEntrance,
+  type FalloutShelterEntranceHandle,
+} from './FalloutShelterEntrance';
 
 function worldBounds(realWidth: number, realDepth: number, scaleTuning: ScaleTuningSignals) {
   return {
@@ -53,6 +57,7 @@ export class WorldFeaturesSystem {
     private utilityCorridors: UtilityCorridorsHandle,
     private lineglassParts: LineglassPartsHandle,
     private patrolDrones: BoulevardPatrolDronesHandle,
+    private shelterEntrance: FalloutShelterEntranceHandle,
   ) {
     this.applyPlayerColliders();
   }
@@ -91,15 +96,23 @@ export class WorldFeaturesSystem {
     const patrolDrones = loadBoulevardPatrolDrones(
       scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
     );
+    const shelterEntrance = loadFalloutShelterEntrance(
+      scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
+    );
 
     return new WorldFeaturesSystem(
       scene, locations, toRenderXZ, scaleTuning, terrain, atmosphere, powerLinesVisible, lineglass, realWidth, realDepth,
       shadowGenerator, player, locationProps, compositeLocations, utilityCorridors, lineglassParts, patrolDrones,
+      shelterEntrance,
     );
   }
 
   get milosEntrance(): SurveilledLocationEntrance | null {
     return this.compositeLocations.milosEntrance;
+  }
+
+  get falloutShelterPosition(): Vector3 | null {
+    return this.shelterEntrance.position?.clone() ?? null;
   }
 
   setPowerLinesVisible(visible: boolean): void {
@@ -136,6 +149,7 @@ export class WorldFeaturesSystem {
       ...this.locationProps.colliders,
       ...this.utilityCorridors.colliders,
       ...this.compositeLocations.colliders,
+      ...this.shelterEntrance.colliders,
     ];
     this.player.setColliders(colliders);
     // Milo's stairwell steps + second-floor slab (2026-07-27) — the only
@@ -190,5 +204,11 @@ export class WorldFeaturesSystem {
     this.patrolDrones = loadBoulevardPatrolDrones(
       this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
     );
+
+    this.shelterEntrance.dispose();
+    this.shelterEntrance = loadFalloutShelterEntrance(
+      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
+    );
+    this.applyPlayerColliders();
   }
 }

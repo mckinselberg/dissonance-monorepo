@@ -3,7 +3,11 @@
     "id": "mountain-crater",
     "name": "mountain crater",
     "latLong": [40.755397, -74.274582],
-    "props": ["rocks"]
+    "props": ["rocks"],
+    "shelterEntrance": {
+      "local": [0, 0],
+      "headingDegrees": 165
+    }
   },
   {
     "id": "dissonance-boulevard",

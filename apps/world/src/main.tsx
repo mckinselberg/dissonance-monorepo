@@ -1002,6 +1002,20 @@ async function main() {
           Prime strike rain
         </button>
       </Section>
+      <Section title='T32 Shelter Entrance'>
+        <button
+          type='button'
+          onClick={() => {
+            const entrance = locationFeatures.falloutShelterPosition;
+            if (!entrance) return;
+            controllers[movement.activeMode.value].setPosition(
+              new Vector3(entrance.x, entrance.y, entrance.z - 15),
+            );
+          }}
+        >
+          Go to crater shelter
+        </button>
+      </Section>
       <Section title='Surveillance Interior'>
         <InteriorDebugRow
           route={worldSession.route}
