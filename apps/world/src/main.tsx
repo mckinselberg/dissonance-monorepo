@@ -63,6 +63,7 @@ import { MechDogController } from './pursuer/MechDogController';
 import { WHISTLE_MELODIES } from './state/whistle';
 import { createSurveillanceSession } from './interiors/SurveillanceSession';
 import { InteriorDebugRow } from './ui/InteriorDebugRow';
+import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
 
 // Underwater look — WaterPlane's own "murky underside" mesh already gives a
 // plausible ceiling when you dip below the surface (Fly/Drive have no
@@ -77,6 +78,20 @@ import { InteriorDebugRow } from './ui/InteriorDebugRow';
 // pass would read better but is a separate, riskier visual change.
 const UNDERWATER_FOG_COLOR = Color3.FromHexString('#0a2e33');
 const UNDERWATER_FOG_DENSITY = 0.04;
+const RUN_SEED_SESSION_KEY = 'dissonance:world-run-seed';
+
+function getOrCreateRunSeed(): number {
+  const stored = sessionStorage.getItem(RUN_SEED_SESSION_KEY);
+  if (stored !== null) {
+    const parsed = Number(stored);
+    if (Number.isInteger(parsed) && parsed >= 0) return parsed;
+  }
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  const seed = values[0];
+  sessionStorage.setItem(RUN_SEED_SESSION_KEY, String(seed));
+  return seed;
+}
 
 // Fly and Drive are unconditionally available in this POC — no unlock gate
 // exists yet. Design intent for whatever game eventually grows out of this
@@ -271,6 +286,7 @@ async function main() {
   const thunderScheduler = new ThunderScheduler(0x743235);
   const precipitationVisuals = new PrecipitationVisualSystem(scene);
   let flashRemainingSeconds = 0;
+  let flashAmbientIntensity = 0.16;
   const baseAmbientColor = scene.ambientColor.clone();
   // Wind audio already runs weatherSystem's live windIntensity through the
   // user-facing "Wind vol" slider (see the ambientAudio.setWeatherIntensity
@@ -752,12 +768,17 @@ async function main() {
         weatherState.precipitationMode === 'storm' ? weatherState.precipitationIntensity : 0,
       );
       if (thunder) {
+        flashAmbientIntensity = 0.16;
         flashRemainingSeconds = 0.12;
         if (audioStarted) ambientAudio.playThunder(thunder.gain, thunder.clapDelaySeconds);
       }
       flashRemainingSeconds = Math.max(0, flashRemainingSeconds - dt);
       scene.ambientColor = flashRemainingSeconds > 0
-        ? baseAmbientColor.add(new Color3(0.16, 0.18, 0.22))
+        ? baseAmbientColor.add(new Color3(
+            flashAmbientIntensity,
+            flashAmbientIntensity * 1.12,
+            flashAmbientIntensity * 1.35,
+          ))
         : baseAmbientColor;
       const pos = orbitCamera.position;
       const groundY = terrain.getHeightAt(pos.x, pos.z);
@@ -858,6 +879,39 @@ async function main() {
     scene, locations, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines, lineglass,
     realWidth, realDepth, backdrop.getShadowGenerator(), player,
   );
+  const workshopDiscoveredDebug = signal(false);
+  const strikeAcquisition = new StrikeAcquisitionSystem(
+    scene,
+    locations,
+    locationToRenderXZ,
+    scaleTuning.hScale.value,
+    (x, z) => terrain.getHeightAt(x, z),
+    getOrCreateRunSeed(),
+    weatherSystem,
+    {
+      get: (id) => locationFeatures.getPatrolDrone(id),
+      setInert: (id) => locationFeatures.setPatrolDroneInert(id),
+    },
+    {
+      flash: (intensity, durationSeconds) => {
+        flashAmbientIntensity = intensity;
+        flashRemainingSeconds = Math.max(flashRemainingSeconds, durationSeconds);
+      },
+      clap: (gain, delaySeconds) => {
+        if (audioStarted) ambientAudio.playThunder(gain, delaySeconds);
+      },
+    },
+  );
+  strikeAcquisition.setWorkshopDiscovered(workshopDiscoveredDebug.value);
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyE' || event.repeat) return;
+    const flags = strikeAcquisition.recover(
+      controllers[movement.activeMode.value].getPosition(),
+    );
+    if (flags) {
+      console.info('[T31] recovery hand-off', flags);
+    }
+  });
 
   // Forest fire game mechanic — press F to ignite the nearest tree; fire
   // spreads through neighboring trees over time. Reuses treePointsInRegion()
@@ -909,15 +963,45 @@ async function main() {
   const { worldSession } = surveillance;
 
   render(
-    <Section title='Surveillance Interior'>
-      <InteriorDebugRow
-        route={worldSession.route}
-        transition={worldSession.transition}
-        exteriorSnapshot={worldSession.exteriorSnapshot}
-        onEnter={() => { void surveillance.enterInterior('debug'); }}
-        onExit={surveillance.requestExit}
-      />
-    </Section>,
+    <>
+      <Section title='T31 Strike Acquisition'>
+        <label>
+          <input
+            type='checkbox'
+            checked={workshopDiscoveredDebug.value}
+            onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
+              workshopDiscoveredDebug.value = event.currentTarget.checked;
+              strikeAcquisition.setWorkshopDiscovered(event.currentTarget.checked);
+            }}
+          />{' '}
+          Workshop discovered (debug only)
+        </label>
+        <br />
+        <button
+          type='button'
+          onClick={() => {
+            const anchor = strikeAcquisition.getSelectedAnchor();
+            const controller = controllers[movement.activeMode.value];
+            controller.setPosition(new Vector3(
+              anchor.position.x + 8,
+              anchor.position.y,
+              anchor.position.z + 8,
+            ));
+          }}
+        >
+          Go to selected strike anchor
+        </button>
+      </Section>
+      <Section title='Surveillance Interior'>
+        <InteriorDebugRow
+          route={worldSession.route}
+          transition={worldSession.transition}
+          exteriorSnapshot={worldSession.exteriorSnapshot}
+          onEnter={() => { void surveillance.enterInterior('debug'); }}
+          onExit={surveillance.requestExit}
+        />
+      </Section>
+    </>,
     document.getElementById('interior-debug-root') as HTMLDivElement,
   );
 
@@ -1159,12 +1243,17 @@ async function main() {
       weatherState.precipitationMode === 'storm' ? weatherState.precipitationIntensity : 0,
     );
     if (thunder) {
+      flashAmbientIntensity = 0.16;
       flashRemainingSeconds = 0.12;
       if (audioStarted) ambientAudio.playThunder(thunder.gain, thunder.clapDelaySeconds);
     }
     flashRemainingSeconds = Math.max(0, flashRemainingSeconds - dt);
     scene.ambientColor = flashRemainingSeconds > 0
-      ? baseAmbientColor.add(new Color3(0.16, 0.18, 0.22))
+      ? baseAmbientColor.add(new Color3(
+          flashAmbientIntensity,
+          flashAmbientIntensity * 1.12,
+          flashAmbientIntensity * 1.35,
+        ))
       : baseAmbientColor;
     forestFire.update(dt);
     locationFeatures.updatePatrolDrones(dt);
@@ -1185,6 +1274,7 @@ async function main() {
     }
 
     const pos = controllers[movement.activeMode.value].getPosition();
+    if (worldSession.isExterior()) strikeAcquisition.update(dt, pos);
     precipitationVisuals.update(weatherState, pos);
     const groundY = terrain.getHeightAt(pos.x, pos.z);
     mechDog.update(
@@ -1194,6 +1284,7 @@ async function main() {
       (x, z) => terrain.getHeightAt(x, z),
     );
     const mechDogModel = mechDog.getModel();
+    const strikeSnapshot = strikeAcquisition.snapshot();
 
     // state/lineglass.ts — walking within pickup range collects a part
     // outright, no interact key (matching this app's existing "proximity is
@@ -1250,12 +1341,17 @@ async function main() {
       `lat/lon: ${latLon.lat.toFixed(6)}, ${latLon.lon.toFixed(6)}\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
       `mech dog: ${mechDogModel.distance.toFixed(1)}m (${mechDogModel.state})\n` +
+      `T31: ${strikeSnapshot.state} · ${strikeSnapshot.anchorId} · windup ${Math.round(strikeSnapshot.windupProgress * 100)}%` +
+        `${strikeSnapshot.flags.chassisRecovered ? ' · recovered' : ''}\n` +
       `whistle [M]: "${WHISTLE_MELODIES[mechDog.whistleMelodyIndex.value].label}" (1-${WHISTLE_MELODIES.length} to pick) — pet [P]${mechDog.isPettable() ? '' : ' (get closer)'}\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
 
     if (worldSession.isExterior()) {
-      if (surveillance.isNearEntrance()) {
+      if (strikeSnapshot.recoveryAvailable) {
+        interactionPrompt.textContent = 'E — Recover emitter and drone chassis';
+        interactionPrompt.style.display = 'block';
+      } else if (surveillance.isNearEntrance()) {
         interactionPrompt.textContent = 'E — Enter Milo’s apartment';
         interactionPrompt.style.display = 'block';
       } else {

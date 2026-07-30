@@ -76,6 +76,13 @@ export type LocationEntry = {
     speedMetersPerSecond?: number;
     altitudeMeters?: number;
   }>;
+  strikeAnchors?: Array<{
+    id: string;
+    local: [number, number];
+    patrolDroneRef: string;
+    eligible: boolean;
+    weight?: number;
+  }>;
 };
 
 export interface LocationPropsHandle {
