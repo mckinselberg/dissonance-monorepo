@@ -965,6 +965,7 @@ async function main() {
   render(
     <>
       <Section title='T31 Strike Acquisition'>
+        <div id='t31-strike-status'>Loading strike state…</div>
         <label>
           <input
             type='checkbox'
@@ -1294,6 +1295,16 @@ async function main() {
     );
     const mechDogModel = mechDog.getModel();
     const strikeSnapshot = strikeAcquisition.snapshot();
+    const strikeStatus = document.getElementById('t31-strike-status');
+    if (strikeStatus) {
+      strikeStatus.textContent =
+        `${strikeSnapshot.state} — ${strikeSnapshot.blockingReason} · ` +
+        `LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · ` +
+        `Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · ` +
+        `drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · ` +
+        `rain ${Math.round(strikeSnapshot.rainIntensity * 100)}% · ` +
+        `windup ${Math.round(strikeSnapshot.windupProgress * 100)}%`;
+    }
 
     // state/lineglass.ts — walking within pickup range collects a part
     // outright, no interact key (matching this app's existing "proximity is

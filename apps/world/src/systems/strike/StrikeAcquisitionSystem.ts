@@ -33,6 +33,7 @@ export interface StrikeAcquisitionSnapshot {
   distanceToAnchor: number;
   droneDistanceToAnchor: number;
   rainIntensity: number;
+  blockingReason: string;
 }
 
 export class StrikeAcquisitionSystem {
@@ -126,8 +127,30 @@ export class StrikeAcquisitionSystem {
   }
 
   snapshot(): StrikeAcquisitionSnapshot {
+    const state = this.gate.getState();
+    let blockingReason = 'complete';
+    if (state === 'DORMANT') {
+      if (!this.workshopDiscovered) blockingReason = 'workshop not discovered';
+      else if (this.currentDistanceToAnchor > STRIKE_CONSTANTS.losRange) blockingReason = 'Milo outside anchor range';
+      else if (!this.hasCurrentLineOfSight) blockingReason = 'drone not in line of sight';
+      else if (this.currentDroneDistanceToAnchor > STRIKE_CONSTANTS.strikeAnchorCaptureRange) {
+        blockingReason = 'waiting for drone at anchor';
+      } else blockingReason = 'ready to arm';
+    } else if (state === 'ARMED') {
+      if (this.weather.getRainIntensity() < STRIKE_CONSTANTS.strikeRainThreshold) {
+        blockingReason = 'building rain';
+      } else if (this.gate.getWindupProgress() < 1) {
+        blockingReason = 'seeded windup';
+      } else if (!this.hasCurrentLineOfSight) {
+        blockingReason = 'holding for witnessed LOS';
+      } else if (this.currentDroneDistanceToAnchor > STRIKE_CONSTANTS.strikeAnchorCaptureRange) {
+        blockingReason = 'holding for drone return';
+      } else blockingReason = 'ready to fire';
+    } else if (state === 'FIRING') {
+      blockingReason = 'firing';
+    }
     return {
-      state: this.gate.getState(),
+      state,
       anchorId: this.gate.anchor.id,
       droneId: this.gate.anchor.patrolDroneRef,
       windupProgress: this.gate.getWindupProgress(),
@@ -138,6 +161,7 @@ export class StrikeAcquisitionSystem {
       distanceToAnchor: this.currentDistanceToAnchor,
       droneDistanceToAnchor: this.currentDroneDistanceToAnchor,
       rainIntensity: this.weather.getRainIntensity(),
+      blockingReason,
     };
   }
 
