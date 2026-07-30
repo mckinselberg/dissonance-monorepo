@@ -44,8 +44,13 @@ export async function loadMilosApartmentInterior(scene: Scene): Promise<Surveill
   const architecture = renderMeshes.filter((mesh) => mesh.name.startsWith('APT_ARCH_'));
   const props = renderMeshes.filter((mesh) => mesh.name.startsWith('APT_PROP_'));
   const occluders = renderMeshes.filter((mesh) => mesh.name.startsWith('APT_OCCLUDER_'));
-  const artifactAnchors = renderMeshes.filter((mesh) => mesh.name.startsWith('ARTIFACT_ANCHOR_'));
-  const classified = new Set([...architecture, ...props, ...occluders, ...artifactAnchors]);
+  // Artifact anchors are exported as empties (no mesh data), so glTF gives
+  // them no `mesh` index and Babylon loads them as TransformNodes rather
+  // than into container.meshes.
+  const artifactAnchors = container.transformNodes.filter((node) =>
+    node.name.startsWith('ARTIFACT_ANCHOR_'),
+  );
+  const classified = new Set([...architecture, ...props, ...occluders]);
   const unclassified = renderMeshes.filter((mesh) => !classified.has(mesh));
   if (unclassified.length > 0) {
     console.warn(

@@ -338,6 +338,10 @@ def main() -> None:
         move_to_collection(obj, capture_collection)
     normalize_materials(list(bpy.data.materials))
 
+    # bmesh writes in clean_mesh() don't retroactively refresh the cached
+    # bound_box; force a view-layer update so world_bounds() below reflects
+    # the cleaned geometry rather than the pre-cleanup capture.
+    bpy.context.view_layer.update()
     minimum, maximum = world_bounds(capture_meshes)
     offset = Vector((-(minimum.x + maximum.x) * 0.5, -(minimum.y + maximum.y) * 0.5, -minimum.z))
     for obj in capture_meshes:
