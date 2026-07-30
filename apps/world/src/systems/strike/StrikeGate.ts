@@ -65,7 +65,8 @@ export class StrikeGate {
     this.windupElapsedSeconds += delta;
     if (
       this.windupElapsedSeconds >= this.windupSeconds &&
-      inputs.hasLineOfSight
+      inputs.hasLineOfSight &&
+      inputs.droneDistanceToAnchor <= STRIKE_CONSTANTS.strikeAnchorCaptureRange
     ) {
       this.state = 'FIRING';
     }

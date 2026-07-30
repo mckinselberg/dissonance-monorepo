@@ -29,6 +29,10 @@ export interface StrikeAcquisitionSnapshot {
   workshopDiscovered: boolean;
   recoveryAvailable: boolean;
   flags: RecoveryFlags;
+  hasLineOfSight: boolean;
+  distanceToAnchor: number;
+  droneDistanceToAnchor: number;
+  rainIntensity: number;
 }
 
 export class StrikeAcquisitionSystem {
@@ -36,6 +40,9 @@ export class StrikeAcquisitionSystem {
   private readonly recovery = new DroneRecovery();
   private workshopDiscovered = false;
   private recoveryAvailable = false;
+  private hasCurrentLineOfSight = false;
+  private currentDistanceToAnchor = Infinity;
+  private currentDroneDistanceToAnchor = Infinity;
 
   constructor(
     private readonly scene: Scene,
@@ -69,11 +76,19 @@ export class StrikeAcquisitionSystem {
     const drone = this.drones.get(this.gate.anchor.patrolDroneRef);
     if (!drone) return;
     const hasLineOfSight = this.hasLineOfSight(playerPosition, drone);
+    const distanceToAnchor = Vector3.Distance(playerPosition, this.gate.anchor.position);
+    const droneDistanceToAnchor = Math.hypot(
+      drone.position.x - this.gate.anchor.position.x,
+      drone.position.z - this.gate.anchor.position.z,
+    );
+    this.hasCurrentLineOfSight = hasLineOfSight;
+    this.currentDistanceToAnchor = distanceToAnchor;
+    this.currentDroneDistanceToAnchor = droneDistanceToAnchor;
     const state = this.gate.update(dt, {
       workshopDiscovered: this.workshopDiscovered,
       hasLineOfSight,
-      distanceToAnchor: Vector3.Distance(playerPosition, this.gate.anchor.position),
-      droneDistanceToAnchor: Vector3.Distance(drone.position, this.gate.anchor.position),
+      distanceToAnchor,
+      droneDistanceToAnchor,
       rainIntensity: this.weather.getRainIntensity(),
     });
     if (state !== 'FIRING') {
@@ -119,6 +134,10 @@ export class StrikeAcquisitionSystem {
       workshopDiscovered: this.workshopDiscovered,
       recoveryAvailable: this.recoveryAvailable,
       flags: this.recovery.getFlags(),
+      hasLineOfSight: this.hasCurrentLineOfSight,
+      distanceToAnchor: this.currentDistanceToAnchor,
+      droneDistanceToAnchor: this.currentDroneDistanceToAnchor,
+      rainIntensity: this.weather.getRainIntensity(),
     };
   }
 

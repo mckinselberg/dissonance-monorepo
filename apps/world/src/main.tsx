@@ -983,13 +983,22 @@ async function main() {
             const anchor = strikeAcquisition.getSelectedAnchor();
             const controller = controllers[movement.activeMode.value];
             controller.setPosition(new Vector3(
-              anchor.position.x + 8,
+              anchor.position.x,
               anchor.position.y,
-              anchor.position.z + 8,
+              anchor.position.z - 10,
             ));
           }}
         >
           Go to selected strike anchor
+        </button>
+        {' '}
+        <button
+          type='button'
+          onClick={() => {
+            weatherSystem.setPrecipitationImmediate('storm', 0.5);
+          }}
+        >
+          Prime strike rain
         </button>
       </Section>
       <Section title='Surveillance Interior'>
@@ -1343,6 +1352,7 @@ async function main() {
       `mech dog: ${mechDogModel.distance.toFixed(1)}m (${mechDogModel.state})\n` +
       `T31: ${strikeSnapshot.state} · ${strikeSnapshot.anchorId} · windup ${Math.round(strikeSnapshot.windupProgress * 100)}%` +
         `${strikeSnapshot.flags.chassisRecovered ? ' · recovered' : ''}\n` +
+      `T31 gate: LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · rain ${Math.round(strikeSnapshot.rainIntensity * 100)}%\n` +
       `whistle [M]: "${WHISTLE_MELODIES[mechDog.whistleMelodyIndex.value].label}" (1-${WHISTLE_MELODIES.length} to pick) — pet [P]${mechDog.isPettable() ? '' : ' (get closer)'}\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
