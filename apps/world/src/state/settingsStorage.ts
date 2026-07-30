@@ -1,4 +1,4 @@
-import type { WeatherMode } from '@dissonance/shared-types';
+import type { PrecipitationMode, WeatherMode } from '@dissonance/shared-types';
 import type { ActiveMode } from './movement';
 
 // Everything a level-1/2 session might want to survive a reload — position,
@@ -27,6 +27,7 @@ export type SavedSettings = {
   fogColor?: string;
   overcast?: boolean;
   weatherMode?: WeatherMode;
+  precipitationMode?: PrecipitationMode;
   starCount?: number;
   cloudCount?: number;
   cloudColor?: string;

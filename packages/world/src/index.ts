@@ -17,7 +17,18 @@ export { StarField } from './StarField';
 export type { Collider } from './ForestGenerator';
 export { ForestGenerator } from './ForestGenerator';
 export { DaylightSystem } from './DaylightSystem';
-export { WeatherSystem } from './WeatherSystem';
+export {
+  WeatherSystem,
+  DEFAULT_WEATHER_PROFILE,
+  type WeatherProfile,
+  type WeatherState,
+} from './WeatherSystem';
+export {
+  ThunderScheduler,
+  DEFAULT_THUNDER_PROFILE,
+  type ThunderEvent,
+  type ThunderProfile,
+} from './ThunderScheduler';
 export { CloudSystem } from './CloudSystem';
 export { MountainRing } from './MountainRing';
 export { WildlifeSystem } from './WildlifeSystem';

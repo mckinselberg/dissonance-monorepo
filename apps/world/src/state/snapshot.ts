@@ -1,5 +1,5 @@
 import type { Signal } from '@preact/signals';
-import type { WeatherMode } from '@dissonance/shared-types';
+import type { PrecipitationMode, WeatherMode } from '@dissonance/shared-types';
 import type { AtmosphereSignals } from './atmosphere';
 import type { ScaleTuningSignals } from './scaleTuning';
 import type { VisibilitySignals } from './visibility';
@@ -48,6 +48,7 @@ export type SharedSettingsSnapshot = Pick<
   | 'bulkForestCount'
   | 'bulkForestRadius'
   | 'weatherMode'
+  | 'precipitationMode'
   | 'masterMuted'
   | 'windVolume'
   | 'footstepMuted'
@@ -77,6 +78,7 @@ export function buildSharedSettingsSnapshot(deps: {
   treeRegionRadius: Signal<number>;
   bulkForestRadius: Signal<number>;
   weatherMode: Signal<WeatherMode>;
+  precipitationMode: Signal<PrecipitationMode>;
   // Plain mutable local in main(), not a signal — passed by value at
   // call time rather than unwrapped here.
   hudVisible: boolean;
@@ -85,7 +87,7 @@ export function buildSharedSettingsSnapshot(deps: {
   const {
     scaleTuning, atmosphere, visibility, audio, lineglass,
     trailsideScale, bulkForestScale, treeRegionRadius, bulkForestRadius,
-    weatherMode, hudVisible, worldBounded,
+    weatherMode, precipitationMode, hudVisible, worldBounded,
   } = deps;
   return {
     hScale: scaleTuning.hScale.value,
@@ -117,6 +119,7 @@ export function buildSharedSettingsSnapshot(deps: {
     bulkForestCount: bulkForestScale.count.value,
     bulkForestRadius: bulkForestRadius.value,
     weatherMode: weatherMode.value,
+    precipitationMode: precipitationMode.value,
     masterMuted: audio.masterMuted.value,
     windVolume: audio.windVolume.value,
     footstepMuted: audio.footstepMuted.value,

@@ -11,12 +11,13 @@ import {
   WaterPlane,
   defaultWaterLevel,
   ForestFire,
+  ThunderScheduler,
   WeatherSystem,
   type FoliageSwaySource,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
 import { AmbientAudio, AudioEngine, HeartbeatAudio, TrailPlayerAudio } from '@dissonance/audio';
-import type { WeatherMode } from '@dissonance/shared-types';
+import type { PrecipitationMode, WeatherMode } from '@dissonance/shared-types';
 import { preventAccidentalClose } from '@dissonance/utils';
 import {
   decodeHeightmapPng,
@@ -38,6 +39,7 @@ import { createScaleTuningSignals } from './state/scaleTuning';
 import { createTrailsideScatterSignals } from './state/trailsideScatter';
 import { TerrainOverlaySystem } from './world/TerrainOverlaySystem';
 import { BackdropSystem } from './world/BackdropSystem';
+import { PrecipitationVisualSystem } from './world/PrecipitationVisualSystem';
 import { BulkForestSystem, MAX_TREE_COUNT } from './world/BulkForestSystem';
 import { TrailsideForestSystem } from './world/TrailsideForestSystem';
 import { WorldFeaturesSystem } from './world/WorldFeaturesSystem';
@@ -259,8 +261,17 @@ async function main() {
   // over ~2.5s (see WeatherSystem.update) — reading it at one rebuild moment
   // would usually show almost no change right when the toggle is flipped.
   const weatherMode = signal<WeatherMode>(savedSettings.weatherMode ?? 'clear');
+  const precipitationMode = signal<PrecipitationMode>(savedSettings.precipitationMode ?? 'none');
   const weatherSystem = new WeatherSystem(scene);
   weatherSystem.setMode(weatherMode.value);
+  weatherSystem.requestPrecipitation(
+    precipitationMode.value,
+    precipitationMode.value === 'none' ? 0 : 1,
+  );
+  const thunderScheduler = new ThunderScheduler(0x743235);
+  const precipitationVisuals = new PrecipitationVisualSystem(scene);
+  let flashRemainingSeconds = 0;
+  const baseAmbientColor = scene.ambientColor.clone();
   // Wind audio already runs weatherSystem's live windIntensity through the
   // user-facing "Wind vol" slider (see the ambientAudio.setWeatherIntensity
   // calls below); foliage sway read weatherSystem directly instead, so
@@ -379,6 +390,24 @@ async function main() {
             }}
           />{' '}
           Windy
+        </label>
+        <label>
+          Precipitation{' '}
+          <select
+            value={precipitationMode.value}
+            onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
+              precipitationMode.value = e.currentTarget.value as PrecipitationMode;
+              weatherSystem.requestPrecipitation(
+                precipitationMode.value,
+                precipitationMode.value === 'none' ? 0 : 1,
+              );
+            }}
+          >
+            <option value='none'>None</option>
+            <option value='rain'>Rain</option>
+            <option value='snow'>Snow</option>
+            <option value='storm'>Storm</option>
+          </select>
         </label>
         {level.cameraMode !== 'orbit' && (
           <ToggleLabel label='Bounded world' signal={worldBounded} onCommit={() => {}} />
@@ -656,7 +685,7 @@ async function main() {
               bulkForestScale: bulkForest.bulkForestScale,
               treeRegionRadius: bulkForest.treeRegionRadius,
               bulkForestRadius: bulkForest.bulkForestRadius,
-              weatherMode, hudVisible, worldBounded,
+              weatherMode, precipitationMode, hudVisible, worldBounded,
             }),
           })}
           levelKey={levelKey}
@@ -714,6 +743,22 @@ async function main() {
       weatherSystem.update(dt, (windIntensity) => {
         ambientAudio.setWeatherIntensity(windIntensity * audio.windVolume.value);
       });
+      const weatherState = weatherSystem.getState();
+      ambientAudio.setRainIntensity(weatherState.rainIntensity);
+      precipitationVisuals.update(weatherState, orbitCamera.position);
+      scene.fogDensity = atmosphere.fogDensity.value + weatherState.fogBoost;
+      const thunder = thunderScheduler.update(
+        dt,
+        weatherState.precipitationMode === 'storm' ? weatherState.precipitationIntensity : 0,
+      );
+      if (thunder) {
+        flashRemainingSeconds = 0.12;
+        if (audioStarted) ambientAudio.playThunder(thunder.gain, thunder.clapDelaySeconds);
+      }
+      flashRemainingSeconds = Math.max(0, flashRemainingSeconds - dt);
+      scene.ambientColor = flashRemainingSeconds > 0
+        ? baseAmbientColor.add(new Color3(0.16, 0.18, 0.22))
+        : baseAmbientColor;
       const pos = orbitCamera.position;
       const groundY = terrain.getHeightAt(pos.x, pos.z);
       readout.textContent =
@@ -987,7 +1032,7 @@ async function main() {
                 bulkForestScale: bulkForest.bulkForestScale,
                 treeRegionRadius: bulkForest.treeRegionRadius,
                 bulkForestRadius: bulkForest.bulkForestRadius,
-                weatherMode, hudVisible, worldBounded,
+                weatherMode, precipitationMode, hudVisible, worldBounded,
               }),
             };
           }}
@@ -1074,7 +1119,6 @@ async function main() {
   // own effect()s already own those properties while above water, and
   // fighting them every frame would make live-dragging Fog while surfaced
   // pointless.
-  let wasSubmerged = false;
   const persistSettings = () => {
     const activeCamera = controllers[movement.activeMode.value].camera;
     const pos = controllers[movement.activeMode.value].getPosition();
@@ -1092,7 +1136,7 @@ async function main() {
         bulkForestScale: bulkForest.bulkForestScale,
         treeRegionRadius: bulkForest.treeRegionRadius,
         bulkForestRadius: bulkForest.bulkForestRadius,
-        weatherMode, hudVisible, worldBounded,
+        weatherMode, precipitationMode, hudVisible, worldBounded,
       }),
     });
   };
@@ -1108,6 +1152,20 @@ async function main() {
     weatherSystem.update(dt, (windIntensity) => {
       ambientAudio.setWeatherIntensity(windIntensity * audio.windVolume.value);
     });
+    const weatherState = weatherSystem.getState();
+    ambientAudio.setRainIntensity(weatherState.rainIntensity);
+    const thunder = thunderScheduler.update(
+      dt,
+      weatherState.precipitationMode === 'storm' ? weatherState.precipitationIntensity : 0,
+    );
+    if (thunder) {
+      flashRemainingSeconds = 0.12;
+      if (audioStarted) ambientAudio.playThunder(thunder.gain, thunder.clapDelaySeconds);
+    }
+    flashRemainingSeconds = Math.max(0, flashRemainingSeconds - dt);
+    scene.ambientColor = flashRemainingSeconds > 0
+      ? baseAmbientColor.add(new Color3(0.16, 0.18, 0.22))
+      : baseAmbientColor;
     forestFire.update(dt);
 
     // Breath/footsteps: PlayerController (walk) is the only controller with
@@ -1126,6 +1184,7 @@ async function main() {
     }
 
     const pos = controllers[movement.activeMode.value].getPosition();
+    precipitationVisuals.update(weatherState, pos);
     const groundY = terrain.getHeightAt(pos.x, pos.z);
     mechDog.update(
       dt,
@@ -1163,15 +1222,12 @@ async function main() {
     // rather than adding a getter to that class for one call site.
     const waterY = scaleTuning.waterLevel.value * scaleTuning.vExag.value;
     const isSubmerged = visibility.water.value && pos.y < waterY;
-    if (isSubmerged !== wasSubmerged) {
-      if (isSubmerged) {
-        scene.fogColor = UNDERWATER_FOG_COLOR;
-        scene.fogDensity = UNDERWATER_FOG_DENSITY;
-      } else {
-        scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
-        scene.fogDensity = atmosphere.fogDensity.value;
-      }
-      wasSubmerged = isSubmerged;
+    if (isSubmerged) {
+      scene.fogColor = UNDERWATER_FOG_COLOR;
+      scene.fogDensity = UNDERWATER_FOG_DENSITY;
+    } else {
+      scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
+      scene.fogDensity = atmosphere.fogDensity.value + weatherState.fogBoost;
     }
 
     const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
