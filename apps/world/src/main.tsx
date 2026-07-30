@@ -16,7 +16,13 @@ import {
   type FoliageSwaySource,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
-import { AmbientAudio, AudioEngine, HeartbeatAudio, TrailPlayerAudio } from '@dissonance/audio';
+import {
+  AmbientAudio,
+  AudioEngine,
+  HeartbeatAudio,
+  ShelterAlarmAudio,
+  TrailPlayerAudio,
+} from '@dissonance/audio';
 import type { PrecipitationMode, WeatherMode } from '@dissonance/shared-types';
 import { preventAccidentalClose } from '@dissonance/utils';
 import {
@@ -32,7 +38,15 @@ import { signal, effect } from '@preact/signals';
 import { LEVELS, currentLevelKey } from './state/levels';
 import { loadSavedSettings, saveSettings } from './state/settingsStorage';
 import { buildSharedSettingsSnapshot } from './state/snapshot';
-import { loadHeightmap, loadTrails, loadGpxTrack, loadSavedViews, loadLocations, loadReplayRoutes } from './data/loaders';
+import {
+  loadHeightmap,
+  loadTrails,
+  loadGpxTrack,
+  loadSavedViews,
+  loadLocations,
+  loadReplayRoutes,
+  loadStoryManifest,
+} from './data/loaders';
 import { hideLoadingOverlay } from './utils';
 import { createAtmosphereSignals } from './state/atmosphere';
 import { createScaleTuningSignals } from './state/scaleTuning';
@@ -62,8 +76,10 @@ import type { MechDogSkin } from './pursuer/MechDogBody';
 import { MechDogController } from './pursuer/MechDogController';
 import { WHISTLE_MELODIES } from './state/whistle';
 import { createSurveillanceSession } from './interiors/SurveillanceSession';
+import { createWorkshopSession } from './interiors/WorkshopSession';
 import { InteriorDebugRow } from './ui/InteriorDebugRow';
 import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
+import { createStoryState } from './state/story';
 
 // Underwater look — WaterPlane's own "murky underside" mesh already gives a
 // plausible ceiling when you dip below the surface (Fly/Drive have no
@@ -195,6 +211,7 @@ async function main() {
   });
   const ambientAudio = new AmbientAudio();
   const heartbeatAudio = new HeartbeatAudio();
+  const shelterAlarmAudio = new ShelterAlarmAudio();
   const trailPlayerAudio = new TrailPlayerAudio();
   AudioEngine.setMuted(audio.masterMuted.value);
   trailPlayerAudio.setFootstepMuted(audio.footstepMuted.value);
@@ -348,6 +365,9 @@ async function main() {
     loadLocations(),
     loadReplayRoutes(),
   ]);
+  const storyManifest = await loadStoryManifest(worldFeatures);
+  const story = createStoryState(storyManifest);
+  if (story.has('shelterAlarmSilenced')) shelterAlarmAudio.silence();
   const locations = worldFeatures.entries;
   // Owns the terrain mesh plus its OSM/GPX/grid overlays as one unit — see
   // TerrainOverlaySystem's own comment. Grid defaults off (a measurement
@@ -879,7 +899,6 @@ async function main() {
     scene, locations, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines, lineglass,
     realWidth, realDepth, backdrop.getShadowGenerator(), player,
   );
-  const workshopDiscoveredDebug = signal(false);
   const strikeAcquisition = new StrikeAcquisitionSystem(
     scene,
     locations,
@@ -902,13 +921,14 @@ async function main() {
       },
     },
   );
-  strikeAcquisition.setWorkshopDiscovered(workshopDiscoveredDebug.value);
+  strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyE' || event.repeat) return;
     const flags = strikeAcquisition.recover(
       controllers[movement.activeMode.value].getPosition(),
     );
     if (flags) {
+      story.applyBeat('recover-emitter-and-chassis');
       console.info('[T31] recovery hand-off', flags);
     }
   });
@@ -961,6 +981,32 @@ async function main() {
     scene, canvas, terrain, locationFeatures, controllers, movement, switchMode, interactionPrompt,
   });
   const { worldSession } = surveillance;
+  const workshop = createWorkshopSession({
+    scene,
+    canvas,
+    locationFeatures,
+    controllers,
+    movement,
+    onEntered: () => {
+      story.set('shelterAlarmSilenced');
+      shelterAlarmAudio.silence();
+    },
+    onWorkbenchEntered: () => {
+      if (story.applyBeat('discover-underground-workshop')) {
+        console.info('[T32] underground workshop discovered');
+      }
+      strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
+    },
+  });
+  const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyE' || event.repeat || !worldSession.isExterior()) return;
+    if (workshop.isInterior()) {
+      if (workshop.isNearExit()) workshop.exit();
+    } else if (workshop.isNearEntrance()) {
+      workshop.enter();
+    }
+  });
 
   render(
     <>
@@ -969,13 +1015,13 @@ async function main() {
         <label>
           <input
             type='checkbox'
-            checked={workshopDiscoveredDebug.value}
+            checked={story.has('workshopDiscovered')}
             onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
-              workshopDiscoveredDebug.value = event.currentTarget.checked;
-              strikeAcquisition.setWorkshopDiscovered(event.currentTarget.checked);
+              story.set('workshopDiscovered', event.currentTarget.checked);
+              strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
             }}
           />{' '}
-          Workshop discovered (debug only)
+          Workshop discovered (persistent story flag debug)
         </label>
         <br />
         <button
@@ -1110,7 +1156,7 @@ async function main() {
         <MovementRow
           signals={movement}
           onModeChange={(mode) => {
-            if (!worldSession.isExterior()) return;
+            if (!isExteriorGameplay()) return;
             switchMode(mode);
             persistSettings();
           }}
@@ -1252,7 +1298,7 @@ async function main() {
   window.addEventListener('pagehide', persistSettings);
 
   const gameLoop = new GameLoop(engine, (dt) => {
-    if (worldSession.isExterior()) {
+    if (isExteriorGameplay()) {
       controllers[movement.activeMode.value].update(dt);
       clampToWorldBounds(controllers[movement.activeMode.value]);
     }
@@ -1287,7 +1333,7 @@ async function main() {
     // with no breath/adrenaline (see their own file comments) — so this
     // only runs while walking, and stops footsteps immediately otherwise.
     const breathReadout = document.getElementById('breath-load-value');
-    if (worldSession.isExterior() && movement.activeMode.value === 'walk') {
+    if (isExteriorGameplay() && movement.activeMode.value === 'walk') {
       const breathLoad = player.breath.getLoad();
       trailPlayerAudio.updateBreath(breathLoad);
       trailPlayerAudio.updateFootsteps(player.getSpeed());
@@ -1298,7 +1344,15 @@ async function main() {
     }
 
     const pos = controllers[movement.activeMode.value].getPosition();
-    if (worldSession.isExterior()) strikeAcquisition.update(dt, pos);
+    if (isExteriorGameplay()) strikeAcquisition.update(dt, pos);
+    workshop.update();
+    const shelterDoor = locationFeatures.falloutShelterDoor;
+    if (audioStarted && isExteriorGameplay() && shelterDoor) {
+      const distance = Math.hypot(pos.x - shelterDoor.position.x, pos.z - shelterDoor.position.z);
+      shelterAlarmAudio.setProximity(Math.max(0, 1 - distance / 45));
+    } else {
+      shelterAlarmAudio.setProximity(0);
+    }
     precipitationVisuals.update(weatherState, pos);
     const groundY = terrain.getHeightAt(pos.x, pos.z);
     mechDog.update(
@@ -1309,6 +1363,9 @@ async function main() {
     );
     const mechDogModel = mechDog.getModel();
     const strikeSnapshot = strikeAcquisition.snapshot();
+    if (strikeSnapshot.state === 'SPENT') {
+      story.applyBeat('witness-boulevard-drone-strike');
+    }
     const strikeStatus = document.getElementById('t31-strike-status');
     if (strikeStatus) {
       strikeStatus.textContent =
@@ -1326,7 +1383,7 @@ async function main() {
     // binding for one feature). Newly-unlocked layers auto-enable their
     // visibility signal so the moment of unlock is immediately visible,
     // not just newly-toggleable.
-    const newlyCollected = worldSession.isExterior()
+    const newlyCollected = isExteriorGameplay()
       ? locationFeatures.updateLineglass(dt, pos.x, pos.z)
       : [];
     if (newlyCollected.length > 0) {
@@ -1359,14 +1416,18 @@ async function main() {
     const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
     const latLon = worldToLatLon(real, origin);
     const controlsHint =
-      worldSession.transition.value === 'interior'
+      workshop.isInterior()
+        ? 'underground workshop — click to look, WASD to move, return to the threshold to exit'
+        : worldSession.transition.value === 'interior'
         ? 'surveillance interior placeholder — press E to exit'
         : movement.activeMode.value === 'fly'
         ? 'click canvas to look around, WASD to fly, space/ctrl up/down, shift to boost'
         : movement.activeMode.value === 'drive'
           ? 'click canvas to look around, WASD to drive, shift to boost'
           : 'click canvas to look around, WASD to move, shift to run';
-    const routeLabel = worldSession.route.value.kind === 'exterior'
+    const routeLabel = workshop.isInterior()
+      ? 'workshop/mountain-crater'
+      : worldSession.route.value.kind === 'exterior'
       ? 'exterior'
       : `surveillance/${worldSession.route.value.locationId}`;
     readout.textContent =
@@ -1382,8 +1443,18 @@ async function main() {
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
 
-    if (worldSession.isExterior()) {
-      if (strikeSnapshot.recoveryAvailable) {
+    if (workshop.isInterior()) {
+      if (workshop.isNearExit()) {
+        interactionPrompt.textContent = 'E — Return through the shelter door';
+        interactionPrompt.style.display = 'block';
+      } else {
+        interactionPrompt.style.display = 'none';
+      }
+    } else if (worldSession.isExterior()) {
+      if (workshop.isNearEntrance()) {
+        interactionPrompt.textContent = 'E — Enter the fallout shelter';
+        interactionPrompt.style.display = 'block';
+      } else if (strikeSnapshot.recoveryAvailable) {
         interactionPrompt.textContent = 'E — Recover emitter and drone chassis';
         interactionPrompt.style.display = 'block';
       } else if (surveillance.isNearEntrance()) {

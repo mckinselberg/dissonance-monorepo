@@ -11,7 +11,7 @@
       "requires": [],
       "sets": ["workshopDiscovered"],
       "once": true,
-      "status": "planned"
+      "status": "implemented"
     },
     {
       "id": "witness-boulevard-drone-strike",

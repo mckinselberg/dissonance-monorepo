@@ -9,7 +9,7 @@ story beats in World. It complements, rather than replaces, the prose canon in
 - `locations.json` owns stable geographic identity and authored placement.
 - `story-beats.json` owns prerequisites, triggers, and resulting story flags.
 - Runtime systems own verbs and presentation.
-- Persistence will own the resolved flag set.
+- The app-local story state owns the versioned, persisted resolved flag set.
 
 A story beat references a `locationId` from `locations.json`; it does not copy
 coordinates. Moving a location therefore moves its associated story without
@@ -46,10 +46,15 @@ IDs are stable lowercase kebab-case. Flags are stable lower camel case.
 This manifest ends at acquisition. Emitter construction, interference,
 piloting, repair, and loss remain separate later beats.
 
-## Current limitation
+## Runtime consumer
 
-The manifest is presently an authoritative authored contract, not yet a
-generic story engine. T31 still holds its flags in its app-local system, and
-T32 has not created `workshopDiscovered`. The first runtime consumer should be
-small: validate IDs/requirements at load, expose a typed flag store, and
-replace T31's debug workshop checkbox when the real workbench zone lands.
+World validates the manifest version, beat IDs, location references, flag
+ordering, triggers, and statuses at startup. Its app-local story store persists
+resolved flags in browser storage and applies beats only when their
+prerequisites are satisfied.
+
+The first chain is live end to end: entering the crater shelter permanently
+silences its exterior locator alarm, reaching the workshop workbench sets
+`workshopDiscovered`, T31 records the witnessed strike, and recovery records
+both acquired parts. The HUD checkbox remains as an explicit persistent debug
+override for slow-machine strike authoring.

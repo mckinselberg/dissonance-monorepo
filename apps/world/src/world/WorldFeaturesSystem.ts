@@ -115,6 +115,15 @@ export class WorldFeaturesSystem {
     return this.shelterEntrance.position?.clone() ?? null;
   }
 
+  get falloutShelterDoor(): { position: Vector3; interactionRadius: number } | null {
+    const position = this.shelterEntrance.doorPosition;
+    if (!position) return null;
+    return {
+      position: position.clone(),
+      interactionRadius: this.shelterEntrance.interactionRadius,
+    };
+  }
+
   setPowerLinesVisible(visible: boolean): void {
     this.utilityCorridors.setVisible(visible);
   }

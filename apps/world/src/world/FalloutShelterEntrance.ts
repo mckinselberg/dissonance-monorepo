@@ -28,6 +28,8 @@ const FIR_SAPLING_URL = `${import.meta.env.BASE_URL}models/fir-sapling-medium/fi
 export interface FalloutShelterEntranceHandle {
   colliders: Collider[];
   position: Vector3 | null;
+  doorPosition: Vector3 | null;
+  interactionRadius: number;
   dispose(): void;
 }
 
@@ -104,6 +106,7 @@ export function loadFalloutShelterEntrance(
   let disposed = false;
   const colliders: Collider[] = [];
   let entrancePosition: Vector3 | null = null;
+  let doorPosition: Vector3 | null = null;
 
   for (const location of locations) {
     if (!location.shelterEntrance) continue;
@@ -116,6 +119,11 @@ export function loadFalloutShelterEntrance(
     const root = new TransformNode(`falloutShelter:${location.id}`, scene);
     root.position.copyFrom(entrancePosition);
     root.rotation.y = location.shelterEntrance.headingDegrees * Math.PI / 180;
+    root.computeWorldMatrix(true);
+    doorPosition = Vector3.TransformCoordinates(
+      new Vector3(0, 0, -SHELTER_DEPTH * 0.92),
+      root.getWorldMatrix(),
+    );
 
     const concrete = texturedMaterial(
       scene,
@@ -330,6 +338,8 @@ export function loadFalloutShelterEntrance(
   return {
     colliders,
     position: entrancePosition,
+    doorPosition,
+    interactionRadius: 3.5,
     dispose() {
       disposed = true;
       heroTreeHandles.forEach((handle) => handle.dispose());
