@@ -316,6 +316,31 @@ function planeHeightAt(plane: GradingPlane, x: number, z: number): number {
   return plane.h0 + plane.gx * (x - plane.anchorX) + plane.gz * (z - plane.anchorZ);
 }
 
+function gradingSurfaceFor(
+  positioned: PositionedPlacement[],
+  anchor: { x: number; z: number },
+  horizontalScale: number,
+  getHeightAt: (x: number, z: number) => number,
+): { bounds: Bounds; plane: GradingPlane } | null {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+  for (const placement of positioned) {
+    if (!isKnownAsset(placement.asset)) continue;
+    minX = Math.min(minX, placement.x);
+    maxX = Math.max(maxX, placement.x);
+    minZ = Math.min(minZ, placement.z);
+    maxZ = Math.max(maxZ, placement.z);
+  }
+  if (!Number.isFinite(minX)) return null;
+  const bounds: Bounds = { minX, maxX, minZ, maxZ };
+  return {
+    bounds,
+    plane: computeGradingPlane(anchor.x, anchor.z, bounds, horizontalScale, getHeightAt),
+  };
+}
+
 // Margin beyond the compound's own placement bounds the grade pad extends
 // before dropping to its buried base — wide enough that a module's own
 // footprint (sidewalk curb, building footing) never pokes past the pad's
@@ -336,6 +361,59 @@ const GRADE_PAD_TOP_INSET = 0.15;
 // Placeholder color like every other LocationProps prop; swap for a real
 // texture later without touching the pad-building logic itself.
 const GRADE_PAD_COLOR = new Color3(0.3, 0.26, 0.2);
+
+/** Returns the same fitted compound surface used by visible grade pads. */
+export function compositeGradeHeightAt(
+  locations: LocationEntry[],
+  toRenderXZ: (lat: number, lon: number) => { x: number; z: number },
+  horizontalScale: number,
+  getHeightAt: (x: number, z: number) => number,
+  x: number,
+  z: number,
+): number | null {
+  const margin = GRADE_PAD_MARGIN_METERS * horizontalScale;
+  for (const location of locations) {
+    if (!location.compound) continue;
+    const anchor = toRenderXZ(location.latLong[0], location.latLong[1]);
+    const positioned = expandCompoundPositions(location, anchor, horizontalScale, 1);
+    const surface = gradingSurfaceFor(positioned, anchor, horizontalScale, getHeightAt);
+    if (!surface) continue;
+    const { bounds, plane } = surface;
+    if (
+      x >= bounds.minX - margin && x <= bounds.maxX + margin &&
+      z >= bounds.minZ - margin && z <= bounds.maxZ + margin
+    ) {
+      return planeHeightAt(plane, x, z);
+    }
+  }
+  return null;
+}
+
+/** Signed distance from a point to the nearest authored compound obstacle. */
+export function compositeObstacleClearanceAt(
+  locations: LocationEntry[],
+  toRenderXZ: (lat: number, lon: number) => { x: number; z: number },
+  horizontalScale: number,
+  x: number,
+  z: number,
+): number {
+  let clearance = Number.POSITIVE_INFINITY;
+  for (const location of locations) {
+    if (!location.compound) continue;
+    const anchor = toRenderXZ(location.latLong[0], location.latLong[1]);
+    const positioned = expandCompoundPositions(location, anchor, horizontalScale, 1);
+    for (const placement of positioned) {
+      if (placement.id === MILOS_BUILDING_ID) continue;
+      const radiusMeters = OBSTACLE_COLLISION_RADII[placement.asset];
+      if (radiusMeters === undefined) continue;
+      clearance = Math.min(
+        clearance,
+        Math.hypot(x - placement.x, z - placement.z) - radiusMeters * horizontalScale,
+      );
+    }
+  }
+  return clearance;
+}
 
 // One flat (but tilted-with-the-plane) pad per compound, sized to its
 // placement bounds + margin, extruded down to a buried base. Visually
@@ -713,21 +791,9 @@ export async function loadCompositeLocations(
     const anchor = toRenderXZ(lat, lon);
     const positioned = expandCompoundPositions(location, anchor, horizontalScale, verticalExaggeration);
 
-    let minX = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let minZ = Number.POSITIVE_INFINITY;
-    let maxZ = Number.NEGATIVE_INFINITY;
-    for (const placement of positioned) {
-      if (!isKnownAsset(placement.asset)) continue;
-      minX = Math.min(minX, placement.x);
-      maxX = Math.max(maxX, placement.x);
-      minZ = Math.min(minZ, placement.z);
-      maxZ = Math.max(maxZ, placement.z);
-    }
-    if (!Number.isFinite(minX)) continue;
-
-    const bounds: Bounds = { minX, maxX, minZ, maxZ };
-    const plane = computeGradingPlane(anchor.x, anchor.z, bounds, horizontalScale, getHeightAt);
+    const surface = gradingSurfaceFor(positioned, anchor, horizontalScale, getHeightAt);
+    if (!surface) continue;
+    const { bounds, plane } = surface;
     gradePads.push(buildGradePad(scene, plane, bounds, horizontalScale));
 
     for (const placement of positioned) {

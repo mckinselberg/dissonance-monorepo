@@ -50,6 +50,9 @@
   T35 topology, authored-node, corridor, and validation contract.
 - **[dissonance/rey-caverns-concept-v1.md](dissonance/rey-caverns-concept-v1.md)** —
   T36's gated concept and implemented boundary-lurker scope.
+- **[dissonance/diegetic-terminal-offline-v1.md](dissonance/diegetic-terminal-offline-v1.md)** —
+  T29's independent offline Boulevard terminal slice, its input/Scrambler
+  boundary, validation gate, and explicit networking/progression/T31 exclusions.
 - See also **[plans/dissonance-trail-data-poc-prompt.md](plans/dissonance-trail-data-poc-prompt.md)**
   under "Design & handoff prompts" below — the original prompt that kicked
   off the World terrain POC.

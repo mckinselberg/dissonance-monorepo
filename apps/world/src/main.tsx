@@ -47,6 +47,7 @@ import {
   loadReplayRoutes,
   loadStoryManifest,
   loadStrikeProfile,
+  loadTerminalFixture,
 } from './data/loaders';
 import { hideLoadingOverlay } from './utils';
 import { createAtmosphereSignals } from './state/atmosphere';
@@ -87,6 +88,15 @@ import { InteriorDebugRow } from './ui/InteriorDebugRow';
 import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
 import { createStoryState } from './state/story';
 import { WorldSaveStore, type WorldRouteId } from './state/worldSave';
+import {
+  InProcessTerminalScrambler,
+  TerminalDockingSystem,
+  fixtureMessageProvider,
+  runOfflineTerminalDialogue,
+  type AuthorizedTerminalDialogue,
+  type TerminalDockingSnapshot,
+} from './terminal';
+import { TerminalOverlay } from './ui/terminal';
 
 // Underwater look — WaterPlane's own "murky underside" mesh already gives a
 // plausible ceiling when you dip below the surface (Fly/Drive have no
@@ -396,13 +406,22 @@ async function main() {
     scene, sampler, contract, scaleTuning, backdrop.getShadowGenerator(), visualWindSource, savedSettings,
   );
 
-  const [trails, gpxTrack, savedViews, worldFeatures, replayRoutes, strikeProfile] = await Promise.all([
+  const [
+    trails,
+    gpxTrack,
+    savedViews,
+    worldFeatures,
+    replayRoutes,
+    strikeProfile,
+    terminalSimulation,
+  ] = await Promise.all([
     loadTrails(),
     loadGpxTrack(),
     loadSavedViews(),
     loadLocations(),
     loadReplayRoutes(),
     loadStrikeProfile(),
+    loadTerminalFixture(),
   ]);
   const storyManifest = await loadStoryManifest(worldFeatures);
   const story = createStoryState(storyManifest, {
@@ -1086,6 +1105,16 @@ async function main() {
     scene, locations, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines, lineglass,
     realWidth, realDepth, backdrop.getShadowGenerator(), player,
   );
+  const resolveTerminalFixture = () => {
+    const fixture = locationFeatures.getTerminal(terminalSimulation.terminalId);
+    if (!fixture) {
+      throw new Error(
+        `[T29] Terminal fixture "${terminalSimulation.terminalId}" has no matching stable world feature.`,
+      );
+    }
+    return fixture;
+  };
+  let terminalFixture = resolveTerminalFixture();
   const strikeAcquisition = new StrikeAcquisitionSystem(
     scene,
     locations,
@@ -1222,9 +1251,112 @@ async function main() {
     },
   });
   const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
+  const createTerminalDocking = () => new TerminalDockingSystem({
+    availableDistance: terminalFixture.interactionRadius,
+    dockingDurationSeconds: 0.55,
+    undockingDurationSeconds: 0.35,
+  });
+  let terminalDocking = createTerminalDocking();
+  const terminalDockingState = signal<TerminalDockingSnapshot>(terminalDocking.snapshot());
+  const terminalMessages = signal<readonly AuthorizedTerminalDialogue[]>([]);
+  const terminalScrambler = new InProcessTerminalScrambler(
+    `${runSeed}:t29:${terminalSimulation.terminalId}`,
+  );
+  let restorePointerLockAfterUndock = false;
+
+  const publishTerminalSnapshot = (next: TerminalDockingSnapshot): void => {
+    const current = terminalDockingState.value;
+    if (
+      current.state === next.state &&
+      current.transitionProgress === next.transitionProgress &&
+      current.blocksWorldInput === next.blocksWorldInput
+    ) return;
+    terminalDockingState.value = next;
+    if (current.blocksWorldInput && !next.blocksWorldInput) {
+      restorePointerLockAfterUndock = false;
+      controllers[movement.activeMode.value].clearLookDelta();
+      queueMicrotask(() => canvas.focus({ preventScroll: true }));
+    }
+  };
+  const authorizeTerminalFixtureMessages = (): void => {
+    if (terminalMessages.value.length > 0) return;
+    terminalMessages.value = Object.keys(terminalSimulation.fixtureMessages).map(
+      (fixtureMessageKey) => runOfflineTerminalDialogue({
+        simulation: terminalSimulation,
+        request: { fixtureMessageKey },
+        provider: fixtureMessageProvider,
+        scrambler: terminalScrambler,
+      }),
+    );
+  };
+  const requestTerminalDock = (): boolean => {
+    if (!terminalDocking.requestDock()) return false;
+    authorizeTerminalFixtureMessages();
+    controllers[movement.activeMode.value].clearLookDelta();
+    restorePointerLockAfterUndock = document.pointerLockElement === canvas;
+    if (document.pointerLockElement) document.exitPointerLock();
+    publishTerminalSnapshot(terminalDocking.snapshot());
+    return true;
+  };
+  const requestTerminalUndock = (): boolean => {
+    if (!terminalDocking.requestUndock()) return false;
+    publishTerminalSnapshot(terminalDocking.snapshot());
+    if (restorePointerLockAfterUndock) {
+      restorePointerLockAfterUndock = false;
+      try {
+        const pendingRequest: unknown = canvas.requestPointerLock();
+        if (pendingRequest instanceof Promise) void pendingRequest.catch(() => undefined);
+      } catch {
+        // Canvas focus still returns when undocking finishes; a click can
+        // reacquire pointer lock if the browser rejects this user gesture.
+      }
+    }
+    return true;
+  };
+
+  render(
+    <TerminalOverlay
+      state={terminalDockingState}
+      messages={terminalMessages}
+      terminalId={terminalFixture.id}
+      terminalName={terminalFixture.name}
+      onUndock={() => { requestTerminalUndock(); }}
+    />,
+    document.getElementById('terminal-root') as HTMLDivElement,
+  );
+
+  // Controllers and world actions listen globally. Capture only keydown while
+  // a terminal owns focus, but allow keyup through so any held movement clears.
+  window.addEventListener('keydown', (event) => {
+    if (!terminalDocking.blocksWorldInput) return;
+    const target = event.target;
+    const focusedUndockActivation =
+      (event.code === 'Enter' || event.code === 'Space') &&
+      target instanceof Element &&
+      target.closest('#terminal-root button') !== null;
+    if (
+      !event.repeat &&
+      (event.code === 'Escape' || event.code === 'KeyE' || focusedUndockActivation)
+    ) {
+      requestTerminalUndock();
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, { capture: true });
+
   const corridorDiagnostics = workshop.corridorDiagnostics();
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyE' || event.repeat || !worldSession.isExterior()) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || target.closest('input, select, textarea, button, [contenteditable]'))
+    ) return;
+    if (requestTerminalDock()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     if (workshop.isInterior()) {
       if (workshop.isNearExit()) workshop.exit();
     } else if (workshop.isNearEntrance()) {
@@ -1252,6 +1384,24 @@ async function main() {
 
   render(
     <>
+      <Section title='T29 Offline Terminal'>
+        <div id='t29-terminal-status'>Loading terminal state…</div>
+        <button
+          type='button'
+          onClick={() => {
+            if (!isExteriorGameplay() || terminalDocking.blocksWorldInput) return;
+            const controller = controllers[movement.activeMode.value];
+            controller.setPosition(new Vector3(
+              terminalFixture.position.x - terminalFixture.interactionRadius * 0.75,
+              terminalFixture.position.y,
+              terminalFixture.position.z,
+            ));
+            canvas.focus({ preventScroll: true });
+          }}
+        >
+          Go to public sanitation terminal
+        </button>
+      </Section>
       <Section title='T31 Strike Acquisition'>
         <div id='t31-strike-status'>Loading strike state…</div>
         <StrikeTuningRow profile={strikeProfile} />
@@ -1392,6 +1542,9 @@ async function main() {
     water.addToRenderList(terrain.getMesh());
     trailsideForest.rebuild();
     locationFeatures.rebuild();
+    terminalFixture = resolveTerminalFixture();
+    terminalDocking = createTerminalDocking();
+    publishTerminalSnapshot(terminalDocking.snapshot());
 
     backdrop.rebuildClouds();
     backdrop.rebuildMountains();
@@ -1593,13 +1746,24 @@ async function main() {
   window.addEventListener('pagehide', persistSettings);
 
   const gameLoop = new GameLoop(engine, (dt) => {
+    const activeTraversalController = controllers[movement.activeMode.value];
+    const positionBeforeTraversal = activeTraversalController.getPosition();
+    let terminalDistance = Math.hypot(
+      positionBeforeTraversal.x - terminalFixture.position.x,
+      positionBeforeTraversal.z - terminalFixture.position.z,
+    );
+    let terminalSnapshot = terminalDocking.update(dt, {
+      activeWorld: isExteriorGameplay(),
+      distanceToDock: terminalDistance,
+    });
+    publishTerminalSnapshot(terminalSnapshot);
     player.setFlashlightEnabled(
       flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
     );
     workshop.setFlashlightEnabled(flashlightEnabled.value && workshop.isInterior());
-    if (isExteriorGameplay()) {
-      controllers[movement.activeMode.value].update(dt);
-      clampToWorldBounds(controllers[movement.activeMode.value]);
+    if (isExteriorGameplay() && !terminalSnapshot.blocksWorldInput) {
+      activeTraversalController.update(dt);
+      clampToWorldBounds(activeTraversalController);
     }
     backdrop.update(dt);
     weatherSystem.update(dt, (windIntensity) => {
@@ -1632,7 +1796,11 @@ async function main() {
     // with no breath/adrenaline (see their own file comments) — so this
     // only runs while walking, and stops footsteps immediately otherwise.
     const breathReadout = document.getElementById('breath-load-value');
-    if (isExteriorGameplay() && movement.activeMode.value === 'walk') {
+    if (
+      isExteriorGameplay() &&
+      !terminalSnapshot.blocksWorldInput &&
+      movement.activeMode.value === 'walk'
+    ) {
       const breathLoad = player.breath.getLoad();
       trailPlayerAudio.updateBreath(breathLoad);
       trailPlayerAudio.updateFootsteps(player.getSpeed());
@@ -1642,7 +1810,21 @@ async function main() {
       if (breathReadout) breathReadout.textContent = '—';
     }
 
-    const pos = controllers[movement.activeMode.value].getPosition();
+    const pos = activeTraversalController.getPosition();
+    terminalDistance = Math.hypot(
+      pos.x - terminalFixture.position.x,
+      pos.z - terminalFixture.position.z,
+    );
+    terminalSnapshot = terminalDocking.update(0, {
+      activeWorld: isExteriorGameplay(),
+      distanceToDock: terminalDistance,
+    });
+    publishTerminalSnapshot(terminalSnapshot);
+    const terminalStatus = document.getElementById('t29-terminal-status');
+    if (terminalStatus) {
+      terminalStatus.textContent =
+        `${terminalSnapshot.state} · ${terminalFixture.id} · ${terminalDistance.toFixed(1)}m`;
+    }
     if (isExteriorGameplay()) strikeAcquisition.update(dt, pos);
     workshop.update(dt);
     const lurkerStatus = document.getElementById('t36-lurker-status');
@@ -1732,7 +1914,9 @@ async function main() {
     const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
     const latLon = worldToLatLon(real, origin);
     const controlsHint =
-      workshop.isInterior()
+      terminalSnapshot.blocksWorldInput
+        ? 'public sanitation terminal — E or Escape to undock'
+        : workshop.isInterior()
         ? 'underground workshop — click to look, WASD to move, L flashlight, return to the threshold to exit'
         : worldSession.transition.value === 'interior'
         ? 'surveillance interior placeholder — press E to exit'
@@ -1751,6 +1935,7 @@ async function main() {
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `lat/lon: ${latLon.lat.toFixed(6)}, ${latLon.lon.toFixed(6)}\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
+      `T29 terminal: ${terminalSnapshot.state} · ${terminalFixture.id} · ${terminalDistance.toFixed(1)}m\n` +
       `mech dog: ${mechDogModel.distance.toFixed(1)}m (${mechDogModel.state})\n` +
       `T31: ${strikeSnapshot.state} · ${strikeSnapshot.anchorId} · windup ${Math.round(strikeSnapshot.windupProgress * 100)}%` +
         `${strikeSnapshot.flags.chassisRecovered ? ' · recovered' : ''}\n` +
@@ -1759,7 +1944,9 @@ async function main() {
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
 
-    if (workshop.isInterior()) {
+    if (terminalSnapshot.blocksWorldInput) {
+      interactionPrompt.style.display = 'none';
+    } else if (workshop.isInterior()) {
       if (workshop.isNearExit()) {
         interactionPrompt.textContent = 'E — Return through the shelter door';
         interactionPrompt.style.display = 'block';
@@ -1767,7 +1954,10 @@ async function main() {
         interactionPrompt.style.display = 'none';
       }
     } else if (worldSession.isExterior()) {
-      if (workshop.isNearEntrance()) {
+      if (terminalSnapshot.state === 'available') {
+        interactionPrompt.textContent = 'E — Dock public sanitation terminal';
+        interactionPrompt.style.display = 'block';
+      } else if (workshop.isNearEntrance()) {
         interactionPrompt.textContent = 'E — Enter the fallout shelter';
         interactionPrompt.style.display = 'block';
       } else if (strikeSnapshot.recoveryAvailable) {

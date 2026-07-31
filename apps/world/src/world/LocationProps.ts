@@ -88,6 +88,14 @@ export type LocationEntry = {
     local: [number, number];
     headingDegrees: number;
   };
+  // Stable, offline terminal fixture metadata. The owning location supplies
+  // identity/name/latLong; this field owns only the physical presentation and
+  // proximity boundary. Dialogue, progression, control, and networking live
+  // outside the world-feature manifest.
+  terminal?: {
+    headingDegrees: number;
+    interactionRadiusMeters: number;
+  };
 };
 
 export interface LocationPropsHandle {
