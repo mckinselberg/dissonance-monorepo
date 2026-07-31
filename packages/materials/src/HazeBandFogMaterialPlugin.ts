@@ -270,11 +270,19 @@ export class HazeBandFogMaterialPlugin extends MaterialPluginBase {
             -max(dissonanceHazeHeightFalloff, 0.0) *
               dissonanceHazeHeight * 8.0
           );
+          // The material hook runs after stock fog, while sky/background
+          // materials are not guaranteed to use this plugin. Let the authored
+          // band tint peak while geometry is still partly legible, then taper
+          // it back to zero at full extinction. Otherwise far geometry becomes
+          // a flat band-colored cutout against the untouched fog background.
+          float dissonanceHazeGeometryWindow =
+            2.0 * dissonanceHazeExtinction *
+              (1.0 - dissonanceHazeExtinction);
           float dissonanceHazeAmount = clamp(
             dissonanceHazeEnabled * dissonanceHazeInscatter *
-              dissonanceHazeExtinction * dissonanceHazeHeightWeight,
+              dissonanceHazeGeometryWindow * dissonanceHazeHeightWeight,
             0.0,
-            1.0
+            0.5
           );
 
           ${outputColor}.rgb = mix(
@@ -285,7 +293,7 @@ export class HazeBandFogMaterialPlugin extends MaterialPluginBase {
           ${outputColor}.r *= mix(
             1.0,
             dissonanceHazeRedChannelGain,
-            dissonanceHazeEnabled
+            dissonanceHazeEnabled * (1.0 - dissonanceHazeExtinction)
           );
         }
       `,
