@@ -1818,7 +1818,14 @@ async function main() {
   // currently reports. Drive mode still has no collision logic at all
   // (only PlayerController/Walk does) — still a real follow-up, unchanged.
   const applyPlayerColliders = () => {
-    player.setColliders([...locationProps.colliders, ...utilityCorridors.colliders, ...compositeLocations.colliders]);
+    player.setColliders([
+      ...locationProps.colliders, ...utilityCorridors.colliders, ...compositeLocations.colliders,
+      // Milo's front/apartment door blocker circles (2026-07-29) — live,
+      // not static; re-included every time this runs so a door that just
+      // opened/closed is reflected immediately (see the updateDoors call
+      // in the render loop below).
+      ...compositeLocations.doorBlockerColliders(),
+    ]);
     // Milo's stairwell steps + second-floor slab (2026-07-27) — the only
     // FloorSurfaces that exist today; empty for every other building.
     player.setFloorSurfaces(compositeLocations.floorSurfaces);
@@ -2376,6 +2383,12 @@ async function main() {
     const mechDogGroundY = terrain.getHeightAt(mechDogPosition.x, mechDogPosition.z);
     mechDogBody?.update(dt, mechDogPosition, mechDogGroundY);
     const mechDogModel = mechDogPursuit.getModel();
+
+    // Milo's front/apartment doors (2026-07-29) — swings open on approach,
+    // closes and blocks again once the player backs away (see MilosInterior.
+    // ts's createDoorController). Only re-runs applyPlayerColliders() on the
+    // frame a door's blocking state actually flips, not every frame.
+    if (compositeLocations.updateDoors(dt, pos.x, pos.z)) applyPlayerColliders();
 
     // state/lineglass.ts — walking within pickup range collects a part
     // outright, no interact key (matching this app's existing "proximity is

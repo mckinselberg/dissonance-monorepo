@@ -17,18 +17,34 @@ import type {
 import type { Collider } from '@dissonance/world';
 import type { FloorSurface } from '@dissonance/player';
 import type { LocationEntry } from './LocationProps';
-import { buildStreetLamp, buildMilosInterior } from './LocationProps';
+import { buildStreetLamp } from './LocationProps';
+import type { DoorController, LocalFurniturePlacement } from './MilosInterior';
+import { COUCH_SCALE, createDoorController, createMilosInteriorGeometry } from './MilosInterior';
 import { ensureGltfLoader } from './gltfLoader';
 
 export interface CompositeLocationsHandle {
   // One collider per solid (non-Milo's-building) building instance — see
   // BUILDING_COLLISION_RADII/MILOS_BUILDING_ID below. Streets/sidewalks/
   // props/lamps stay walk-through; only buildings are "un-enterable" here.
+  // Includes Milo's building's own lobby/stair-railing/apartment-partition
+  // walls (static — the two doors' own blocker circles are NOT in here,
+  // see doorBlockerColliders below).
   colliders: Collider[];
   // World-space "you can stand here" rectangles for Milo's stairwell steps
   // and second-floor slab — see PlayerController.setFloorSurfaces. Empty
   // for every other building (none of them have interior geometry).
   floorSurfaces: FloorSurface[];
+  // Drives Milo's front/apartment doors — call once per frame with the
+  // active controller's world position. Returns true only on the frame
+  // either door's blocking state actually flips, so callers know when to
+  // re-run player.setColliders() (see doorBlockerColliders) instead of
+  // doing it unconditionally every frame.
+  updateDoors(dt: number, playerX: number, playerZ: number): boolean;
+  // Current instantaneous blocker circles for whichever of Milo's two doors
+  // are closed right now (0-2 elements) — kept out of `colliders` above
+  // since this changes as the player walks up to/away from a door, unlike
+  // everything else in that array.
+  doorBlockerColliders(): Collider[];
   dispose(): void;
 }
 
@@ -68,6 +84,7 @@ function isKnownAsset(asset: string): boolean {
 }
 
 const CITY_ASSET_BASE = `${import.meta.env.BASE_URL}models/downtown-city-megakit/`;
+const COUCH_ASSET_BASE = `${import.meta.env.BASE_URL}models/couch/`;
 const CITY_ASSETS: Record<string, string> = {
   'building-small': 'Building_Small_1.gltf',
   'building-medium': 'Building_Medium_2_001.gltf',
@@ -454,21 +471,28 @@ function placeSingleTransformMesh(
 // rectangle — exact for the 90-degree-multiple rotations every compound
 // placement in this app actually uses, a safe (over-covering, never
 // under-covering) approximation for anything else.
+// Rotate/scale/translate a single building-local point by the same
+// transform placeSingleTransformMesh already positioned the building mesh
+// itself with — shared by localFloorSurfaceToWorld's corner math below and
+// by Milo's wall-collider/door-trigger conversion, anything that needs one
+// local point (not a mesh Babylon can just parent) turned into world space.
+function localXZToWorld(localX: number, localZ: number, placement: ExpandedPlacement): { x: number; z: number } {
+  const cos = Math.cos(placement.rotationRadians);
+  const sin = Math.sin(placement.rotationRadians);
+  const sx = localX * placement.scaleXZ;
+  const sz = localZ * placement.scaleXZ;
+  return { x: placement.x + (sx * cos - sz * sin), z: placement.z + (sx * sin + sz * cos) };
+}
+
 function localFloorSurfaceToWorld(
   local: { minX: number; maxX: number; minZ: number; maxZ: number; y: number },
   placement: ExpandedPlacement,
   baseWorldY: number,
 ): FloorSurface {
-  const cos = Math.cos(placement.rotationRadians);
-  const sin = Math.sin(placement.rotationRadians);
   const corners = [
     [local.minX, local.minZ], [local.maxX, local.minZ],
     [local.maxX, local.maxZ], [local.minX, local.maxZ],
-  ].map(([lx, lz]) => {
-    const sx = lx * placement.scaleXZ;
-    const sz = lz * placement.scaleXZ;
-    return { x: placement.x + (sx * cos - sz * sin), z: placement.z + (sx * sin + sz * cos) };
-  });
+  ].map(([lx, lz]) => localXZToWorld(lx, lz, placement));
   return {
     minX: Math.min(...corners.map((c) => c.x)),
     maxX: Math.max(...corners.map((c) => c.x)),
@@ -476,6 +500,47 @@ function localFloorSurfaceToWorld(
     maxZ: Math.max(...corners.map((c) => c.z)),
     y: baseWorldY + local.y * placement.scaleY,
   };
+}
+
+// Dan's own couch.glb (2026-07-29, D:\dan\code\dissonance-related\Furniture)
+// — one real furniture asset dropped into the otherwise-procedural
+// apartment. Same bake-then-reparent idiom as placeSingleTransformMesh/
+// HeroTreeInstances (compute minimumY off the mesh's own original world
+// transform before touching anything, so COUCH_SCALE only has to scale a
+// clean native-space offset). No window tinting or thin-instancing here —
+// it's the only one of these in the scene.
+async function loadMilosCouch(
+  scene: Scene,
+  buildingMesh: Mesh,
+  placement: LocalFurniturePlacement,
+  shadowGenerator?: ShadowGenerator,
+): Promise<Mesh[]> {
+  const container = await LoadAssetContainerAsync(`${COUCH_ASSET_BASE}couch.glb`, scene);
+  container.addAllToScene();
+  const renderMeshes = container.meshes.filter(
+    (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0,
+  );
+  if (renderMeshes.length === 0) throw new Error('couch.glb has no renderable meshes');
+
+  let minimumY = Number.POSITIVE_INFINITY;
+  for (const mesh of renderMeshes) {
+    mesh.computeWorldMatrix(true);
+    minimumY = Math.min(minimumY, mesh.getBoundingInfo().boundingBox.minimumWorld.y);
+  }
+  if (!Number.isFinite(minimumY)) minimumY = 0;
+  const baseY = placement.y - minimumY * COUCH_SCALE;
+
+  for (const mesh of renderMeshes) {
+    mesh.bakeCurrentTransformIntoVertices();
+    mesh.parent = null;
+    mesh.position.set(placement.x, baseY, placement.z);
+    mesh.rotationQuaternion = Quaternion.FromEulerAngles(0, placement.rotationY, 0);
+    mesh.scaling.setAll(COUCH_SCALE);
+    mesh.parent = buildingMesh;
+    mesh.receiveShadows = true;
+    shadowGenerator?.addShadowCaster(mesh);
+  }
+  return renderMeshes;
 }
 
 // Milo's building specifically (see MILOS_BUILDING_ID) — loaded as its own
@@ -491,7 +556,14 @@ async function loadMilosBuilding(
   cardTexture: Texture,
   cardWithFigureTexture: Texture,
   shadowGenerator?: ShadowGenerator,
-): Promise<{ container: AssetContainer; extraMeshes: Mesh[]; floorSurfaces: FloorSurface[] }> {
+): Promise<{
+  container: AssetContainer;
+  extraMeshes: Mesh[];
+  floorSurfaces: FloorSurface[];
+  wallColliders: Collider[];
+  frontDoor: DoorController;
+  apartmentDoor: DoorController;
+}> {
   const container = await LoadAssetContainerAsync(`${CITY_ASSET_BASE}${CITY_ASSETS['building-medium']}`, scene);
   container.addAllToScene();
   const renderMeshes = container.meshes.filter(
@@ -503,15 +575,34 @@ async function loadMilosBuilding(
   const { baseWorldY } = placeSingleTransformMesh(renderMeshes, placement, shadowGenerator);
 
   const buildingMesh = renderMeshes[0];
-  const { meshes: extraMeshes, floorSurfaces: localFloorSurfaces } = buildMilosInterior(scene);
+  const geometry = createMilosInteriorGeometry(scene);
+  const extraMeshes = geometry.staticMeshes;
   extraMeshes.forEach((mesh) => {
     mesh.parent = buildingMesh;
     mesh.receiveShadows = true;
     shadowGenerator?.addShadowCaster(mesh);
   });
-  const floorSurfaces = localFloorSurfaces.map((local) => localFloorSurfaceToWorld(local, placement, baseWorldY));
+  [geometry.frontDoor, geometry.apartmentDoor].forEach((door) => {
+    door.hinge.parent = buildingMesh;
+    door.leafMesh.receiveShadows = true;
+    shadowGenerator?.addShadowCaster(door.leafMesh);
+  });
+  extraMeshes.push(...(await loadMilosCouch(scene, buildingMesh, geometry.couch, shadowGenerator)));
 
-  return { container, extraMeshes, floorSurfaces };
+  const floorSurfaces = geometry.floorSurfaces.map((local) => localFloorSurfaceToWorld(local, placement, baseWorldY));
+  const wallColliders: Collider[] = geometry.wallColliders.map((local) => {
+    const world = localXZToWorld(local.x, local.z, placement);
+    return { x: world.x, z: world.z, radius: local.radius * placement.scaleXZ };
+  });
+
+  const makeDoorController = (door: typeof geometry.frontDoor): DoorController => {
+    const worldTrigger = localXZToWorld(door.triggerLocal.x, door.triggerLocal.z, placement);
+    return createDoorController(door.hinge, door.openAngleRadians, worldTrigger, door.gapHalfWidth * placement.scaleXZ);
+  };
+  const frontDoor = makeDoorController(geometry.frontDoor);
+  const apartmentDoor = makeDoorController(geometry.apartmentDoor);
+
+  return { container, extraMeshes, floorSurfaces, wallColliders, frontDoor, apartmentDoor };
 }
 
 async function loadThinInstancedAsset(
@@ -611,7 +702,10 @@ export async function loadCompositeLocations(
       if (placement.id === MILOS_BUILDING_ID) {
         // Not added to byAsset — this one gets its own standalone container
         // below (loadMilosBuilding) instead of the shared thin-instance
-        // batch, and no collider (it's the one enterable building).
+        // batch, and no OBSTACLE_COLLISION_RADII circle (it's the one
+        // enterable building) — it gets its own lobby/stair/apartment wall
+        // colliders instead, folded into `colliders` once loadMilosBuilding
+        // resolves below.
         milosPlacement = expandedPlacement;
         continue;
       }
@@ -630,6 +724,8 @@ export async function loadCompositeLocations(
   const containers: AssetContainer[] = [];
   const proceduralMeshes: Mesh[] = [];
   let floorSurfaces: FloorSurface[] = [];
+  let milosFrontDoor: DoorController | undefined;
+  let milosApartmentDoor: DoorController | undefined;
   await Promise.all([
     ...[...byAsset].map(async ([asset, entries]) => {
       if (asset in PROCEDURAL_ASSETS) {
@@ -652,6 +748,9 @@ export async function loadCompositeLocations(
       );
       containers.push(milos.container);
       floorSurfaces = milos.floorSurfaces;
+      colliders.push(...milos.wallColliders);
+      milosFrontDoor = milos.frontDoor;
+      milosApartmentDoor = milos.apartmentDoor;
       console.info(`[CompositeLocations] placed milos-building (door/stairwell/second-floor, ${floorSurfaces.length} floor surfaces)`);
     })(),
   ]);
@@ -659,6 +758,19 @@ export async function loadCompositeLocations(
   return {
     colliders,
     floorSurfaces,
+    updateDoors: (dt, playerX, playerZ) => {
+      const frontChanged = milosFrontDoor?.update(dt, playerX, playerZ) ?? false;
+      const apartmentChanged = milosApartmentDoor?.update(dt, playerX, playerZ) ?? false;
+      return frontChanged || apartmentChanged;
+    },
+    doorBlockerColliders: () => {
+      const blockers: Collider[] = [];
+      const front = milosFrontDoor?.getBlockerCollider();
+      if (front) blockers.push(front);
+      const apartment = milosApartmentDoor?.getBlockerCollider();
+      if (apartment) blockers.push(apartment);
+      return blockers;
+    },
     dispose: () => {
       containers.forEach((container) => container.dispose());
       // false/true: skip the (already-null) parent-hierarchy walk, do

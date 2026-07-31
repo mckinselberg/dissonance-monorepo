@@ -84,14 +84,14 @@ export interface LocationPropsHandle {
 // 'trash-barrel') don't land stacked on the exact same point.
 const PLACEMENT_JITTER_METERS = 3;
 
-function mergeParts(name: string, parts: Mesh[], mat: PBRMaterial): Mesh {
+export function mergeParts(name: string, parts: Mesh[], mat: PBRMaterial): Mesh {
   const merged = Mesh.MergeMeshes(parts, true, true, undefined, false, true) ?? parts[0];
   merged.name = name;
   merged.material = mat;
   return merged;
 }
 
-function pbr(scene: Scene, name: string, color: Color3, roughness = 0.9, metallic = 0): PBRMaterial {
+export function pbr(scene: Scene, name: string, color: Color3, roughness = 0.9, metallic = 0): PBRMaterial {
   const mat = new PBRMaterial(name, scene);
   mat.albedoColor = color;
   mat.roughness = roughness;
@@ -206,119 +206,6 @@ export function buildUtilityPole(scene: Scene): Mesh {
   crossarm.position.y = height - 0.6;
   parts.push(crossarm);
   return mergeParts('locProp_utilityPole', parts, mat);
-}
-
-// Local-space (the building's own coordinate frame, matching the real
-// bounds scanned off Building_Medium_2_001.gltf: X approx [-7,7], Z approx
-// [-12,0] front-to-back with the glass front at Z~0, Y=0 at the ground
-// floor) — CompositeLocations.ts transforms these into world-space
-// PlayerController.FloorSurfaces using the same placement math it
-// positions the building mesh itself with.
-export type LocalFloorSurface = { minX: number; maxX: number; minZ: number; maxZ: number; y: number };
-
-export interface MilosInteriorResult {
-  meshes: Mesh[];
-  floorSurfaces: LocalFloorSurface[];
-}
-
-// Milo's building only (Dan, 2026-07-27: "add a door? and an interior
-// stairwell that leads to a second floor apartment?"). Building_Medium_2's
-// own geometry has no real door gap or second story to build on — its
-// front is one continuous glass pane (MI_Glass, checked directly against
-// the glTF's accessor bounds) and "MI_InteriorWall"/"MI_InteriorFloor" are
-// a flat one-sided ground-floor backdrop (floor + back wall, no enclosing
-// side walls), not a real room. This adds actual geometry on top: a door
-// visually distinct from the neighboring buildings' uniform glass facade,
-// a rising flight of steps, and an open-topped second-floor room shell —
-// same crude-primitive style as every other prop in this file, positioned
-// from the building's own scanned bounds so nothing poke through its
-// exterior walls. Caller (CompositeLocations.ts) parents every mesh here
-// to the already-placed building mesh so they inherit its transform.
-export function buildMilosInterior(scene: Scene): MilosInteriorResult {
-  const meshes: Mesh[] = [];
-  const floorSurfaces: LocalFloorSurface[] = [];
-
-  const doorMat = pbr(scene, 'milos_doorMat', new Color3(0.32, 0.2, 0.12), 0.7);
-  const door = MeshBuilder.CreateBox('milos_door', { width: 1.5, height: 2.3, depth: 0.14 }, scene);
-  door.position.set(-2, 1.15, -0.07);
-  door.material = doorMat;
-  meshes.push(door);
-
-  // 11 steps x 0.36m rise = ~4m, landing at the second floor. Runs along
-  // the building's own depth axis, offset to the side of the door so
-  // crossing the lobby to reach it reads as a real room, not a closet.
-  const stairMat = pbr(scene, 'milos_stairMat', new Color3(0.35, 0.32, 0.28), 0.85);
-  const stepCount = 11;
-  const stepHeight = 0.36;
-  const stepDepth = 0.32;
-  const stepWidth = 2.0;
-  const stepX = 2.4;
-  const stairStartZ = -1.2;
-  const stairParts: Mesh[] = [];
-  for (let i = 0; i < stepCount; i++) {
-    const stepZ = stairStartZ - i * stepDepth;
-    const step = MeshBuilder.CreateBox(`milos_step_${i}`, {
-      width: stepWidth, height: stepHeight, depth: stepDepth,
-    }, scene);
-    step.position.set(stepX, stepHeight * (i + 0.5), stepZ);
-    stairParts.push(step);
-    floorSurfaces.push({
-      minX: stepX - stepWidth / 2,
-      maxX: stepX + stepWidth / 2,
-      minZ: stepZ - stepDepth / 2,
-      maxZ: stepZ + stepDepth / 2,
-      y: stepHeight * (i + 1),
-    });
-  }
-  meshes.push(mergeParts('milos_stairwell', stairParts, stairMat));
-
-  // Open-topped — the building's own roof geometry sits far above this (Y
-  // up to ~24-25), no ceiling needed. Inset from the scanned exterior
-  // bounds (X[-7,7] Z[-12,0]) so the walls don't poke through the
-  // building's own brick/trim shell. The stairwell's top step (stepX=2.4,
-  // furthest stairZ) lands inside this rectangle, not at its edge, so the
-  // full perimeter below doesn't wall off the one way in.
-  const floorY = stepHeight * stepCount + 0.15;
-  const roomMinX = -6.3;
-  const roomMaxX = 6.3;
-  const roomMinZ = -11.3;
-  const roomMaxZ = -0.9;
-  const roomWidth = roomMaxX - roomMinX;
-  const roomDepth = roomMaxZ - roomMinZ;
-  const roomCenterX = (roomMinX + roomMaxX) / 2;
-  const roomCenterZ = (roomMinZ + roomMaxZ) / 2;
-
-  const floorMat = pbr(scene, 'milos_apartmentFloorMat', new Color3(0.3, 0.24, 0.18), 0.85);
-  const floorSlab = MeshBuilder.CreateBox('milos_apartmentFloor', {
-    width: roomWidth, height: 0.3, depth: roomDepth,
-  }, scene);
-  floorSlab.position.set(roomCenterX, floorY, roomCenterZ);
-  floorSlab.material = floorMat;
-  meshes.push(floorSlab);
-  floorSurfaces.push({
-    minX: roomMinX, maxX: roomMaxX, minZ: roomMinZ, maxZ: roomMaxZ, y: floorY + 0.15,
-  });
-
-  const wallMat = pbr(scene, 'milos_apartmentWallMat', new Color3(0.42, 0.38, 0.34), 0.9);
-  const wallHeight = 2.5;
-  const wallThickness = 0.15;
-  const wallY = floorY + 0.15 + wallHeight / 2;
-  const wallParts: Mesh[] = [];
-  const front = MeshBuilder.CreateBox('milos_wallFront', { width: roomWidth, height: wallHeight, depth: wallThickness }, scene);
-  front.position.set(roomCenterX, wallY, roomMaxZ);
-  wallParts.push(front);
-  const back = MeshBuilder.CreateBox('milos_wallBack', { width: roomWidth, height: wallHeight, depth: wallThickness }, scene);
-  back.position.set(roomCenterX, wallY, roomMinZ);
-  wallParts.push(back);
-  const left = MeshBuilder.CreateBox('milos_wallLeft', { width: wallThickness, height: wallHeight, depth: roomDepth }, scene);
-  left.position.set(roomMinX, wallY, roomCenterZ);
-  wallParts.push(left);
-  const right = MeshBuilder.CreateBox('milos_wallRight', { width: wallThickness, height: wallHeight, depth: roomDepth }, scene);
-  right.position.set(roomMaxX, wallY, roomCenterZ);
-  wallParts.push(right);
-  meshes.push(mergeParts('milos_apartmentWalls', wallParts, wallMat));
-
-  return { meshes, floorSurfaces };
 }
 
 function buildRocks(scene: Scene): Mesh {
