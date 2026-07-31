@@ -35,10 +35,11 @@ type StoryBeat = {
 IDs are stable lowercase kebab-case. Flags are stable lower camel case.
 `status` describes implementation readiness only; it is not player state.
 
-## First chain: workshop → strike → recovery
+## First beats: workshop discovery; strike → recovery
 
 1. Entering the workshop workbench zone sets `workshopDiscovered`.
-2. That flag permits the seeded Boulevard strike gate to arm.
+2. Independently, proximity plus witnessed LOS permits the seeded Boulevard
+   strike gate to arm; it has no workshop prerequisite.
 3. A witnessed completed strike sets `droneStrikeWitnessed`.
 4. Recovering the inert drone sets `emitterAcquired` and
    `chassisRecovered`.
@@ -61,11 +62,11 @@ ordering, triggers, and statuses at startup. Its app-local story store persists
 resolved flags in browser storage and applies beats only when their
 prerequisites are satisfied.
 
-The first chain is live end to end: entering the crater shelter permanently
-silences its exterior locator alarm, reaching the workshop workbench sets
-`workshopDiscovered`, T31 records the witnessed strike, and recovery records
-both acquired parts. The HUD checkbox remains as an explicit persistent debug
-override for slow-machine strike authoring.
+Both strands are live: entering the crater shelter permanently silences its
+exterior locator alarm and reaching the workbench sets `workshopDiscovered`;
+separately, T31 records the witnessed strike and recovery records both acquired
+parts. The HUD checkbox remains as an explicit persistent debug override for
+slow-machine strike authoring.
 
 ## Required integration follow-up
 
@@ -90,5 +91,5 @@ HUD tuning into game state. At minimum, verify:
 
 This audit landed in the versioned contract documented by
 `docs/dissonance/world-save-contract.md`. Treat its build and reload checks as
-a mandatory gate before T31 v2 hardware construction, T32 network expansion,
-or T33 trust progression.
+a mandatory gate before T31 v2 hardware construction, T35 network expansion,
+or T36 trust progression.

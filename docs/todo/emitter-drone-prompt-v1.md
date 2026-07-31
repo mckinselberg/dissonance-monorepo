@@ -1,11 +1,12 @@
 # emitter-drone-prompt-v1.md
 
-**Thread:** T28 (the emitter / captured drone) — **acquisition only**
+**Thread:** T31 (the emitter / captured drone) — **acquisition only**
+**Status:** complete 2026-07-30; acquisition v1's authored profile, deterministic tests, durable reload continuity, and Dev Lineglass JSON round-trip landed. Retained for the stronger-machine/full-speed live QA follow-up and v2 scope boundary—do not rerun it as an implementation prompt.
 **Scope boundary:** the witnessed strike + recovery. The emitter build, the mount, the interference verb, control model, animal-mapping, and loss condition are **explicitly out of scope** (deferred to v2 / T29). This doc must not implement, stub-toward, or assume any of them beyond leaving a clean hand-off marker.
-**Depends on:** the weather system's rain mode-swap must exist — in canonical THREADS.md this is the shipped `WeatherSystem` (registered under T21's geo-pipeline work) with precipitation extended under **T25** (atmosphere grading + time-of-day). Do NOT read "T21" here as "time+weather"; in canonical, T21 is the geo pipeline and T25 owns atmosphere/weather conditions. Also consumes a `workshopDiscovered` flag (T32 workshop) as an arm precondition — the flag is set by the workshop-discovery beat (out of scope here); this doc only *reads* it. If the flag source doesn't yet exist, stub it to `true` for isolated testing but do not ship it stubbed.
+**Depends on:** T25's shipped `WeatherSystem` precipitation/storm foundation. Nothing else; workshop discovery is durable T35 state but is not a T31 acquisition prerequisite.
 
 **Thread ID note:** this scaffold's thread is **T31** in canonical THREADS.md (Interference verb / captured drone), NOT T28. Earlier drafts used T28 before the registry was checked; T28 is Rural-infrastructure backlog in canonical.
-**Owning package:** Dissonance app scope + `@culture/weather` (strike event as an authored weather command). No engine fork.
+**Owning code:** Dissonance World app scope + `@dissonance/world`'s `WeatherSystem` (strike event as an authored weather command). No engine fork.
 
 ---
 
@@ -13,14 +14,14 @@
 
 Do not write or edit any file until this audit is complete and its findings are reported back.
 
-1. **Confirm T21 exists and expose its seam.** Locate the weather system (`@culture/weather`, `WeatherProfile`, `WeatherState`, the target-swap / `requestWeather`-equivalent). Confirm rain intensity is a readable scalar and that a storm/rain target can be commanded programmatically. **If T21 is not yet landed, STOP** and report — this doc cannot proceed without it.
+1. **Confirm the T25 weather foundation exists and expose its seam.** Locate the shipped `WeatherSystem`, its readable precipitation state, and its commandable storm/rain mode. **If the T25 foundation is absent, STOP** and report—this acquisition scaffold cannot proceed without it. *(Audit completed for the landed v1.)*
 2. **Locate the boulevard manifest.** Find where Dissonant Boulevard's authored data lives (the manifest referenced by Lineglass boulevard work and window-occupancy). The `StrikeAnchor` list will be added here as additive data. Report its path and current schema shape.
 3. **Locate the drone entity.** Find the existing patrol-drone representation (patrol/pursue `BehaviorProfile`, T13 lineage; emissive dots; read-cone). Confirm a single drone instance can be addressed and driven to a disabled/inert visual+audio state **without** modifying shared drone behavior code. Report how a per-instance state override is reached.
 4. **Locate LOS facility.** Determine whether a line-of-sight test (Milo → drone) already exists (detection systems, T5 prior art, pursuer view-cone code). Report it; if none exists, note the cheapest raycast-based approach that does not add a parallel code path.
 5. **Locate the audio seam (D1).** Confirm the thunderclap one-shot and the strike-flash-associated audio route through Tone.js on the `ambient-beds` bus, ducked under the heartbeat/sting priority constant (T5/D1). Report the ducking constant name. **Babylon must never play the strike audio.**
 6. **Report a written audit** covering all six points, the exact files you intend to touch, and any conflict with the out-of-bounds paths below, **before writing code.**
 
-**Out-of-bounds paths (do not modify):** shared drone behavior code, `@culture/audio` master chain / bus definitions, `applyProfile()` / resolver internals, any pursuer brain code, `EnvironmentProfile` schema. All strike behavior lands as additive data + one authored event consumer.
+**Out-of-bounds paths (do not modify):** shared drone behavior code, `@dissonance/audio` master-chain internals, `applyProfile()` / resolver internals, any pursuer brain code, `EnvironmentProfile` schema. All strike behavior lands as additive data + one authored event consumer.
 
 ---
 
@@ -34,7 +35,7 @@ Deterministic in outcome (the beat will happen this playthrough), seeded in plac
 
 ## Assumptions
 
-- T21 exposes a commandable weather target-swap and a readable `rainIntensity` scalar.
+- T25 exposes a commandable weather mode and readable precipitation intensity.
 - The boulevard manifest accepts additive authored data.
 - A single drone instance can be driven to an inert state via per-instance override, no shared-code edit.
 - A Milo→drone LOS test is reachable (existing or cheap raycast).
@@ -62,9 +63,9 @@ Dissonance app scope:
   data/boulevard/strike-anchors.<manifest-format>   — StrikeAnchor list (authored data)
   systems/strike/StrikeGate.ts                       — the arm/hold/fire state machine + LOS gate
   systems/strike/StrikeAnchorSelector.ts             — seeded pick over eligible anchors
-  systems/strike/StrikeEvent.ts                      — commands weather (T21) + drives drone-inert + flash/clap
+  systems/strike/StrikeEvent.ts                      — commands weather (T25) + drives drone-inert + flash/clap
   systems/strike/DroneRecovery.ts                    — proximity-gated pickup → hand-off marker (v2 boundary)
-profiles/ (or T21 profile home):
+profiles/ (or T25 profile home):
   strike-constants.<profile-format>                  — named constants (below), tunable in Dev HUD (T2)
 ```
 
@@ -116,16 +117,13 @@ Seeds: strike **location** seeded off the run seed (stable within a run, varies 
 States: DORMANT → ARMED → FIRING → SPENT
 
 DORMANT:
-  - PRECONDITION: workshopDiscovered flag is set (T30 — the workshop primes the player
-    to read the strike; the gate cannot arm until Milo has seen the workshop).
-    While workshopDiscovered is false, StrikeGate stays DORMANT regardless of LOS.
   - selector has chosen an anchor (once, at run start, seeded)
-  - each tick (only once workshopDiscovered): test Milo→anchor.losProbePoint LOS AND distance <= losRange
+  - each tick: test Milo→anchor.losProbePoint LOS AND distance <= losRange
   - on first satisfied: → ARMED
 
 ARMED:  (arm-on-entry / HOLD)
   - if rainIntensity >= strikeRainThreshold: begin windup immediately
-  - else: requestWeather(storm target >= strikeRainThreshold)   // T21 target-swap, NOT a fork
+  - else: requestWeather(storm target >= strikeRainThreshold)   // T25 command seam, NOT a fork
           wait until rainIntensity >= strikeRainThreshold OR rainEstablishTimeoutSeconds
   - windup = seeded duration in [strikeWindupMinSeconds, strikeWindupMaxSeconds]
   - CRITICAL — HOLD ACROSS LOS LOSS: if Milo leaves LOS during ARMED/windup,
@@ -164,7 +162,7 @@ SPENT:
 - **Causality reads backwards on replay.** Mitigated by seeded wind-up duration (no metronome) + seeded location across runs (rain-then-strike happens elsewhere next run). Verify both seeds derive from the run seed.
 - **Strike fires to an empty street.** Prevented by the FIRING-requires-current-LOS rule; ARMED-hold covers the walk-away case.
 - **Manufactured rain never reaches threshold** (weather stalls). `rainEstablishTimeoutSeconds` safety cap forces the threshold or logs and forces the strike — the beat must not softlock.
-- **Weather snap.** Do not instant-set rain; use T21's lerped target-swap so manufactured rain still reads ambient (slow build = the comic wind-up). A snap breaks tone.
+- **Weather snap.** Do not instant-set rain; use T25's lerped transition so manufactured rain still reads ambient (slow build = the comic wind-up). A snap breaks tone.
 - **Audio stacking.** Clap must duck under heartbeat/sting priority (D1/T5). Confirm the clap doesn't collide with an active red-throb vignette event on the post-process (compose, don't fight).
 - **Flash too bright.** Keep `flashIntensity` subtle — weather through overcast/canopy, not a set-piece strobe. Bright strobing breaks the phone-HDR overcast look (T6.1) and the tone wall.
 - **Second drone inspects the downed unit.** For v1, the network does NOT react (the ambiguous non-response is authored per the recovery beat). Ensure no existing detection code auto-dispatches a drone to the inert one during this beat.
@@ -181,9 +179,10 @@ SPENT:
   replace the generic per-frame mesh pick with a stable terrain/building-only
   occlusion test. Do **not** remove the witnessed-strike requirement or widen
   the rule blindly.
-- Also complete the original dry-entry, wet-entry, LOS-loss hold, one-shot,
-  seed-determinism, recovery-boundary, audio-route, and HUD round-trip checks
-  below before declaring T31 production-verified.
+- Deterministic coverage already exercises dry/wet entry, LOS hold, one-shot,
+  seed determinism, profile round-trip, and recovery boundaries. Use the live
+  pass to verify visible timing, audio routing, and HUD progression on the
+  target machine.
 
 ---
 

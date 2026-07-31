@@ -41,6 +41,15 @@
 - **[dissonance/extemporaneous.md](dissonance/extemporaneous.md)** — Dan's
   running scratch file of loose Dissonance ideas (underwater exploration
   apparatus, clothing/equipment systems, music-from-diving-gear).
+- **[dissonance/story-manifest.md](dissonance/story-manifest.md)** — runtime
+  story-beat contract for workshop discovery, the independent strike/recovery
+  beat, and the underground boundary sequence.
+- **[dissonance/world-save-contract.md](dissonance/world-save-contract.md)** —
+  versioned ownership boundary for durable World progression.
+- **[dissonance/underground-network-concept-v1.md](dissonance/underground-network-concept-v1.md)** —
+  T35 topology, authored-node, corridor, and validation contract.
+- **[dissonance/rey-caverns-concept-v1.md](dissonance/rey-caverns-concept-v1.md)** —
+  T36's gated concept and implemented boundary-lurker scope.
 - See also **[plans/dissonance-trail-data-poc-prompt.md](plans/dissonance-trail-data-poc-prompt.md)**
   under "Design & handoff prompts" below — the original prompt that kicked
   off the World terrain POC.
@@ -152,6 +161,13 @@ terrain POC.
   — a THREADS.md addendum written against an older version, superseded by
   the current thread registry; see `plans/addendum-reconciliation-implementation-v1.md`
   for what was actually reconciled from it.
+- **[archive/THREADS-delta-underground-and-interference.md](archive/THREADS-delta-underground-and-interference.md)**
+  — source delta folded into canonical THREADS.md v9.53; provenance only,
+  with stale implementation assumptions fenced at the top.
+- **[archive/HANDOFF-underground-interference-sonic.md](archive/HANDOFF-underground-interference-sonic.md)**
+  — the delta's obsolete execution handoff, archived with the same v9.53
+  reconciliation; its proposed sonic-semantics T34 was not registered because
+  canonical T34 is Acoustic mech disable.
 
 ---
 

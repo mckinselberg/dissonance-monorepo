@@ -1221,12 +1221,12 @@ async function main() {
     },
     onWorkbenchEntered: () => {
       if (story.applyBeat('discover-underground-workshop')) {
-        console.info('[T32] underground workshop discovered');
+        console.info('[T35] underground workshop discovered');
       }
     },
     onLurkerFled: (trigger) => {
       if (story.applyBeat('glimpse-rey-caverns-lurker')) {
-        console.info(`[T33] Rey Caverns lurker fled from ${trigger}`);
+        console.info(`[T36] Rey Caverns lurker fled from ${trigger}`);
       }
     },
   });
@@ -1279,7 +1279,7 @@ async function main() {
           Prime strike rain
         </button>
       </Section>
-      <Section title='T32 Shelter Entrance'>
+      <Section title='T35 Shelter Entrance'>
         <button
           type='button'
           onClick={() => {
@@ -1322,8 +1322,8 @@ async function main() {
           Milo flashlight (L)
         </label>
       </Section>
-      <Section title='T33 Rey Caverns Boundary'>
-        <div id='t33-lurker-status'>Lurker: loading…</div>
+      <Section title='T36 Rey Caverns Boundary'>
+        <div id='t36-lurker-status'>Lurker: loading…</div>
         <button
           type='button'
           onClick={() => {
@@ -1645,7 +1645,7 @@ async function main() {
     const pos = controllers[movement.activeMode.value].getPosition();
     if (isExteriorGameplay()) strikeAcquisition.update(dt, pos);
     workshop.update(dt);
-    const lurkerStatus = document.getElementById('t33-lurker-status');
+    const lurkerStatus = document.getElementById('t36-lurker-status');
     if (lurkerStatus) {
       const lurker = workshop.lurkerSnapshot();
       lurkerStatus.textContent =

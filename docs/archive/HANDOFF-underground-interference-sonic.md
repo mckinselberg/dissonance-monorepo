@@ -1,5 +1,7 @@
 # HANDOFF — Underground / Interference / Sonic cluster
 
+> **SUPERSEDED by canonical `docs/THREADS.md` v9.53 on 2026-07-31.** Provenance only; do not execute this build order. The body's underground T32 maps to canonical T35 and its Rey T33 maps to T36; its proposed sonic-semantics T34 was not registered because canonical T34 is Acoustic mech disable. The workshop prerequisite for T31 acquisition was removed. T25/T31 acquisition/T35 Draft 1 and the T36 boundary teaser have landed, Rey Caverns is the working name, and `applyDisruption` has no code stub. Tonal-language work is parked on the unadapted Dissonance Audio HUD repository.
+
 **For:** a local Claude Code session with filesystem + repo access.
 **From:** a web design session (design/architecture/lore only — no repo access).
 **Canonical reference:** `docs/THREADS.md` v9.49 (registry confirmed; D/O/P tail not readable from web — see ⚠VERIFY tags).

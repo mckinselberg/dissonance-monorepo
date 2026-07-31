@@ -1,10 +1,10 @@
 # Rey Caverns concept v1
 
-**Thread:** T33 — Rey Caverns and the gatekeepers
+**Thread:** T36 — Rey Caverns and the gatekeepers
 
 **Status:** provisional name / gated concept
 
-**Parent:** T32 underground network
+**Parent:** T35 underground network
 
 ## Current decisions
 

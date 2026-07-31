@@ -1,9 +1,9 @@
 # Underground network concept v1
 
-**Thread:** T32 — underground network (stratum)  
+**Thread:** T35 — underground network (stratum)
 **Status:** provisional concept / implementation contract  
 **First authored node:** crater shelter and Milo's workshop  
-**Downstream:** T31 interference hardware; T33 cavern-hub and gatekeepers
+**Downstream:** T31 interference hardware; T36 cavern-hub and gatekeepers
 
 ## Purpose
 
@@ -34,7 +34,7 @@ crater shelter
   -> Milo's workshop (solitary pole)
   -> locked utility continuation
   -> future infrastructure nodes
-  -> T33 Rey Caverns (inhabited pole; gated)
+  -> T36 Rey Caverns (inhabited pole; gated)
 ```
 
 Authored nodes own story interactions, distinctive silhouettes, inventory
@@ -47,7 +47,7 @@ network without generating unreachable or narratively active destinations.
 ## Entrance rule
 
 Every entrance is a real surface feature with stable geographic identity.
-T32's first entrance is the half-buried crater shelter in `locations.json`.
+T35's first entrance is the half-buried crater shelter in `locations.json`.
 The threshold has four ordered reads:
 
 1. dense vegetation and fencing conceal the civic-scale concrete form;
@@ -120,7 +120,7 @@ consequences harder to localize.
 - Rooms and corridor classes select authored acoustic profiles.
 - The surface locator alarm is absent beyond the first threshold.
 - Utility machinery and water are environmental beds, not navigation speech.
-- T33's lithophone is not ambient decoration and does not appear before its
+- T36's lithophone is not ambient decoration and does not appear before its
   social/interaction contract exists.
 
 ## Hazard budget
@@ -150,7 +150,7 @@ An authored node is required when a place:
 
 The workshop qualifies on the first three grounds. Its benches and shelves
 will become inventory-as-room surfaces for recovered hardware, but only after
-the relevant T31 beat is authorized. T33's working name is **Rey Caverns**,
+the relevant T31 beat is authorized. T36's working name is **Rey Caverns**,
 but its inhabited space remains blocked on culture and trust-economy design.
 Its tonal language is separately parked on the unadapted Dissonance Audio HUD
 repository; see `rey-caverns-concept-v1.md`.
@@ -165,7 +165,7 @@ repository; see `rey-caverns-concept-v1.md`.
 4. Prove reversible traversal, reload recovery, and acoustic transition.
 5. Only then design another authored node.
 
-T31 v2 hardware construction and T33 remain out of scope for this sequence.
+T31 v2 hardware construction and T36 remain out of scope for this sequence.
 
 ## V1 validation slice
 
@@ -175,7 +175,7 @@ is built from metadata, validates stable/unique IDs and connected endpoints,
 and proves that reversing the segment sequence returns through the same
 endpoints. Its floor, ceiling, and two walls per segment are collision meshes.
 
-The T32 Dev HUD reports topology validity, segment/collider counts, and reverse
+The T35 Dev HUD reports topology validity, segment/collider counts, and reverse
 validity. A debug-only unlock opens the workshop gate so the corridor can be
 walked in both directions without making it canonical progression.
 
@@ -189,5 +189,5 @@ surface-to-underground acoustic transition.
 The corridor visibility gate reuses `@dissonance/player`'s extracted
 camera-carried flashlight. Milo's persisted flashlight state follows the
 active first-person camera across the exterior/workshop threshold; `L` toggles
-it, and the T32 Dev HUD exposes the same control. This is illumination for
+it, and the T35 Dev HUD exposes the same control. This is illumination for
 traversal validation, not a new inventory or acquisition beat.
