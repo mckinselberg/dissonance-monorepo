@@ -1,8 +1,16 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.54
+**Version:** 9.55
 **Date:** 2026-07-31
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
+
+> **Documentation-system reconciliation (v9.55):** `DISSONANCE-DOCSYSTEM.md` now
+> governs document authority. `SYSTEMS.md`, `DECISIONS.md`, and
+> `OPEN-QUESTIONS.md` are canonical registries. Files under the legacy `plans/`
+> folder are classified by `engineering/PLAN-RECONCILIATION.md` and are not
+> canonical merely because they exist. New canonical design summaries live under
+> `design/`. Historical prose below remains useful audit history but must be read
+> through those registries.
 
 > **North star:** Audio is the key element of this game. Sound and music are not a subsystem — they are a first-class simulated world force woven through every system: ecology, bodies, behavior, institutions, identity, navigation, threat, and play. Every thread below either produces sound, consumes it, or is shaped by it. When in doubt, decide in favor of the dream: a world you learn by listening.
 
@@ -49,6 +57,7 @@
 | T34 | Acoustic mech disable (“the right song”) | experimental; blocked on T9 and T4 |
 | T35 | Underground network (parent; contains Milo's workshop) | first node/corridor + inventory-as-room presentation landed; live visual review pending and tuning deferred |
 | T36 | Rey Caverns + gatekeepers (inhabited pole) | boundary teaser landed; inhabited space and trust economy gated |
+| T37 | Milo's apartment archaeology room | queued; architecture approved, Blender pipeline and room implementation outstanding |
 
 ---
 
@@ -383,6 +392,20 @@ emissive material for machine-readout surfaces.
 - **Owning doc:** `dissonance/rey-caverns-concept-v1.md`; runtime boundary beat also appears in `dissonance/story-manifest.md`.
 - **Ties:** T35 (parent stratum), T31 (future terminal/receiver progression), T9/T20 (future tonal/acoustic language), T10 (culture and Synod scope).
 
+### T37 — Milo's apartment archaeology room
+- **Status:** queued; architecture approved, implementation not started.
+- **Purpose:** turn the preserved apartment photogrammetry capture into an authored archaeology room entered from the existing World boulevard.
+- **Owns:** capture preparation, room-specific preservation treatment, archaeology interaction, and the room's O4 camera pilot.
+- **Canonical docs:** `design/locations/MILOS-APARTMENT.md`.
+- **Runtime owners:** `apps/world` ⚠VERIFY during Phase 0.
+- **State owners:** World save location/archaeology domain, exact shape TBD.
+- **Depends on:** T21 world/location substrate, O4, validated Blender export.
+- **Consumed by:** Boulevard narrative and Milo's archaeology progression.
+- **Decisions:** D45.
+- **Open questions:** O4.
+- **Implementation:** the existing procedural Milo building/interior and underground workshop are adjacent prior art; neither is the photogrammetry room. The Blender pipeline test, human cleanup, room integration, and live validation remain outstanding.
+- **Next gate:** validate the Blender preparation script without creative changes, then perform the separate human cleanup/export pass.
+
 ### T11 — Provenance / multiplayer
 - **Status:** parked architecture; no network implementation session until T29's offline terminal and in-process Scrambler contract prove the interaction boundary.
 - **Scope after v9.43 addendum reconciliation:** server-authoritative sessions, reconnect, terminal messages, player traces/presence, stable-feature replication, event ordering/provenance, and server-owned faction affiliation (Synod / Independents / Chorus / Null). Conflict remains infrastructure-centric and must conform to D2 nonviolence.
@@ -586,6 +609,7 @@ The former v9.7 “this week” list is removed because its T3 assumptions were 
 
 | Version | Date | Change |
 |---|---|---|
+| 9.55 | 2026-07-31 | Reconciled the legacy `docs/plans/` inventory against `DISSONANCE-DOCSYSTEM.md`: established the missing SYSTEMS/DECISIONS/OPEN-QUESTIONS registries, classified every plan in `engineering/PLAN-RECONCILIATION.md`, created scoped canonical design homes, and registered T37 for Milo's apartment without renumbering existing threads. Physical plan moves are deliberately a later mechanical pass; legacy paths remain readable but are non-canonical. |
 | 9.54 | 2026-07-31 | T35 inventory-as-room presentation landed: persistent empty workshop cradles and independently save-driven recovered chassis/emitter displays update immediately on recovery and restore on reload. The exterior source hides durably to prevent duplication, and both locations share the established procedural drone silhouette. No construction/control mechanics were added. World build passed; live visual review and the broader T31/T35 tuning pass remain explicitly deferred. The lane now stops at the T29/T31 v2 and T36 gates. |
 | 9.53 | 2026-07-31 | Folded the underground/interference delta into the stable registry without overwriting IDs assigned by v9.51: incoming T31 detail merged into canonical T31, the underground network/workshop became T35, and Rey Caverns became T36; canonical T32 repair-pipeline, T33 corridor, and T34 acoustic-disable threads remain intact. T25 precipitation/storm, T31 acquisition, T35's shelter/workshop/save/corridor foundation, and T36's boundary lurker are landed. Inventory-as-room is next. T31 v2, inhabited Rey space, trust progression, and tonal language remain gated; stronger-machine live QA and detailed underground tuning remain explicitly deferred. The superseded workshop prerequisite was not restored. |
 | 9.52 | 2026-07-30 | Completed T31 v1 acquisition: authored/validated strike profile, Dev Lineglass tuning and JSON round-trip, one canonical drone-settle value, durable anchor/downed-position continuity, and executable deterministic gate/recovery tests. Removed the undocumented workshop prerequisite so the beat again depends only on weather, proximity, and witnessed LOS as its owning brief specifies. |

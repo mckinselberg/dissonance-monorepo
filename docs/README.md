@@ -1,5 +1,23 @@
 # Docs Index
 
+## Canonical documentation system
+
+Start with [DISSONANCE-DOCSYSTEM.md](DISSONANCE-DOCSYSTEM.md). Authority is split
+across these registries and document layers:
+
+- [THREADS.md](THREADS.md) — workstream ownership and status.
+- [SYSTEMS.md](SYSTEMS.md) — runtime, state, and presentation ownership.
+- [DECISIONS.md](DECISIONS.md) — accepted consequential decisions.
+- [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) — unresolved gates and held-open forks.
+- [`design/`](design/) — canonical feature and domain specifications.
+- [`engineering/`](engineering/) — implementation plans, prompts, audits, and the
+  [legacy-plan reconciliation](engineering/PLAN-RECONCILIATION.md).
+- [`archive/`](archive/) — superseded and historical provenance.
+
+`plans/` is a legacy intake directory pending physical migration. Its files are
+not canonical implementation guidance by location; consult the reconciliation
+table before using one.
+
 ## Living tracker
 
 - **[THREADS.md](THREADS.md)** — the single living record of every active/parked/blocked
