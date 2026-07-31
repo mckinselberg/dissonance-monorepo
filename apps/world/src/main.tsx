@@ -16,7 +16,13 @@ import {
   type FoliageSwaySource,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
-import { AmbientAudio, AudioEngine, HeartbeatAudio, TrailPlayerAudio } from '@dissonance/audio';
+import {
+  AmbientAudio,
+  AudioEngine,
+  HeartbeatAudio,
+  ShelterAlarmAudio,
+  TrailPlayerAudio,
+} from '@dissonance/audio';
 import type { PrecipitationMode, WeatherMode } from '@dissonance/shared-types';
 import { preventAccidentalClose } from '@dissonance/utils';
 import {
@@ -32,7 +38,15 @@ import { signal, effect } from '@preact/signals';
 import { LEVELS, currentLevelKey } from './state/levels';
 import { loadSavedSettings, saveSettings } from './state/settingsStorage';
 import { buildSharedSettingsSnapshot } from './state/snapshot';
-import { loadHeightmap, loadTrails, loadGpxTrack, loadSavedViews, loadLocations, loadReplayRoutes } from './data/loaders';
+import {
+  loadHeightmap,
+  loadTrails,
+  loadGpxTrack,
+  loadSavedViews,
+  loadLocations,
+  loadReplayRoutes,
+  loadStoryManifest,
+} from './data/loaders';
 import { hideLoadingOverlay } from './utils';
 import { createAtmosphereSignals } from './state/atmosphere';
 import { createScaleTuningSignals } from './state/scaleTuning';
@@ -62,8 +76,11 @@ import type { MechDogSkin } from './pursuer/MechDogBody';
 import { MechDogController } from './pursuer/MechDogController';
 import { WHISTLE_MELODIES } from './state/whistle';
 import { createSurveillanceSession } from './interiors/SurveillanceSession';
+import { createWorkshopSession } from './interiors/WorkshopSession';
 import { InteriorDebugRow } from './ui/InteriorDebugRow';
 import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
+import { createStoryState } from './state/story';
+import { WorldSaveStore, type WorldRouteId } from './state/worldSave';
 
 // Underwater look — WaterPlane's own "murky underside" mesh already gives a
 // plausible ceiling when you dip below the surface (Fly/Drive have no
@@ -112,6 +129,25 @@ async function main() {
   const levelKey = currentLevelKey();
   const level = LEVELS[levelKey];
   const savedSettings = loadSavedSettings(levelKey);
+  const worldSave = new WorldSaveStore({
+    levelKey,
+    mode: savedSettings.activeMode,
+    position: savedSettings.x !== undefined && savedSettings.y !== undefined && savedSettings.z !== undefined
+      ? { x: savedSettings.x, y: savedSettings.y, z: savedSettings.z }
+      : undefined,
+    rotation: savedSettings.rotationX !== undefined && savedSettings.rotationY !== undefined
+      ? { x: savedSettings.rotationX, y: savedSettings.rotationY, z: 0 }
+      : undefined,
+    lineglassPartIds: savedSettings.lineglassPartIds,
+  });
+  const restoredExterior = worldSave.snapshot().lastExterior;
+  const restoredHere = restoredExterior?.levelKey === levelKey ? restoredExterior : null;
+  const flashlightEnabled = signal(worldSave.snapshot().equipment.flashlightEnabled);
+  if (worldSave.snapshot().activeRoute !== 'exterior') {
+    // Interior cameras/geometry are runtime resources, not safe reload
+    // targets. A reload resumes from the last committed exterior transform.
+    worldSave.setActiveRoute('exterior');
+  }
   // First concrete T1/T24 profile seam. Only existing live consumers (fog)
   // are applied today; chunk/LOD distances remain validated profile data
   // until their systems land, rather than appearing as inert HUD controls.
@@ -147,7 +183,7 @@ async function main() {
   // unlockedLineglassLayers is a pure function of collected count, monotonic
   // by construction.
   const lineglass = createLineglassSignals({
-    collectedPartIds: savedSettings.lineglassPartIds ?? [],
+    collectedPartIds: worldSave.snapshot().progression.inventory.lineglassPartIds,
   });
   const lineglassUnlocked = unlockedLineglassLayers(lineglass.collectedPartIds.value.length);
   visibility.grid.value = lineglassUnlocked.has('grid') && (savedSettings.gridVisible ?? true);
@@ -195,6 +231,7 @@ async function main() {
   });
   const ambientAudio = new AmbientAudio();
   const heartbeatAudio = new HeartbeatAudio();
+  const shelterAlarmAudio = new ShelterAlarmAudio();
   const trailPlayerAudio = new TrailPlayerAudio();
   AudioEngine.setMuted(audio.masterMuted.value);
   trailPlayerAudio.setFootstepMuted(audio.footstepMuted.value);
@@ -348,6 +385,12 @@ async function main() {
     loadLocations(),
     loadReplayRoutes(),
   ]);
+  const storyManifest = await loadStoryManifest(worldFeatures);
+  const story = createStoryState(storyManifest, {
+    initialFlags: worldSave.snapshot().progression.storyFlags,
+    save: (flags) => worldSave.setStoryFlags(flags),
+  });
+  if (story.has('shelterAlarmSilenced')) shelterAlarmAudio.silence();
   const locations = worldFeatures.entries;
   // Owns the terrain mesh plus its OSM/GPX/grid overlays as one unit — see
   // TerrainOverlaySystem's own comment. Grid defaults off (a measurement
@@ -696,7 +739,7 @@ async function main() {
             orbitBeta: orbitCamera.beta,
             orbitRadius: orbitCamera.radius,
             ...buildSharedSettingsSnapshot({
-              scaleTuning, atmosphere, visibility, audio, lineglass,
+              scaleTuning, atmosphere, visibility, audio,
               trailsideScale,
               bulkForestScale: bulkForest.bulkForestScale,
               treeRegionRadius: bulkForest.treeRegionRadius,
@@ -799,14 +842,19 @@ async function main() {
   // — unless a saved position exists for this level from a previous visit.
   const spawnPoint = gpxTrack[0]?.points[0];
   const spawnReal = spawnPoint ? latLonToWorld(spawnPoint, origin) : { x: 0, z: 0 };
-  const spawnRenderX = savedSettings.x ?? spawnReal.x * scaleTuning.hScale.value;
-  const spawnRenderZ = savedSettings.z ?? spawnReal.z * scaleTuning.hScale.value;
+  const spawnRenderX = restoredHere?.position.x ?? savedSettings.x ?? spawnReal.x * scaleTuning.hScale.value;
+  const spawnRenderZ = restoredHere?.position.z ?? savedSettings.z ?? spawnReal.z * scaleTuning.hScale.value;
   const spawnGroundY = terrain.getHeightAt(spawnRenderX, spawnRenderZ);
   // Y is a placeholder — PlayerController.update() overwrites it with
   // groundY + its own (scale-adjusted) eye height on the very first frame.
-  const startPosition = new Vector3(spawnRenderX, spawnGroundY, spawnRenderZ);
+  const startPosition = new Vector3(
+    spawnRenderX,
+    restoredHere?.position.y ?? savedSettings.y ?? spawnGroundY,
+    spawnRenderZ,
+  );
 
   const player = new PlayerController(scene, startPosition, { scale: level.playerScale, farClip: level.farClip });
+  player.setFlashlightEnabled(flashlightEnabled.value);
   player.setTerrain(terrain);
 
   // Fast air travel — a free-fly camera for covering this real-world-scale
@@ -848,8 +896,12 @@ async function main() {
   // facing the default direction" isn't the same view at all. Applied to
   // all three controllers so whichever mode ends up active (see
   // switchMode's own restore below) already has the right look direction.
-  if (savedSettings.rotationX !== undefined && savedSettings.rotationY !== undefined) {
-    const savedRotation = new Vector3(savedSettings.rotationX, savedSettings.rotationY, 0);
+  const restoredRotation = restoredHere?.rotation ??
+    (savedSettings.rotationX !== undefined && savedSettings.rotationY !== undefined
+      ? { x: savedSettings.rotationX, y: savedSettings.rotationY, z: 0 }
+      : null);
+  if (restoredRotation) {
+    const savedRotation = new Vector3(restoredRotation.x, restoredRotation.y, restoredRotation.z);
     player.camera.rotation.copyFrom(savedRotation);
     flight.camera.rotation.copyFrom(savedRotation);
     drive.camera.rotation.copyFrom(savedRotation);
@@ -879,7 +931,6 @@ async function main() {
     scene, locations, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines, lineglass,
     realWidth, realDepth, backdrop.getShadowGenerator(), player,
   );
-  const workshopDiscoveredDebug = signal(false);
   const strikeAcquisition = new StrikeAcquisitionSystem(
     scene,
     locations,
@@ -902,13 +953,19 @@ async function main() {
       },
     },
   );
-  strikeAcquisition.setWorkshopDiscovered(workshopDiscoveredDebug.value);
+  strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
+  strikeAcquisition.restoreProgress({
+    droneStrikeWitnessed: story.has('droneStrikeWitnessed'),
+    emitterAcquired: story.has('emitterAcquired'),
+    chassisRecovered: story.has('chassisRecovered'),
+  });
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyE' || event.repeat) return;
     const flags = strikeAcquisition.recover(
       controllers[movement.activeMode.value].getPosition(),
     );
     if (flags) {
+      story.applyBeat('recover-emitter-and-chassis');
       console.info('[T31] recovery hand-off', flags);
     }
   });
@@ -940,7 +997,13 @@ async function main() {
   });
 
   // Walk/Fly/Drive mode-switching — see TraversalRig's own comment.
-  const { controllers, movement, switchMode } = createTraversalRig(scene, terrain, player, flight, drive, savedSettings);
+  const traversalDefaults = {
+    ...savedSettings,
+    activeMode: restoredHere?.mode ?? savedSettings.activeMode,
+  };
+  const { controllers, movement, switchMode } = createTraversalRig(
+    scene, terrain, player, flight, drive, traversalDefaults,
+  );
 
   // The concrete spawn is selected on the controller's first update() call
   // (see MechDogController), after the active controller has grounded/
@@ -957,10 +1020,71 @@ async function main() {
   // Milo's-apartment surveillance-interior routing — see
   // SurveillanceSession's own comment.
   const interactionPrompt = document.getElementById('interaction-prompt') as HTMLDivElement;
+  const commitExteriorState = (activeRoute: WorldRouteId) => {
+    const controller = controllers[movement.activeMode.value];
+    const position = controller.getPosition();
+    worldSave.saveRuntime(activeRoute, {
+      levelKey,
+      mode: movement.activeMode.value,
+      position: { x: position.x, y: position.y, z: position.z },
+      rotation: {
+        x: controller.camera.rotation.x,
+        y: controller.camera.rotation.y,
+        z: controller.camera.rotation.z,
+      },
+    });
+  };
   const surveillance = createSurveillanceSession({
-    scene, canvas, terrain, locationFeatures, controllers, movement, switchMode, interactionPrompt,
+    scene,
+    canvas,
+    terrain,
+    locationFeatures,
+    controllers,
+    movement,
+    switchMode,
+    onBeforeEnter: () => commitExteriorState('surveillance'),
+    interactionPrompt,
   });
   const { worldSession } = surveillance;
+  const workshop = createWorkshopSession({
+    scene,
+    canvas,
+    locationFeatures,
+    controllers,
+    movement,
+    corridorSeed: getOrCreateRunSeed(),
+    flashlightEnabled: flashlightEnabled.value,
+    onEntered: () => {
+      commitExteriorState('workshop');
+      story.set('shelterAlarmSilenced');
+      shelterAlarmAudio.silence();
+    },
+    onWorkbenchEntered: () => {
+      if (story.applyBeat('discover-underground-workshop')) {
+        console.info('[T32] underground workshop discovered');
+      }
+      strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
+    },
+  });
+  const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
+  const corridorDiagnostics = workshop.corridorDiagnostics();
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyE' || event.repeat || !worldSession.isExterior()) return;
+    if (workshop.isInterior()) {
+      if (workshop.isNearExit()) workshop.exit();
+    } else if (workshop.isNearEntrance()) {
+      workshop.enter();
+    }
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyL' || event.repeat) return;
+    flashlightEnabled.value = !flashlightEnabled.value;
+    worldSave.setFlashlightEnabled(flashlightEnabled.value);
+    workshop.setFlashlightEnabled(flashlightEnabled.value);
+    player.setFlashlightEnabled(
+      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
+    );
+  });
 
   render(
     <>
@@ -969,13 +1093,13 @@ async function main() {
         <label>
           <input
             type='checkbox'
-            checked={workshopDiscoveredDebug.value}
+            checked={story.has('workshopDiscovered')}
             onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
-              workshopDiscoveredDebug.value = event.currentTarget.checked;
-              strikeAcquisition.setWorkshopDiscovered(event.currentTarget.checked);
+              story.set('workshopDiscovered', event.currentTarget.checked);
+              strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
             }}
           />{' '}
-          Workshop discovered (debug only)
+          Workshop discovered (persistent story flag debug)
         </label>
         <br />
         <button
@@ -1015,6 +1139,35 @@ async function main() {
         >
           Go to crater shelter
         </button>
+        <div>
+          Corridor: {corridorDiagnostics.valid ? 'valid' : 'invalid'} ·{' '}
+          {corridorDiagnostics.segmentCount} segments ·{' '}
+          {corridorDiagnostics.collisionMeshCount} collision meshes ·{' '}
+          reverse {corridorDiagnostics.reversible ? 'yes' : 'no'}
+        </div>
+        <label>
+          <input
+            type='checkbox'
+            checked={workshop.isCorridorUnlocked()}
+            onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
+              workshop.setCorridorUnlocked(event.currentTarget.checked);
+            }}
+          />{' '}
+          Unlock workshop test corridor (debug only)
+        </label>
+        <br />
+        <label>
+          <input
+            type='checkbox'
+            checked={flashlightEnabled.value}
+            onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
+              flashlightEnabled.value = event.currentTarget.checked;
+              worldSave.setFlashlightEnabled(flashlightEnabled.value);
+              workshop.setFlashlightEnabled(flashlightEnabled.value);
+            }}
+          />{' '}
+          Milo flashlight (L)
+        </label>
       </Section>
       <Section title='Surveillance Interior'>
         <InteriorDebugRow
@@ -1110,7 +1263,7 @@ async function main() {
         <MovementRow
           signals={movement}
           onModeChange={(mode) => {
-            if (!worldSession.isExterior()) return;
+            if (!isExteriorGameplay()) return;
             switchMode(mode);
             persistSettings();
           }}
@@ -1135,7 +1288,7 @@ async function main() {
               rotationY: activeCamera.rotation.y,
               cameraHeightOffset: movement.cameraHeightOffset.value,
               ...buildSharedSettingsSnapshot({
-                scaleTuning, atmosphere, visibility, audio, lineglass,
+                scaleTuning, atmosphere, visibility, audio,
                 trailsideScale,
                 bulkForestScale: bulkForest.bulkForestScale,
                 treeRegionRadius: bulkForest.treeRegionRadius,
@@ -1230,6 +1383,24 @@ async function main() {
   const persistSettings = () => {
     const activeCamera = controllers[movement.activeMode.value].camera;
     const pos = controllers[movement.activeMode.value].getPosition();
+    const activeRoute = workshop.isInterior()
+      ? 'workshop'
+      : worldSession.route.value.kind === 'surveillance'
+        ? 'surveillance'
+        : 'exterior';
+    worldSave.saveRuntime(
+      activeRoute,
+      isExteriorGameplay() ? {
+        levelKey,
+        mode: movement.activeMode.value,
+        position: { x: pos.x, y: pos.y, z: pos.z },
+        rotation: {
+          x: activeCamera.rotation.x,
+          y: activeCamera.rotation.y,
+          z: activeCamera.rotation.z,
+        },
+      } : undefined,
+    );
     saveSettings(levelKey, {
       x: pos.x,
       y: pos.y,
@@ -1239,7 +1410,7 @@ async function main() {
       activeMode: movement.activeMode.value,
       cameraHeightOffset: movement.cameraHeightOffset.value,
       ...buildSharedSettingsSnapshot({
-        scaleTuning, atmosphere, visibility, audio, lineglass,
+        scaleTuning, atmosphere, visibility, audio,
         trailsideScale,
         bulkForestScale: bulkForest.bulkForestScale,
         treeRegionRadius: bulkForest.treeRegionRadius,
@@ -1252,7 +1423,11 @@ async function main() {
   window.addEventListener('pagehide', persistSettings);
 
   const gameLoop = new GameLoop(engine, (dt) => {
-    if (worldSession.isExterior()) {
+    player.setFlashlightEnabled(
+      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
+    );
+    workshop.setFlashlightEnabled(flashlightEnabled.value && workshop.isInterior());
+    if (isExteriorGameplay()) {
       controllers[movement.activeMode.value].update(dt);
       clampToWorldBounds(controllers[movement.activeMode.value]);
     }
@@ -1287,7 +1462,7 @@ async function main() {
     // with no breath/adrenaline (see their own file comments) — so this
     // only runs while walking, and stops footsteps immediately otherwise.
     const breathReadout = document.getElementById('breath-load-value');
-    if (worldSession.isExterior() && movement.activeMode.value === 'walk') {
+    if (isExteriorGameplay() && movement.activeMode.value === 'walk') {
       const breathLoad = player.breath.getLoad();
       trailPlayerAudio.updateBreath(breathLoad);
       trailPlayerAudio.updateFootsteps(player.getSpeed());
@@ -1298,7 +1473,15 @@ async function main() {
     }
 
     const pos = controllers[movement.activeMode.value].getPosition();
-    if (worldSession.isExterior()) strikeAcquisition.update(dt, pos);
+    if (isExteriorGameplay()) strikeAcquisition.update(dt, pos);
+    workshop.update();
+    const shelterDoor = locationFeatures.falloutShelterDoor;
+    if (audioStarted && isExteriorGameplay() && shelterDoor) {
+      const distance = Math.hypot(pos.x - shelterDoor.position.x, pos.z - shelterDoor.position.z);
+      shelterAlarmAudio.setProximity(Math.max(0, 1 - distance / 45));
+    } else {
+      shelterAlarmAudio.setProximity(0);
+    }
     precipitationVisuals.update(weatherState, pos);
     const groundY = terrain.getHeightAt(pos.x, pos.z);
     if (worldSession.isExterior()) locationFeatures.updateDoors(dt, pos.x, pos.z);
@@ -1310,6 +1493,9 @@ async function main() {
     );
     const mechDogModel = mechDog.getModel();
     const strikeSnapshot = strikeAcquisition.snapshot();
+    if (strikeSnapshot.state === 'SPENT') {
+      story.applyBeat('witness-boulevard-drone-strike');
+    }
     const strikeStatus = document.getElementById('t31-strike-status');
     if (strikeStatus) {
       strikeStatus.textContent =
@@ -1327,12 +1513,13 @@ async function main() {
     // binding for one feature). Newly-unlocked layers auto-enable their
     // visibility signal so the moment of unlock is immediately visible,
     // not just newly-toggleable.
-    const newlyCollected = worldSession.isExterior()
+    const newlyCollected = isExteriorGameplay()
       ? locationFeatures.updateLineglass(dt, pos.x, pos.z)
       : [];
     if (newlyCollected.length > 0) {
       const before = unlockedLineglassLayers(lineglass.collectedPartIds.value.length);
       lineglass.collectedPartIds.value = [...lineglass.collectedPartIds.value, ...newlyCollected];
+      worldSave.setLineglassPartIds(lineglass.collectedPartIds.value);
       const after = unlockedLineglassLayers(lineglass.collectedPartIds.value.length);
       if (after.has('grid') && !before.has('grid')) visibility.grid.value = true;
       if (after.has('gpx') && !before.has('gpx')) visibility.gpx.value = true;
@@ -1360,14 +1547,18 @@ async function main() {
     const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
     const latLon = worldToLatLon(real, origin);
     const controlsHint =
-      worldSession.transition.value === 'interior'
+      workshop.isInterior()
+        ? 'underground workshop — click to look, WASD to move, L flashlight, return to the threshold to exit'
+        : worldSession.transition.value === 'interior'
         ? 'surveillance interior placeholder — press E to exit'
         : movement.activeMode.value === 'fly'
         ? 'click canvas to look around, WASD to fly, space/ctrl up/down, shift to boost'
         : movement.activeMode.value === 'drive'
           ? 'click canvas to look around, WASD to drive, shift to boost'
-          : 'click canvas to look around, WASD to move, shift to run';
-    const routeLabel = worldSession.route.value.kind === 'exterior'
+          : 'click canvas to look around, WASD to move, shift to run, L flashlight';
+    const routeLabel = workshop.isInterior()
+      ? 'workshop/mountain-crater'
+      : worldSession.route.value.kind === 'exterior'
       ? 'exterior'
       : `surveillance/${worldSession.route.value.locationId}`;
     readout.textContent =
@@ -1383,8 +1574,18 @@ async function main() {
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
 
-    if (worldSession.isExterior()) {
-      if (strikeSnapshot.recoveryAvailable) {
+    if (workshop.isInterior()) {
+      if (workshop.isNearExit()) {
+        interactionPrompt.textContent = 'E — Return through the shelter door';
+        interactionPrompt.style.display = 'block';
+      } else {
+        interactionPrompt.style.display = 'none';
+      }
+    } else if (worldSession.isExterior()) {
+      if (workshop.isNearEntrance()) {
+        interactionPrompt.textContent = 'E — Enter the fallout shelter';
+        interactionPrompt.style.display = 'block';
+      } else if (strikeSnapshot.recoveryAvailable) {
         interactionPrompt.textContent = 'E — Recover emitter and drone chassis';
         interactionPrompt.style.display = 'block';
       } else if (surveillance.isNearEntrance()) {

@@ -8,6 +8,7 @@ import type { SavedView } from '../ui/ViewToolsRow';
 import { parseRouteDocument, type ReplayRoute } from '../ui/RouteReplay';
 import { WorldFeatureRegistry } from '../world/WorldFeatureRegistry';
 import type { LocationEntry } from '../world/LocationProps';
+import { parseStoryManifest, type StoryManifest } from '../state/story';
 
 export async function loadHeightmap(): Promise<{ contract: HeightmapContract; pngBytes: Uint8Array }> {
   const [contract, pngResponse] = await Promise.all([
@@ -50,6 +51,14 @@ export async function loadLocations(): Promise<WorldFeatureRegistry> {
   if (!Array.isArray(raw)) throw new Error('World feature data must be a JSON array.');
   const entries = raw as LocationEntry[];
   return new WorldFeatureRegistry(entries);
+}
+
+export async function loadStoryManifest(
+  worldFeatures: WorldFeatureRegistry,
+): Promise<StoryManifest> {
+  const response = await fetch(`${import.meta.env.BASE_URL}data/story-beats.json`);
+  if (!response.ok) throw new Error(`Could not load story manifest (${response.status}).`);
+  return parseStoryManifest(await response.json() as unknown, worldFeatures);
 }
 
 type RouteManifestEntry = { name: string; file: string };

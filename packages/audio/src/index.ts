@@ -5,6 +5,7 @@ export { TrailPlayerAudio } from './TrailPlayerAudio';
 export { HeartbeatAudio } from './HeartbeatAudio';
 export { DestinationAudio } from './DestinationAudio';
 export { RiverAudio } from './RiverAudio';
+export { ShelterAlarmAudio } from './ShelterAlarmAudio';
 export {
   audioBuses,
   AMBIENT_DUCK_UNDER_PRIORITY_DB,

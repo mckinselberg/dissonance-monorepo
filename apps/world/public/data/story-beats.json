@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "beats": [
+    {
+      "id": "discover-underground-workshop",
+      "locationId": "mountain-crater",
+      "trigger": {
+        "kind": "zone-enter",
+        "zoneId": "workshop-workbench"
+      },
+      "requires": [],
+      "sets": ["workshopDiscovered"],
+      "once": true,
+      "status": "implemented"
+    },
+    {
+      "id": "witness-boulevard-drone-strike",
+      "locationId": "dissonance-boulevard-2",
+      "trigger": {
+        "kind": "system-event",
+        "event": "strikeGateSpent"
+      },
+      "requires": ["workshopDiscovered"],
+      "sets": ["droneStrikeWitnessed"],
+      "once": true,
+      "status": "implemented"
+    },
+    {
+      "id": "recover-emitter-and-chassis",
+      "locationId": "dissonance-boulevard-2",
+      "trigger": {
+        "kind": "interaction",
+        "target": "boulevard-patrol-01"
+      },
+      "requires": ["droneStrikeWitnessed"],
+      "sets": ["emitterAcquired", "chassisRecovered"],
+      "once": true,
+      "status": "implemented"
+    }
+  ]
+}

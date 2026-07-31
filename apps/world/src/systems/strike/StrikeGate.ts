@@ -77,6 +77,12 @@ export class StrikeGate {
     if (this.state === 'FIRING') this.state = 'SPENT';
   }
 
+  restoreSpent(): void {
+    this.state = 'SPENT';
+    this.windupStarted = true;
+    this.windupElapsedSeconds = this.windupSeconds;
+  }
+
   getState(): StrikeGateState {
     return this.state;
   }
