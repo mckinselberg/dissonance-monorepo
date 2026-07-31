@@ -1,6 +1,6 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.53
+**Version:** 9.54
 **Date:** 2026-07-31
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
 
@@ -43,11 +43,11 @@
 | T28 | Rural infrastructure backlog (silos, windmills, water towers, self-storage, airport, highway, compass) | new 2026-07-27 — backlog only; power lines already shipped, see T21 |
 | T29 | Diegetic communications / terminal layer | experimental — offline docking slice first; networking remains T11 |
 | T30 | Instanced material pipeline (scatter-prop variation + emissive data patterns) | first pass landed 2026-07-29 — see entry for what's deferred |
-| T31 | Emitter / captured patrol drone (interference verb) | v1 acquisition complete; later verb deferred |
+| T31 | Emitter / captured patrol drone (interference verb) | acquisition v1 complete; interference/control v2 gated; live QA follow-up deferred |
 | T32 | Repair-pipeline hack (ride-the-mend) | experimental; downstream of T31 |
 | T33 | Infrastructure corridor (rail + power + EM charge) | provisional; Phase 0 sign-off required |
 | T34 | Acoustic mech disable (“the right song”) | experimental; blocked on T9 and T4 |
-| T35 | Underground network (parent; contains Milo's workshop) | first authored node + corridor draft landed; inventory-as-room next |
+| T35 | Underground network (parent; contains Milo's workshop) | first node/corridor + inventory-as-room presentation landed; live visual review pending and tuning deferred |
 | T36 | Rey Caverns + gatekeepers (inhabited pole) | boundary teaser landed; inhabited space and trust economy gated |
 
 ---
@@ -365,12 +365,13 @@ emissive material for machine-readout surfaces.
 - **Open canon:** Resistance resolution versus Synod password, and headphone attenuation versus full negation.
 
 ### T35 — Underground network (parent; contains Milo's workshop)
-- **Status:** first authored node and validation corridor landed as Draft 1. The next safe slice is the workshop's inventory-as-room presentation; wider network content stays gated.
+- **Status:** first authored node, validation corridor, and inventory-as-room presentation landed as Draft 1. Live visual review of the hardware display and the already-deferred underground tuning/QA remain; wider network content stays gated.
 - **Landed world/narrative chain:** the crater latitude/longitude anchor now holds a weathered fallout-shelter entrance concealed by chain-link fence, dense high-definition world trees, and thicket. Project textures skin the entrance geometry. A consonant locator sounds on approach and cuts permanently at the physical threshold; the doorway leads into a first-person, three-zone workshop. Discovering the workbench sets a durable workshop flag for later construction and underground progression; it does not gate T31 acquisition.
 - **Topology contract:** authored nodes carry story, unique inventory, and distinctive silhouettes; seeded procedural corridors connect them without placing story state. The first locked-seed corridor, workshop gate, debug unlock, orientation marks, and production walkthrough landed and were accepted as Draft 1. Detailed acoustic/visibility/traversal validation is deferred to a later underground tuning/QA pass.
 - **Worldbuilding guard:** treat the stratum as a pre-Synod, mixed-infrastructure palimpsest presented as off-SignalNet—not a proven sanctuary. Never resolve whether the Synod cannot reach it, tolerates it, abandoned it, or quietly watches it until the narrative makes that ambiguity earn its answer.
 - **Player/state foundation:** story flags, recovered hardware, Lineglass inventory, route state, and flashlight ownership now share a versioned World save boundary. The persistent `@dissonance/player` camera flashlight is available underground and gates the corridor test; environment/HUD preferences remain separate. This state integration is a mandatory prerequisite for any later T31 construction or wider underground progression.
-- **Workshop direction:** inventory is spatial, not a menu—recovered chassis on its stand and emitter on its cradle are the immediate presentation-only target. Assembly, maintenance, recorded-feed review, terminal/receiver placement, predecessor resolution, and interactable workstations remain later slices.
+- **Inventory-as-room landed (2026-07-31):** persistent empty cradles establish the chassis/emitter silhouettes before acquisition. The stable World-save hardware IDs independently reveal the recovered chassis and emitter, restore on reload, and update immediately after recovery. The exterior source drone hides on recovery and remains hidden after reload or world-feature rebuild, preventing duplicate hardware. Boulevard and workshop presentations share the same app-local ovoid/ring/two-eye silhouette builder; the bench version is inert/scorched, preserving the procedural design Dan liked. This is projection-only: the save remains authoritative, and the display adds no interaction, assembly, mounting, maintenance, terminal, receiver, or piloting behavior. Live visual review remains outstanding because the in-app browser was unavailable; World production build passed.
+- **Workshop later slices:** assembly, maintenance, recorded-feed review, terminal/receiver placement, predecessor resolution, and interactable workstations remain gated or deliberately undesigned.
 - **Owning docs:** `dissonance/underground-network-concept-v1.md`, `dissonance/story-manifest.md`, and `dissonance/world-save-contract.md`.
 - **Ties:** T31 (verb and hardware), T36 (inhabited pole), T6 (inventory-as-room precedent), T9/T20 (enclosed acoustic language), T14 (first-person unwatched depth grammar).
 
@@ -490,14 +491,15 @@ Surveillance Boulevard PoC mined for: boulevard axial layout (urban-edge level d
 
 ```text
 T25 precipitation/storm foundation ✓
-  → T31 acquisition v1 ✓ (stronger-machine live QA follow-up deferred)
-  → T35 shelter/workshop/save/corridor Draft 1 ✓
-  → T35 inventory-as-room presentation NEXT
+  → T31 acquisition v1 ✓ (workshop-independent; stronger-machine live QA follow-up deferred)
+T35 shelter/workshop/save/corridor Draft 1 ✓
+  → T35 inventory-as-room presentation ✓ (live visual review pending)
+  → deferred T31/T35 tuning validation LATER (per Dan)
   → T31 v2 interference/control GATED
   → T36 inhabited Rey Caverns GATED
 ```
 
-Stay on this lane. The next slice is presentation-only recovered hardware in the workshop. Do not cross into assembly, maintenance, terminal/receiver control, `applyDisruption`, or inhabited-space authoring. After that slice, either perform the explicitly deferred T31/T35 tuning validation or stop at the next gate for a deliberate decision.
+The authorized presentation lane now reaches its gate. Live visual review and the T31/T35 tuning pass remain explicitly deferred until later. Do not cross into assembly, maintenance, terminal/receiver control, `applyDisruption`, or inhabited-space authoring. Further work requires a deliberate prerequisite decision for T29/T31 v2; do not infer that decision from this implementation.
 
 ### Legacy cross-project critical path (retained for audit; not the current lane)
 ```
@@ -584,6 +586,7 @@ The former v9.7 “this week” list is removed because its T3 assumptions were 
 
 | Version | Date | Change |
 |---|---|---|
+| 9.54 | 2026-07-31 | T35 inventory-as-room presentation landed: persistent empty workshop cradles and independently save-driven recovered chassis/emitter displays update immediately on recovery and restore on reload. The exterior source hides durably to prevent duplication, and both locations share the established procedural drone silhouette. No construction/control mechanics were added. World build passed; live visual review and the broader T31/T35 tuning pass remain explicitly deferred. The lane now stops at the T29/T31 v2 and T36 gates. |
 | 9.53 | 2026-07-31 | Folded the underground/interference delta into the stable registry without overwriting IDs assigned by v9.51: incoming T31 detail merged into canonical T31, the underground network/workshop became T35, and Rey Caverns became T36; canonical T32 repair-pipeline, T33 corridor, and T34 acoustic-disable threads remain intact. T25 precipitation/storm, T31 acquisition, T35's shelter/workshop/save/corridor foundation, and T36's boundary lurker are landed. Inventory-as-room is next. T31 v2, inhabited Rey space, trust progression, and tonal language remain gated; stronger-machine live QA and detailed underground tuning remain explicitly deferred. The superseded workshop prerequisite was not restored. |
 | 9.52 | 2026-07-30 | Completed T31 v1 acquisition: authored/validated strike profile, Dev Lineglass tuning and JSON round-trip, one canonical drone-settle value, durable anchor/downed-position continuity, and executable deterministic gate/recovery tests. Removed the undocumented workshop prerequisite so the beat again depends only on weather, proximity, and witnessed LOS as its owning brief specifies. |
 | 9.51 | 2026-07-30 | Reconciled staged design deltas with the stable registry: emitter/captured-drone and repair-pipeline work became T31/T32; corridor and acoustic-disable work became T33/T34. Removed duplicate `plans/` copies in favor of canonical `docs/dissonance/` artifacts. |

@@ -14,6 +14,7 @@ import type { StrikeProfile } from './strikeProfile';
 export interface StrikeDroneAccess {
   get(id: string): PatrolDroneSnapshot | null;
   setInert(id: string, position: Vector3, settleSeconds: number): boolean;
+  setRecovered(id: string, recovered: boolean): boolean;
 }
 
 export interface StrikePresentation {
@@ -155,12 +156,24 @@ export class StrikeAcquisitionSystem {
       },
       flags.chassisRecovered ? null : recoverablePosition,
     );
+    if (
+      flags.chassisRecovered &&
+      !this.drones.setRecovered(this.gate.anchor.patrolDroneRef, true)
+    ) {
+      console.error(`[Strike] could not hide recovered drone "${this.gate.anchor.patrolDroneRef}".`);
+    }
   }
 
   recover(playerPosition: Vector3): RecoveryFlags | null {
     if (!this.recovery.isAvailable(playerPosition)) return null;
     const flags = this.recovery.recover();
     this.recoveryAvailable = false;
+    if (
+      flags?.chassisRecovered &&
+      !this.drones.setRecovered(this.gate.anchor.patrolDroneRef, true)
+    ) {
+      console.error(`[Strike] could not hide recovered drone "${this.gate.anchor.patrolDroneRef}".`);
+    }
     return flags;
   }
 

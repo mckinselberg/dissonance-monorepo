@@ -148,9 +148,9 @@ An authored node is required when a place:
 - needs a unique hazard resolution;
 - carries evidence whose exact arrangement matters.
 
-The workshop qualifies on the first three grounds. Its benches and shelves
-will become inventory-as-room surfaces for recovered hardware, but only after
-the relevant T31 beat is authorized. T36's working name is **Rey Caverns**,
+The workshop qualifies on the first three grounds. Its workbench now carries
+presentation-only inventory-as-room surfaces for the two recovered T31 hardware
+IDs. T36's working name is **Rey Caverns**,
 but its inhabited space remains blocked on culture and trust-economy design.
 Its tonal language is separately parked on the unadapted Dissonance Audio HUD
 repository; see `rey-caverns-concept-v1.md`.
@@ -191,3 +191,19 @@ camera-carried flashlight. Milo's persisted flashlight state follows the
 active first-person camera across the exterior/workshop threshold; `L` toggles
 it, and the T35 Dev HUD exposes the same control. This is illumination for
 traversal validation, not a new inventory or acquisition beat.
+
+## Inventory-as-room slice
+
+Draft 1 landed 2026-07-31. The workshop workbench always shows an empty
+drone-shaped cradle and a separate emitter ring. Stable hardware IDs in the
+versioned World save independently reveal the recovered chassis and emitter;
+the projection restores after reload and refreshes immediately when recovery
+commits. Recovery also hides the exterior source drone durably, so the same
+chassis cannot exist on the Boulevard and bench at once. The live and recovered
+presentations share the established app-local ovoid/ring/two-eye silhouette,
+with an inert/scorched bench treatment. The save remains authoritative.
+
+This slice is intentionally non-interactive. It adds no assembly, mounting,
+maintenance, review station, terminal, receiver, piloting, or T31 v2 verb. A
+live visual review remains in the later underground tuning/QA pass; the focused
+World production build passed.

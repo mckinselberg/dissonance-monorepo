@@ -54,6 +54,17 @@ type WorldSaveDocument = {
 Updates replace the complete versioned document. Arrays are deduplicated and
 sorted before writing. View snapshots no longer export Lineglass inventory.
 
+The first stable hardware IDs are centralized in `WORLD_HARDWARE_IDS`:
+
+- `patrol-drone-emitter`;
+- `boulevard-patrol-01-chassis`.
+
+Workshop inventory-as-room meshes are presentation consumers of these IDs.
+They may hide or reveal independently, but they never write progression or
+infer ownership from mesh visibility; the World save remains authoritative.
+On load, known acquisition flags repair any missing corresponding hardware ID;
+`chassisRecovered` also restores the app-local exterior-drone suppression.
+
 ## One-time compatibility
 
 When no v1 World save exists, the store seeds itself from the previous

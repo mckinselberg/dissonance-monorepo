@@ -1,20 +1,21 @@
 import {
   Color3,
   MeshBuilder,
-  PBRMaterial,
   StandardMaterial,
-  TransformNode,
   Vector3,
-  type AbstractMesh,
   type Mesh,
   type Scene,
   type ShadowGenerator,
 } from '@babylonjs/core';
 import type { LocationEntry } from './LocationProps';
+import {
+  BOULEVARD_PATROL_DRONE_BODY_RADIUS,
+  createBoulevardPatrolDroneSilhouette,
+  type BoulevardPatrolDroneSilhouetteHandle,
+} from './BoulevardPatrolDroneSilhouette';
 
 const DEFAULT_SPEED_METERS_PER_SECOND = 3.2;
 const DEFAULT_ALTITUDE_METERS = 4.2;
-const BODY_RADIUS = 0.62;
 const READ_CONE_RADIUS = 7;
 const READ_CONE_ARC = 0.19;
 
@@ -27,9 +28,7 @@ export interface PatrolDroneSnapshot {
 }
 
 class BoulevardPatrolDrone {
-  private readonly root: TransformNode;
-  private readonly bodyMaterial: PBRMaterial;
-  private readonly eyeMaterial: PBRMaterial;
+  private readonly silhouette: BoulevardPatrolDroneSilhouetteHandle;
   private readonly readCone: Mesh;
   private readonly route: Vector3[];
   private segmentIndex = 0;
@@ -38,6 +37,7 @@ class BoulevardPatrolDrone {
   private inertElapsed = 0;
   private inertSettleSeconds = 1.25;
   private groundY = 0;
+  private recovered = false;
 
   constructor(
     private readonly id: string,
@@ -48,46 +48,8 @@ class BoulevardPatrolDrone {
     shadowGenerator?: ShadowGenerator,
   ) {
     this.route = route;
-    this.root = new TransformNode(`patrolDrone:${id}`, scene);
-    this.root.position.copyFrom(route[0]);
-
-    this.bodyMaterial = new PBRMaterial(`patrolDroneBody:${id}`, scene);
-    this.bodyMaterial.albedoColor = new Color3(0.065, 0.075, 0.08);
-    this.bodyMaterial.metallic = 0.85;
-    this.bodyMaterial.roughness = 0.26;
-    const body = MeshBuilder.CreateSphere(
-      `patrolDroneBody:${id}`,
-      { diameter: BODY_RADIUS * 2, segments: 12 },
-      scene,
-    );
-    body.scaling.set(1.25, 0.52, 0.85);
-    body.material = this.bodyMaterial;
-    body.parent = this.root;
-
-    const ring = MeshBuilder.CreateTorus(
-      `patrolDroneRing:${id}`,
-      { diameter: BODY_RADIUS * 1.8, thickness: 0.08, tessellation: 20 },
-      scene,
-    );
-    ring.rotation.x = Math.PI / 2;
-    ring.material = this.bodyMaterial;
-    ring.parent = this.root;
-
-    this.eyeMaterial = new PBRMaterial(`patrolDroneEye:${id}`, scene);
-    this.eyeMaterial.albedoColor = new Color3(0.03, 0.1, 0.12);
-    this.eyeMaterial.emissiveColor = new Color3(0.12, 0.9, 1);
-    this.eyeMaterial.metallic = 0.3;
-    this.eyeMaterial.roughness = 0.25;
-    for (const side of [-1, 1]) {
-      const eye = MeshBuilder.CreateSphere(
-        `patrolDroneEye:${id}:${side}`,
-        { diameter: 0.16, segments: 8 },
-        scene,
-      );
-      eye.position.set(side * 0.3, -0.04, BODY_RADIUS * 0.72);
-      eye.material = this.eyeMaterial;
-      eye.parent = this.root;
-    }
+    this.silhouette = createBoulevardPatrolDroneSilhouette(scene, id, { shadowGenerator });
+    this.silhouette.root.position.copyFrom(route[0]);
 
     const coneMaterial = new StandardMaterial(`patrolDroneReadCone:${id}`, scene);
     coneMaterial.diffuseColor = new Color3(0.08, 0.72, 0.86);
@@ -103,21 +65,19 @@ class BoulevardPatrolDrone {
     this.readCone.material = coneMaterial;
     this.readCone.isPickable = false;
 
-    for (const mesh of [body, ring]) {
-      mesh.receiveShadows = true;
-      shadowGenerator?.addShadowCaster(mesh);
-    }
   }
 
   update(dt: number, getHeightAt: (x: number, z: number) => number): void {
-    this.groundY = getHeightAt(this.root.position.x, this.root.position.z);
+    if (this.recovered) return;
+    const root = this.silhouette.root;
+    this.groundY = getHeightAt(root.position.x, root.position.z);
     if (this.state === 'inert') {
       this.inertElapsed = Math.min(this.inertSettleSeconds, this.inertElapsed + Math.max(0, dt));
       const t = this.inertElapsed / this.inertSettleSeconds;
-      this.root.position.y = this.groundY + this.altitude * (1 - t) + BODY_RADIUS * t;
-      this.root.rotation.z = t * 1.15;
+      root.position.y = this.groundY + this.altitude * (1 - t) + BOULEVARD_PATROL_DRONE_BODY_RADIUS * t;
+      root.rotation.z = t * 1.15;
       const gutter = Math.max(0, 1 - t) * (0.45 + Math.sin(this.inertElapsed * 31) * 0.35);
-      this.eyeMaterial.emissiveColor.set(0.12 * gutter, 0.9 * gutter, gutter);
+      this.silhouette.eyeMaterial.emissiveColor.set(0.12 * gutter, 0.9 * gutter, gutter);
       return;
     }
 
@@ -131,28 +91,35 @@ class BoulevardPatrolDrone {
     }
     const currentFrom = this.route[this.segmentIndex];
     const currentTo = this.route[(this.segmentIndex + 1) % this.route.length];
-    Vector3.LerpToRef(currentFrom, currentTo, this.segmentProgress, this.root.position);
-    this.groundY = getHeightAt(this.root.position.x, this.root.position.z);
-    this.root.position.y = this.groundY + this.altitude;
-    this.root.rotation.y = Math.atan2(
+    Vector3.LerpToRef(currentFrom, currentTo, this.segmentProgress, root.position);
+    this.groundY = getHeightAt(root.position.x, root.position.z);
+    root.position.y = this.groundY + this.altitude;
+    root.rotation.y = Math.atan2(
       currentTo.x - currentFrom.x,
       currentTo.z - currentFrom.z,
     );
-    this.readCone.position.set(this.root.position.x, this.groundY + 0.04, this.root.position.z);
-    this.readCone.rotation.y = this.root.rotation.y - Math.PI * READ_CONE_ARC;
+    this.readCone.position.set(root.position.x, this.groundY + 0.04, root.position.z);
+    this.readCone.rotation.y = root.rotation.y - Math.PI * READ_CONE_ARC;
   }
 
   setInert(position: Vector3, settleSeconds: number): void {
     if (this.state === 'inert') return;
-    this.root.position.copyFrom(position);
+    this.silhouette.root.position.copyFrom(position);
     this.state = 'inert';
     this.inertElapsed = 0;
     this.inertSettleSeconds = Math.max(0.01, settleSeconds);
+    this.silhouette.setPresentation('inert-scorched');
     this.readCone.setEnabled(false);
   }
 
+  setRecovered(recovered: boolean): void {
+    this.recovered = recovered;
+    this.silhouette.root.setEnabled(!recovered);
+    this.readCone.setEnabled(!recovered && this.state === 'patrolling');
+  }
+
   snapshot(): PatrolDroneSnapshot {
-    const position = this.root.position.clone();
+    const position = this.silhouette.root.position.clone();
     return {
       id: this.id,
       state: this.state,
@@ -161,9 +128,7 @@ class BoulevardPatrolDrone {
   }
 
   dispose(): void {
-    const childMeshes = this.root.getChildMeshes(false) as AbstractMesh[];
-    childMeshes.forEach((mesh) => mesh.dispose(false, true));
-    this.root.dispose();
+    this.silhouette.dispose();
     this.readCone.dispose(false, true);
   }
 }
@@ -172,6 +137,7 @@ export interface BoulevardPatrolDronesHandle {
   update(dt: number): void;
   get(id: string): PatrolDroneSnapshot | null;
   setInert(id: string, position: Vector3, settleSeconds: number): boolean;
+  setRecovered(id: string, recovered: boolean): boolean;
   dispose(): void;
 }
 
@@ -223,6 +189,12 @@ export function loadBoulevardPatrolDrones(
       const drone = drones.get(id);
       if (!drone) return false;
       drone.setInert(position, settleSeconds);
+      return true;
+    },
+    setRecovered(id, recovered) {
+      const drone = drones.get(id);
+      if (!drone) return false;
+      drone.setRecovered(recovered);
       return true;
     },
     dispose() {

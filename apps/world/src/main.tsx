@@ -1099,6 +1099,7 @@ async function main() {
       get: (id) => locationFeatures.getPatrolDrone(id),
       setInert: (id, position, settleSeconds) =>
         locationFeatures.setPatrolDroneInert(id, position, settleSeconds),
+      setRecovered: (id, recovered) => locationFeatures.setPatrolDroneRecovered(id, recovered),
     },
     {
       flash: (intensity, durationSeconds) => {
@@ -1118,17 +1119,6 @@ async function main() {
   });
   let strikeProgressPersisted =
     story.has('droneStrikeWitnessed') && worldSave.snapshot().strike.anchorId !== null;
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyE' || event.repeat) return;
-    const flags = strikeAcquisition.recover(
-      controllers[movement.activeMode.value].getPosition(),
-    );
-    if (flags) {
-      story.applyBeat('recover-emitter-and-chassis');
-      console.info('[T31] recovery hand-off', flags);
-    }
-  });
-
   // Forest fire game mechanic — press F to ignite the nearest tree; fire
   // spreads through neighboring trees over time. Reuses treePointsInRegion()
   // (not the full candidate pool), so it can't ignite trees outside that
@@ -1213,6 +1203,7 @@ async function main() {
     movement,
     corridorSeed: runSeed,
     flashlightEnabled: flashlightEnabled.value,
+    hardwareIds: worldSave.snapshot().progression.inventory.hardwareIds,
     lurkerInitiallyGone: story.has('reyLurkerFled'),
     onEntered: () => {
       commitExteriorState('workshop');
@@ -1238,6 +1229,15 @@ async function main() {
       if (workshop.isNearExit()) workshop.exit();
     } else if (workshop.isNearEntrance()) {
       workshop.enter();
+    } else {
+      const flags = strikeAcquisition.recover(
+        controllers[movement.activeMode.value].getPosition(),
+      );
+      if (flags) {
+        story.applyBeat('recover-emitter-and-chassis');
+        workshop.setHardwareIds(worldSave.snapshot().progression.inventory.hardwareIds);
+        console.info('[T31] recovery hand-off', flags);
+      }
     }
   });
   window.addEventListener('keydown', (event) => {

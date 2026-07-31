@@ -20,6 +20,7 @@ import {
   type CorridorDiagnostics,
 } from './UndergroundCorridor';
 import { CorridorLurker, type CorridorLurkerSnapshot } from './CorridorLurker';
+import { createWorkshopInventoryDisplay } from './WorkshopInventoryDisplay';
 
 const INTERIOR_ORIGIN = new Vector3(60_000, -1_000, 60_000);
 const WORKBENCH_POSITION = INTERIOR_ORIGIN.add(new Vector3(0, 0, 22));
@@ -33,6 +34,7 @@ export interface WorkshopSession {
   isCorridorUnlocked(): boolean;
   setCorridorUnlocked(unlocked: boolean): void;
   setFlashlightEnabled(enabled: boolean): void;
+  setHardwareIds(hardwareIds: readonly string[]): void;
   lurkerSnapshot(): CorridorLurkerSnapshot;
   resetLurker(): void;
   enter(): void;
@@ -56,6 +58,7 @@ export function createWorkshopSession(deps: {
   movement: MovementSignals;
   corridorSeed: number;
   flashlightEnabled: boolean;
+  hardwareIds: readonly string[];
   lurkerInitiallyGone: boolean;
   onEntered: () => void;
   onWorkbenchEntered: () => void;
@@ -69,6 +72,7 @@ export function createWorkshopSession(deps: {
     movement,
     corridorSeed,
     flashlightEnabled,
+    hardwareIds,
     lurkerInitiallyGone,
     onEntered,
     onWorkbenchEntered,
@@ -156,16 +160,7 @@ export function createWorkshopSession(deps: {
   box('workshopBenchTop', { width: 5.4, height: 0.22, depth: 1.8 }, new Vector3(0, 1.05, 22), steel);
   box('workshopBenchLeft', { width: 0.35, height: 1, depth: 1.5 }, new Vector3(-2.25, 0.5, 22), steel);
   box('workshopBenchRight', { width: 0.35, height: 1, depth: 1.5 }, new Vector3(2.25, 0.5, 22), steel);
-  const emitterCradle = MeshBuilder.CreateTorus(
-    'workshopEmitterCradle',
-    { diameter: 1.1, thickness: 0.13, tessellation: 24 },
-    scene,
-  );
-  emitterCradle.position.set(0, 1.42, 22);
-  emitterCradle.rotation.x = Math.PI / 2;
-  emitterCradle.material = task;
-  emitterCradle.parent = root;
-  meshes.push(emitterCradle);
+  const inventoryDisplay = createWorkshopInventoryDisplay(scene, root, hardwareIds);
 
   const light = new HemisphericLight('workshopLight', new Vector3(0, 1, 0), scene);
   light.intensity = 0.55;
@@ -255,6 +250,7 @@ export function createWorkshopSession(deps: {
       corridorGate.setEnabled(!unlocked);
     },
     setFlashlightEnabled: (enabled) => flashlight.setEnabled(enabled),
+    setHardwareIds: (ids) => inventoryDisplay.setHardwareIds(ids),
     lurkerSnapshot: () => lurker.snapshot(),
     resetLurker: () => lurker.reset(),
     enter,
@@ -277,6 +273,7 @@ export function createWorkshopSession(deps: {
       camera.dispose();
       flashlight.dispose();
       lurker.dispose();
+      inventoryDisplay.dispose();
       light.dispose();
       corridor.dispose();
       meshes.forEach((mesh) => mesh.dispose(false, true));

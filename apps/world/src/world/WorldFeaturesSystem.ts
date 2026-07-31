@@ -38,6 +38,11 @@ function worldBounds(realWidth: number, realDepth: number, scaleTuning: ScaleTun
 export class WorldFeaturesSystem {
   private compositeLocationsGeneration = 0;
   private readonly heightAt = (x: number, z: number): number => this.terrain.getHeightAt(x, z);
+  private readonly inertPatrolDrones = new Map<
+    string,
+    { position: Vector3; settleSeconds: number }
+  >();
+  private readonly recoveredPatrolDroneIds = new Set<string>();
 
   private constructor(
     private readonly scene: Scene,
@@ -144,7 +149,19 @@ export class WorldFeaturesSystem {
   }
 
   setPatrolDroneInert(id: string, position: Vector3, settleSeconds: number): boolean {
-    return this.patrolDrones.setInert(id, position, settleSeconds);
+    const applied = this.patrolDrones.setInert(id, position, settleSeconds);
+    if (applied) {
+      this.inertPatrolDrones.set(id, { position: position.clone(), settleSeconds });
+    }
+    return applied;
+  }
+
+  setPatrolDroneRecovered(id: string, recovered = true): boolean {
+    const applied = this.patrolDrones.setRecovered(id, recovered);
+    if (!applied) return false;
+    if (recovered) this.recoveredPatrolDroneIds.add(id);
+    else this.recoveredPatrolDroneIds.delete(id);
+    return true;
   }
 
   // Buildings joined props/poles here 2026-07-27 ("make all buildings but
@@ -218,6 +235,10 @@ export class WorldFeaturesSystem {
     this.patrolDrones = loadBoulevardPatrolDrones(
       this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
     );
+    this.inertPatrolDrones.forEach(({ position, settleSeconds }, id) => {
+      this.patrolDrones.setInert(id, position, settleSeconds);
+    });
+    this.recoveredPatrolDroneIds.forEach((id) => this.patrolDrones.setRecovered(id, true));
 
     this.shelterEntrance.dispose();
     this.shelterEntrance = loadFalloutShelterEntrance(

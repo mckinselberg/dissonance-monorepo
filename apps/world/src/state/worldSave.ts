@@ -3,6 +3,11 @@ import type { ActiveMode } from './movement';
 const WORLD_SAVE_KEY = 'dissonance:world-save:v1';
 const LEGACY_STORY_KEY = 'dissonance:world-story-flags:v1';
 
+export const WORLD_HARDWARE_IDS = {
+  patrolDroneEmitter: 'patrol-drone-emitter',
+  boulevardPatrolDroneChassis: 'boulevard-patrol-01-chassis',
+} as const;
+
 export type WorldRouteId = 'exterior' | 'workshop' | 'surveillance';
 
 export interface ExteriorPlayerState {
@@ -51,6 +56,17 @@ const uniqueStrings = (value: unknown): string[] =>
       ))].sort()
     : [];
 
+function normalizeHardwareIds(value: unknown, storyFlags: readonly string[]): string[] {
+  const hardwareIds = new Set(uniqueStrings(value));
+  if (storyFlags.includes('emitterAcquired')) {
+    hardwareIds.add(WORLD_HARDWARE_IDS.patrolDroneEmitter);
+  }
+  if (storyFlags.includes('chassisRecovered')) {
+    hardwareIds.add(WORLD_HARDWARE_IDS.boulevardPatrolDroneChassis);
+  }
+  return [...hardwareIds].sort();
+}
+
 function parseExterior(value: unknown): ExteriorPlayerState | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Partial<ExteriorPlayerState>;
@@ -82,6 +98,7 @@ function parseDocument(value: unknown, fallbackRunSeed = 0): WorldSaveDocument |
   if (!progression || typeof progression !== 'object') return null;
   const inventory = progression.inventory;
   if (!inventory || typeof inventory !== 'object') return null;
+  const storyFlags = uniqueStrings(progression.storyFlags);
   return {
     version: 1,
     savedAt: Number.isFinite(raw.savedAt) ? raw.savedAt as number : Date.now(),
@@ -104,10 +121,10 @@ function parseDocument(value: unknown, fallbackRunSeed = 0): WorldSaveDocument |
       recoverablePosition: parsePosition(raw.strike?.recoverablePosition),
     },
     progression: {
-      storyFlags: uniqueStrings(progression.storyFlags),
+      storyFlags,
       inventory: {
         lineglassPartIds: uniqueStrings(inventory.lineglassPartIds),
-        hardwareIds: uniqueStrings(inventory.hardwareIds),
+        hardwareIds: normalizeHardwareIds(inventory.hardwareIds, storyFlags),
       },
     },
   };
@@ -123,9 +140,7 @@ function readLegacyStoryFlags(): string[] {
 
 function migrate(seed: WorldSaveMigrationSeed): WorldSaveDocument {
   const storyFlags = readLegacyStoryFlags();
-  const hardwareIds: string[] = [];
-  if (storyFlags.includes('emitterAcquired')) hardwareIds.push('patrol-drone-emitter');
-  if (storyFlags.includes('chassisRecovered')) hardwareIds.push('boulevard-patrol-01-chassis');
+  const hardwareIds = normalizeHardwareIds([], storyFlags);
   const hasTransform = seed.position && seed.rotation && [
     seed.position.x, seed.position.y, seed.position.z,
     seed.rotation.x, seed.rotation.y, seed.rotation.z,
@@ -198,9 +213,10 @@ export class WorldSaveStore {
 
   setStoryFlags(storyFlags: readonly string[]): void {
     const normalizedFlags = uniqueStrings(storyFlags);
-    const hardwareIds = new Set(this.document.progression.inventory.hardwareIds);
-    if (normalizedFlags.includes('emitterAcquired')) hardwareIds.add('patrol-drone-emitter');
-    if (normalizedFlags.includes('chassisRecovered')) hardwareIds.add('boulevard-patrol-01-chassis');
+    const hardwareIds = normalizeHardwareIds(
+      this.document.progression.inventory.hardwareIds,
+      normalizedFlags,
+    );
     this.update({
       ...this.document,
       progression: {
@@ -208,7 +224,7 @@ export class WorldSaveStore {
         storyFlags: normalizedFlags,
         inventory: {
           ...this.document.progression.inventory,
-          hardwareIds: [...hardwareIds].sort(),
+          hardwareIds,
         },
       },
     });

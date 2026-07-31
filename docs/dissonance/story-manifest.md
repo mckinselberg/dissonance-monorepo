@@ -47,6 +47,13 @@ IDs are stable lowercase kebab-case. Flags are stable lower camel case.
 This manifest ends at acquisition. Emitter construction, interference,
 piloting, repair, and loss remain separate later beats.
 
+The workshop inventory display is a projection of that acquisition state, not
+another story beat. `patrol-drone-emitter` and
+`boulevard-patrol-01-chassis` independently reveal their diegetic workbench
+objects from the versioned World save and grant no additional flags. The
+`chassisRecovered` flag also suppresses the exterior source presentation on
+restore, preventing a second copy of the same stable chassis.
+
 ## Rey Caverns boundary
 
 The one-shot `glimpse-rey-caverns-lurker` beat sits after workshop discovery
