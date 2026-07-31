@@ -119,6 +119,22 @@
   font-size: 10px;
   letter-spacing: .03em;
 }
+.weather-toggle-grid,
+.lineglass-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 10px;
+  padding-top: 5px;
+}
+.weather-select-row {
+  display: grid !important;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 0 !important;
+}
+.weather-select-row select { min-width: 0; width: 100%; }
+.companion-controls { display: grid; gap: 8px; padding-top: 5px; }
 
 .lineglass__legend { display: flex; gap: 18px; padding: 10px 14px; border-top: 1px solid var(--lineglass-border); }
 .lineglass-source { color: var(--lineglass-text-muted); text-transform: uppercase; }

@@ -70,6 +70,7 @@ import { EnvironmentEmissiveController } from './state/EnvironmentEmissiveContro
 import { createEnvironmentProfileRegistry, findEnvironmentProfile } from './state/environmentProfiles';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
 import { EnvironmentProfileRow } from './ui/EnvironmentProfileRow';
+import { WeatherRow } from './ui/WeatherRow';
 import { StrikeTuningRow } from './ui/StrikeTuningRow';
 import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
@@ -502,20 +503,37 @@ async function main() {
         primary: 'Forest',
         secondary: `${bulkForest.bulkForestPlacedCount.value.toFixed(0)} placed · R ${bulkForest.bulkForestRadius.value.toFixed(0)} m`,
       }),
-      rootIds: ['toggles-root', 'world-root'],
+      rootIds: ['world-root'],
     },
     {
-      id: 'sky', label: 'Sky', icon: '☁', modes: ['tune'], priority: 20,
+      id: 'sky', label: 'Environment', icon: '☼', modes: ['tune'], priority: 20,
       capabilities: ['edit-world'],
       source: 'profile',
       summary: () => ({
         primary: findEnvironmentProfile(environmentProfiles, environmentProfileId.value).label,
-        secondary: `Fog ${atmosphere.fogDensity.value.toFixed(4)}`,
+        secondary: `${atmosphere.timeOfDay.value.toFixed(1)} h · fog ${atmosphere.fogDensity.value.toFixed(4)}`,
       }),
       rootIds: ['atmosphere-root'],
     },
     {
-      id: 'audio', label: 'Audio', icon: '≋', modes: ['inspect', 'tune'], priority: 30,
+      id: 'weather', label: 'Weather', icon: '☂', modes: ['tune'], priority: 30,
+      capabilities: ['edit-world'],
+      source: 'live',
+      summary: () => ({
+        primary: precipitationMode.value === 'none' ? weatherMode.value : precipitationMode.value,
+        secondary: atmosphere.overcast.value ? 'overcast' : `${atmosphere.cloudCount.value.toFixed(0)} clouds`,
+      }),
+      rootIds: ['weather-root'],
+    },
+    {
+      id: 'layers', label: 'Layers', icon: '▱', modes: ['tune'], priority: 40,
+      capabilities: ['edit-world'],
+      source: 'live',
+      summary: () => ({ primary: 'Terrain · water · references', secondary: 'visibility' }),
+      rootIds: ['layers-root'],
+    },
+    {
+      id: 'audio', label: 'Audio', icon: '≋', modes: ['inspect', 'tune'], priority: 50,
       capabilities: ['inspect-world'],
       source: 'live',
       overrideCount: [
@@ -529,7 +547,7 @@ async function main() {
       rootIds: ['audio-root'],
     },
     ...(level.cameraMode === 'orbit' ? [] : [{
-      id: 'movement', label: 'Movement', icon: '↟', modes: ['inspect', 'tune'], priority: 40,
+      id: 'movement', label: 'Movement', icon: '↟', modes: ['inspect', 'tune'], priority: 60,
       capabilities: ['inspect-world'],
       source: 'live',
       summary: () => ({
@@ -537,6 +555,16 @@ async function main() {
         secondary: `${(savedSettings.cameraHeightOffset ?? 0).toFixed(1)} m camera`,
       }),
       rootIds: ['movement-root'],
+    } satisfies LineglassModuleDefinition]),
+    ...(level.cameraMode === 'orbit' ? [] : [{
+      id: 'companion', label: 'Companion', icon: '♙', modes: ['inspect', 'tune'], priority: 70,
+      capabilities: ['inspect-world'],
+      source: 'live',
+      summary: () => ({
+        primary: visibility.mechDog.value ? 'Mech dog visible' : 'Mech dog hidden',
+        secondary: mechDogSkin.value === 'default' ? 'mech skin' : 'black pet-friend skin',
+      }),
+      rootIds: ['companion-root'],
     } satisfies LineglassModuleDefinition]),
     {
       id: 'navigation', label: 'Navigation', icon: '⌖', modes: ['inspect', 'author'], priority: 20,
@@ -591,114 +619,83 @@ async function main() {
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
   levelLabel.textContent = level.label;
 
-  // All toggle checkboxes in one place — visibility (7) + Overcast (was in
-  // AtmosphereRow) + Bounded world (was in MovementRow, player-mode only).
-  // Grid instead of one-per-line: that stacked layout was the whole reason
-  // this pass started (see THREADS.md). VisibilityToggles returns a
-  // Fragment, so its <label> children land as direct grid-item siblings of
-  // the Overcast/Bounded-world labels below — one flat grid, not nested.
   render(
-    <Section title='Toggles'>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', columnGap: '10px' }}>
-        <VisibilityToggles
-          signals={visibility}
-          onTerrainCommit={(checked) => terrain.setTerrainVisible(checked)}
-          onOsmCommit={(checked) => terrain.setOsmVisible(checked)}
-          onGpxCommit={(checked) => terrain.setGpxVisible(checked)}
-          onWaterCommit={(checked) => water.setVisible(checked)}
-          onCloudsCommit={(checked) => backdrop.setCloudsVisible(checked)}
-          onGridCommit={(checked) => terrain.setGridVisible(checked)}
-          onMountainsCommit={(checked) => backdrop.setMountainsVisible(checked)}
-          lineglassCollectedPartIds={lineglass.collectedPartIds}
+    <div class='lineglass-control-grid'>
+      <VisibilityToggles
+        signals={visibility}
+        onTerrainCommit={(checked) => terrain.setTerrainVisible(checked)}
+        onOsmCommit={(checked) => terrain.setOsmVisible(checked)}
+        onGpxCommit={(checked) => terrain.setGpxVisible(checked)}
+        onWaterCommit={(checked) => water.setVisible(checked)}
+        onGridCommit={(checked) => terrain.setGridVisible(checked)}
+        onMountainsCommit={(checked) => backdrop.setMountainsVisible(checked)}
+        lineglassCollectedPartIds={lineglass.collectedPartIds}
+      />
+      {level.cameraMode !== 'orbit' && (
+        <ToggleLabel
+          label='Power lines'
+          signal={visibility.powerLines}
+          onCommit={(checked) => locationFeatures.setPowerLinesVisible(checked)}
         />
-        <ToggleLabel label='Overcast' signal={atmosphere.overcast} onCommit={() => backdrop.rebuildClouds()} />
-        {/* Not a ToggleLabel — weatherMode is 'clear'|'windy', not a plain
-            boolean signal, so it needs its own checked/onChange conversion
-            rather than ToggleLabel's Signal<boolean> contract. */}
-        <label>
-          <input
-            type='checkbox'
-            checked={weatherMode.value === 'windy'}
-            onChange={(e: JSX.TargetedEvent<HTMLInputElement>) => {
-              weatherMode.value = e.currentTarget.checked ? 'windy' : 'clear';
-              weatherSystem.setMode(weatherMode.value);
-              backdrop.rebuildClouds();
-            }}
-          />{' '}
-          Windy
-        </label>
-        <label>
-          Precipitation{' '}
+      )}
+    </div>,
+    document.getElementById('layers-root') as HTMLDivElement,
+  );
+
+  render(
+    <WeatherRow
+      atmosphere={atmosphere}
+      weatherMode={weatherMode}
+      precipitationMode={precipitationMode}
+      cloudsVisible={visibility.clouds}
+      onOvercastCommit={() => backdrop.rebuildClouds()}
+      onWeatherModeCommit={(mode) => {
+        weatherSystem.setMode(mode);
+        backdrop.rebuildClouds();
+      }}
+      onPrecipitationCommit={(mode) => {
+        weatherSystem.requestPrecipitation(mode, mode === 'none' ? 0 : 1);
+      }}
+      onCloudsVisibleCommit={(visible) => backdrop.setCloudsVisible(visible)}
+      onCloudCountCommit={() => backdrop.rebuildClouds()}
+      onCloudColorCommit={() => backdrop.rebuildClouds()}
+      onCloudOpacityCommit={() => backdrop.rebuildClouds()}
+    />,
+    document.getElementById('weather-root') as HTMLDivElement,
+  );
+
+  if (level.cameraMode !== 'orbit') {
+    render(
+      <div class='companion-controls'>
+        <ToggleLabel
+          label='Mech dog visible'
+          signal={visibility.mechDog}
+          onCommit={(checked) => mechDog.setVisible(checked)}
+        />
+        <label class='weather-select-row'>
+          <span>Skin</span>
           <select
-            value={precipitationMode.value}
-            onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
-              precipitationMode.value = e.currentTarget.value as PrecipitationMode;
-              weatherSystem.requestPrecipitation(
-                precipitationMode.value,
-                precipitationMode.value === 'none' ? 0 : 1,
-              );
+            value={mechDogSkin.value}
+            onChange={(event: JSX.TargetedEvent<HTMLSelectElement>) => {
+              mechDog.setSkin(event.currentTarget.value as MechDogSkin);
             }}
           >
-            <option value='none'>None</option>
-            <option value='rain'>Rain</option>
-            <option value='snow'>Snow</option>
-            <option value='storm'>Storm</option>
+            <option value='default'>Mech (default)</option>
+            <option value='black'>Black (pet-friend)</option>
           </select>
         </label>
-        {level.cameraMode !== 'orbit' && (
-          <ToggleLabel label='Bounded world' signal={worldBounded} onCommit={() => {}} />
-        )}
-        {/* utilityCorridors (boulevard power line) only loads in the
-            non-orbit path, same as compositeLocations' buildings — gated
-            here rather than through VisibilityToggles' shared, orbit-safe
-            prop contract. */}
-        {level.cameraMode !== 'orbit' && (
-          <ToggleLabel
-            label='Power lines'
-            signal={visibility.powerLines}
-            onCommit={(checked) => locationFeatures.setPowerLinesVisible(checked)}
-          />
-        )}
-        {level.cameraMode !== 'orbit' && (
-          <ToggleLabel
-            label='Mech dog'
-            signal={visibility.mechDog}
-            onCommit={(checked) => mechDog.setVisible(checked)}
-          />
-        )}
-        {/* Same rig/animations underneath either way — this just swaps
-            which glTF reskins it, from the menacing mech-dog default
-            toward a plainer pet-dog look. Not a ToggleLabel: more than two
-            skins may land later (see MechDogSkin), so this is a <select>
-            rather than a boolean checkbox. */}
-        {level.cameraMode !== 'orbit' && (
-          <label>
-            Dog skin{' '}
-            <select
-              value={mechDogSkin.value}
-              onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
-                mechDog.setSkin(e.currentTarget.value as MechDogSkin);
-              }}
-            >
-              <option value='default'>Mech (default)</option>
-              <option value='black'>Black (pet-friend)</option>
-            </select>
-          </label>
-        )}
-      </div>
-    </Section>,
-    document.getElementById('toggles-root') as HTMLDivElement,
-  );
+      </div>,
+      document.getElementById('companion-root') as HTMLDivElement,
+    );
+  }
 
   // World — level-1-only scale-tuning (H-scale/V-exagg/water-level) plus
   // tree count, which (unlike H/V/water) applies on every level, so it
   // mounts unconditionally while ScaleTuningRow stays gated beneath it.
-  // Mounted into its own root (right after Toggles in index.html's DOM
-  // order) so "what the terrain looks like" controls read as one group,
-  // even though the underlying signals (created earlier) and the rebuild
-  // logic they trigger stay exactly where they were.
+  // Mounted into the World module so geometry and vegetation tuning remain
+  // separate from Layers visibility and Weather state.
   render(
-    <Section title='World'>
+    <div class='world-tuning-controls'>
       <div style={{ marginTop: '6px', color: '#9cf', fontWeight: 700 }}>Trailside trees (full-detail GLBs)</div>
       <SliderRow
         label='Trailside H-scale'
@@ -799,13 +796,12 @@ async function main() {
           }}
         />
       )}
-    </Section>,
+    </div>,
     document.getElementById('world-root') as HTMLDivElement,
   );
 
-  // Sky controls — mounted here (before the orbit early-return below)
-  // rather than alongside movement-mode/camera-height, since time-of-day/
-  // fog/stars/clouds all render in orbit mode (level 3) too, unlike
+  // Environment controls — mounted here (before the orbit early-return
+  // below) because profile/time/fog/stars render in orbit mode too, unlike
   // Walk/Fly/Drive which orbit has no equivalent of. Preact-rendered pilot
   // (see docs/THREADS.md); commit handlers below mirror the dispose/
   // recreate bodies the old change-listeners used 1:1.
@@ -831,16 +827,13 @@ async function main() {
       <AtmosphereRow
         signals={atmosphere}
         onStarCountCommit={() => backdrop.rebuildStars()}
-        onCloudCountCommit={() => backdrop.rebuildClouds()}
-        onCloudColorCommit={() => backdrop.rebuildClouds()}
-        onCloudOpacityCommit={() => backdrop.rebuildClouds()}
       />
     </div>,
     document.getElementById('atmosphere-root') as HTMLDivElement,
   );
 
   render(
-    <Section title='Audio'>
+    <div>
       <AudioRow
         signals={audio}
         showPlayerControls={level.cameraMode !== 'orbit'}
@@ -849,7 +842,7 @@ async function main() {
         onFootstepMutedCommit={(muted) => trailPlayerAudio.setFootstepMuted(muted)}
         onBreathMutedCommit={(muted) => trailPlayerAudio.setBreathMuted(muted)}
       />
-    </Section>,
+    </div>,
     document.getElementById('audio-root') as HTMLDivElement,
   );
 
@@ -1620,6 +1613,7 @@ async function main() {
   render(
     <MovementRow
           signals={movement}
+          worldBounded={worldBounded}
           onModeChange={(mode) => {
             if (!isExteriorGameplay()) return;
             switchMode(mode);

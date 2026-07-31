@@ -3,8 +3,8 @@ import type { JSX } from 'preact';
 import type { VisibilitySignals } from '../state/visibility';
 import { unlockedLineglassLayers } from '../state/lineglass';
 
-// Exported so main.tsx can render Overcast/Bounded-world alongside these as
-// siblings in one shared toggle grid — see the "Toggles" section there.
+// Exported for compact boolean controls shared by the Layers, Weather,
+// Movement, and Companion modules.
 export function ToggleLabel({ label, signal: sig, onCommit }: { label: string; signal: Signal<boolean>; onCommit: (checked: boolean) => void }) {
   const handleChange = (e: JSX.TargetedEvent<HTMLInputElement>) => {
     const checked = e.currentTarget.checked;
@@ -24,7 +24,6 @@ export type VisibilityTogglesProps = {
   onOsmCommit: (checked: boolean) => void;
   onGpxCommit: (checked: boolean) => void;
   onWaterCommit: (checked: boolean) => void;
-  onCloudsCommit: (checked: boolean) => void;
   onGridCommit: (checked: boolean) => void;
   onMountainsCommit: (checked: boolean) => void;
   // state/lineglass.ts — the Signal itself (not a plain boolean snapshot),
@@ -37,7 +36,7 @@ export type VisibilityTogglesProps = {
 };
 
 export function VisibilityToggles({
-  signals, onTerrainCommit, onOsmCommit, onGpxCommit, onWaterCommit, onCloudsCommit, onGridCommit,
+  signals, onTerrainCommit, onOsmCommit, onGpxCommit, onWaterCommit, onGridCommit,
   onMountainsCommit, lineglassCollectedPartIds,
 }: VisibilityTogglesProps) {
   const unlocked = unlockedLineglassLayers(lineglassCollectedPartIds.value.length);
@@ -51,7 +50,6 @@ export function VisibilityToggles({
       {unlocked.has('osm') && <ToggleLabel label="OSM Trails" signal={signals.osm} onCommit={onOsmCommit} />}
       {unlocked.has('gpx') && <ToggleLabel label="GPX Track" signal={signals.gpx} onCommit={onGpxCommit} />}
       <ToggleLabel label="Water" signal={signals.water} onCommit={onWaterCommit} />
-      <ToggleLabel label="Clouds" signal={signals.clouds} onCommit={onCloudsCommit} />
       {unlocked.has('grid') && <ToggleLabel label="Lat/Long Grid" signal={signals.grid} onCommit={onGridCommit} />}
       <ToggleLabel label="Mountains" signal={signals.mountains} onCommit={onMountainsCommit} />
       {/* Power lines deliberately not here — utilityCorridors (main.tsx) only

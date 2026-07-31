@@ -80,7 +80,7 @@ export function ColorPicker({ signal: sig, commitOn = 'input', onCommit }: Color
   return <input type="color" value={sig.value} style={colorInputStyle} {...eventProp} />;
 }
 
-function ColorRow({
+export function ColorRow({
   label,
   signal,
   commitOn = 'input',
@@ -95,7 +95,7 @@ function ColorRow({
   );
 }
 
-function ControlGroup({ label, children }: { label: string; children: JSX.Element | JSX.Element[] }) {
+export function ControlGroup({ label, children }: { label: string; children: JSX.Element | JSX.Element[] }) {
   return (
     <div class="atmosphere-control-group">
       <div class="atmosphere-control-group__label">{label}</div>
@@ -104,21 +104,16 @@ function ControlGroup({ label, children }: { label: string; children: JSX.Elemen
   );
 }
 
-// Overcast moved to the shared "Toggles" section (main.tsx) and tree count
-// to "World" (main.tsx's TreeCountRow) — both used to live here, but neither
-// is really an "atmosphere" control: overcast is a toggle (grouped with the
-// other toggles), tree count is world density (grouped with H-scale/V-exag/
-// water-level). What's left here is genuinely sky-only.
+// Presentation controls owned by the Environment module. Weather owns
+// clouds/overcast/wind/precipitation; this component owns the profile-adjacent
+// lighting, fog, and celestial presentation controls.
 export type AtmosphereRowProps = {
   signals: AtmosphereSignals;
   onStarCountCommit: (value: number) => void;
-  onCloudCountCommit: (value: number) => void;
-  onCloudColorCommit: (value: string) => void;
-  onCloudOpacityCommit: (value: number) => void;
 };
 
 export function AtmosphereRow({
-  signals, onStarCountCommit, onCloudCountCommit, onCloudColorCommit, onCloudOpacityCommit,
+  signals, onStarCountCommit,
 }: AtmosphereRowProps) {
   return (
     <div id="atmosphere-row" class="atmosphere-controls">
@@ -157,27 +152,6 @@ export function AtmosphereRow({
           style={tuningRowStyle}
         />
         <ColorRow label="Color" signal={signals.starColor} />
-      </ControlGroup>
-
-      <ControlGroup label="Clouds">
-        <SliderRow
-          label="Count"
-          signal={signals.cloudCount}
-          min={0} max={60} step={2}
-          commitOn="change"
-          onCommit={onCloudCountCommit}
-          style={tuningRowStyle}
-        />
-        <SliderRow
-          label="Opacity"
-          signal={signals.cloudOpacity}
-          min={0} max={1} step={0.05}
-          format={(v) => v.toFixed(2)}
-          commitOn="change"
-          onCommit={onCloudOpacityCommit}
-          style={tuningRowStyle}
-        />
-        <ColorRow label="Color" signal={signals.cloudColor} commitOn="change" onCommit={onCloudColorCommit} />
       </ControlGroup>
     </div>
   );
