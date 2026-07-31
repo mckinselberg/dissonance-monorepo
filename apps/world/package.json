@@ -13,6 +13,7 @@
     "@dissonance/audio": "workspace:*",
     "@dissonance/engine": "workspace:*",
     "@dissonance/geo": "workspace:*",
+    "@dissonance/materials": "workspace:*",
     "@dissonance/player": "workspace:*",
     "@dissonance/pursuer": "workspace:*",
     "@dissonance/pursuit": "workspace:*",

@@ -8,6 +8,7 @@
       "@dissonance/engine": ["../../packages/engine/src/index.ts"],
       "@dissonance/world": ["../../packages/world/src/index.ts"],
       "@dissonance/geo": ["../../packages/geo/src/index.ts"],
+      "@dissonance/materials": ["../../packages/materials/src/index.ts"],
       "@dissonance/player": ["../../packages/player/src/index.ts"],
       "@dissonance/pursuer": ["../../packages/pursuer/src/index.ts"],
       "@dissonance/pursuit": ["../../packages/pursuit/src/index.ts"],

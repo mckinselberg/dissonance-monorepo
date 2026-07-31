@@ -2,35 +2,22 @@ import {
   Engine,
   Scene,
   ArcRotateCamera,
-  FreeCamera,
-  HemisphericLight,
   Vector3,
   Color3,
-  Color4,
-  Mesh,
-  MeshBuilder,
   DefaultRenderingPipeline,
 } from '@babylonjs/core';
 import { GameLoop } from '@dissonance/engine';
 import {
-  HeightmapTerrain,
   WaterPlane,
   defaultWaterLevel,
-  DriftingClouds,
-  Sun,
-  sunHeightForHour,
-  StarField,
   ForestFire,
+  ThunderScheduler,
   WeatherSystem,
-  MountainRing,
-  type ITerrain,
-  type TreePoint,
   type FoliageSwaySource,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
 import { AmbientAudio, AudioEngine, HeartbeatAudio, TrailPlayerAudio } from '@dissonance/audio';
-import { PursuerSystem, type PursuerConfig } from '@dissonance/pursuit';
-import type { WeatherMode } from '@dissonance/shared-types';
+import type { PrecipitationMode, WeatherMode } from '@dissonance/shared-types';
 import { preventAccidentalClose } from '@dissonance/utils';
 import {
   decodeHeightmapPng,
@@ -38,27 +25,25 @@ import {
   originFromBoundingBox,
   latLonToWorld,
   worldToLatLon,
-  parseGeoJsonTrails,
-  parseGpxTrack,
-  graticuleLines,
-  type HeightmapContract,
-  type GeoPolyline,
-  type UtmCoordinate,
-  type GraticuleLine,
 } from '@dissonance/geo';
 import { render } from 'preact';
 import type { JSX } from 'preact';
 import { signal, effect } from '@preact/signals';
+import { LEVELS, currentLevelKey } from './state/levels';
+import { loadSavedSettings, saveSettings } from './state/settingsStorage';
+import { buildSharedSettingsSnapshot } from './state/snapshot';
+import { loadHeightmap, loadTrails, loadGpxTrack, loadSavedViews, loadLocations, loadReplayRoutes } from './data/loaders';
+import { hideLoadingOverlay } from './utils';
 import { createAtmosphereSignals } from './state/atmosphere';
-import { createMovementSignals, type ActiveMode } from './state/movement';
 import { createScaleTuningSignals } from './state/scaleTuning';
 import { createTrailsideScatterSignals } from './state/trailsideScatter';
-import { createBulkForestScatterSignals } from './state/bulkForestScatter';
-import { scatterLocationProps, type LocationEntry } from './world/LocationProps';
-import { loadCompositeLocations } from './world/CompositeLocations';
-import { loadUtilityCorridors } from './world/UtilityCorridors';
-import { loadLineglassParts } from './world/LineglassParts';
-import { WorldFeatureRegistry } from './world/WorldFeatureRegistry';
+import { TerrainOverlaySystem } from './world/TerrainOverlaySystem';
+import { BackdropSystem } from './world/BackdropSystem';
+import { PrecipitationVisualSystem } from './world/PrecipitationVisualSystem';
+import { BulkForestSystem, MAX_TREE_COUNT } from './world/BulkForestSystem';
+import { TrailsideForestSystem } from './world/TrailsideForestSystem';
+import { WorldFeaturesSystem } from './world/WorldFeaturesSystem';
+import { createTraversalRig } from './world/TraversalRig';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
 import { createLineglassSignals, unlockedLineglassLayers, LINEGLASS_TIERS } from './state/lineglass';
@@ -67,95 +52,18 @@ import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
 import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
-import { ViewToolsRow, type SavedView } from './ui/ViewToolsRow';
+import { ViewToolsRow } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
 import { RouteRecorder, type RouteSample } from './ui/RouteRecorder';
-import { RouteReplay, parseRouteDocument, type ReplayRoute } from './ui/RouteReplay';
+import { RouteReplay } from './ui/RouteReplay';
 import { Section } from './ui/Section';
 import { AudioRow } from './ui/AudioRow';
-import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './world/HeroTreeInstances';
-import { MechDogBody, type MechDogSkin } from './pursuer/MechDogBody';
+import type { MechDogSkin } from './pursuer/MechDogBody';
+import { MechDogController } from './pursuer/MechDogController';
 import { WHISTLE_MELODIES } from './state/whistle';
-
-const OSM_TRAIL_Y_LIFT = 0.5;
-// Slightly higher than the OSM trails so the recorded track sits visibly on
-// top of them instead of z-fighting where the two coincide.
-const GPX_TRACK_Y_LIFT = 0.7;
-const GPX_TRACK_COLOR = new Color3(1.0, 0.1, 0.1);
-
-// World's first pursuer slice deliberately keeps the behavior small: the
-// dog closes from directly ahead, then holds a readable standoff instead of
-// triggering DTA's catch/end-run flow. The reusable movement state machine
-// remains in @dissonance/pursuit; World owns this tuning and presentation.
-const WORLD_MECH_DOG_CONFIG: PursuerConfig = {
-  startDistance: 12,
-  baseSpeed: 2.6,
-  maxSpeed: 7.5,
-  catchRadius: 0.5,
-  nearThreshold: 20,
-  closeThreshold: 8,
-  sprintAggressionGain: 0.016,
-  stillAggressionLoss: 0.006,
-  aggressionDecayRate: 0.002,
-  stunMin: 0.8,
-  stunRange: 0.4,
-  orbitStrength: 0.2,
-  reengageDelay: 1,
-};
-const MECH_DOG_STANDOFF_DISTANCE = 3.5;
-const MECH_DOG_VISUAL_HEIGHT = 0.65;
-
-// Ported from dont-turn-around's MountainRing (@dissonance/world) to mask
-// the DEM's rectangular edge — without it the terrain just stops and the
-// void beyond reads as falling off the edge of a cube. DTA's ring is a
-// fixed-size circle around a ~340-unit-radius world; this DEM is
-// real-world-scale, rescalable (H-scale/V-exagg sliders), and rectangular,
-// so the ring uses MountainRing's 'rectangle' shape hugging the DEM's own
-// bbox (see mountainRingOptions below) instead of a circle — a circle here
-// would either leave a large gap along the flat edges (if sized to clear
-// the corners) or clip through the corners (if sized to hug the edges),
-// since this bbox's aspect ratio isn't square. Rebuilt alongside the
-// terrain in rebuildWorld whenever hScale/vExag change.
-// Real (unscaled) meters the ring's base sits below the DEM's lowest point,
-// so it never floats above the terrain it's meant to be a backdrop for.
-const MOUNTAIN_BASE_MARGIN_M = 50;
-// Dark blue-grey distant-silhouette tone — reuses DTA's ps3-mode color
-// (its most naturalistic profile) rather than tying to the terrain/sky
-// color pickers, which is more churn than this needs right now.
-const MOUNTAIN_NEAR_COLOR = new Color3(0.06, 0.066, 0.095);
-
-// Three-tier slope-blended ground material (see HeightmapTerrain's
-// slopeTextures option) — flat/mid/steep, blended by DEM-derived slope,
-// not external land-cover data (this dataset has none).
-const TERRAIN_TEXTURES_BASE = `${import.meta.env.BASE_URL}textures/`;
-const TERRAIN_SLOPE_TEXTURES = {
-  flat: {
-    diffuseUrl: `${TERRAIN_TEXTURES_BASE}forest-ground-04/forest_ground_04_diff_512.jpg`,
-    normalUrl: `${TERRAIN_TEXTURES_BASE}forest-ground-04/forest_ground_04_nor_gl_512.png`,
-  },
-  mid: {
-    diffuseUrl: `${TERRAIN_TEXTURES_BASE}rocky-terrain-02/rocky_terrain_02_diff_512.jpg`,
-    normalUrl: `${TERRAIN_TEXTURES_BASE}rocky-terrain-02/rocky_terrain_02_nor_gl_512.png`,
-  },
-  steep: {
-    diffuseUrl: `${TERRAIN_TEXTURES_BASE}marble-cliff-03/marble_cliff_03_diff_512.jpg`,
-    normalUrl: `${TERRAIN_TEXTURES_BASE}marble-cliff-03/marble_cliff_03_nor_gl_512.png`,
-  },
-};
-
-// Highest of the three drape lifts — the grid is a measurement layer that
-// should read as sitting "above" both trail layers, not fighting either for
-// z-order where they cross.
-const GRID_Y_LIFT = 0.9;
-// ~111m lat / ~84m lon at 40.7°N. Must match (or cleanly derive from) the
-// placement-manifest cell interval once that lands in packages/geo.
-const GRID_INTERVAL_DEG = 0.001;
-// Sampled through the projection rather than drawn as 2-point lines — at
-// SMR's scale the curvature is sub-visual, but sampling is itself the
-// validation (a kinked/skewed line here would mean a projection bug).
-const GRID_LINE_SAMPLES = 64;
-const GRID_LINE_COLOR = new Color3(0.4, 0.75, 0.8);
-const GRID_LINE_ALPHA = 0.35;
+import { createSurveillanceSession } from './interiors/SurveillanceSession';
+import { InteriorDebugRow } from './ui/InteriorDebugRow';
+import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
 
 // Underwater look — WaterPlane's own "murky underside" mesh already gives a
 // plausible ceiling when you dip below the surface (Fly/Drive have no
@@ -170,75 +78,19 @@ const GRID_LINE_ALPHA = 0.35;
 // pass would read better but is a separate, riskier visual change.
 const UNDERWATER_FOG_COLOR = Color3.FromHexString('#0a2e33');
 const UNDERWATER_FOG_DENSITY = 0.04;
+const RUN_SEED_SESSION_KEY = 'dissonance:world-run-seed';
 
-type LevelConfig = {
-  label: string;
-  gridResolution: number;
-  verticalExaggeration: number;
-  horizontalScale: number;
-  playerScale: number;
-  // Babylon's camera far-clip defaults to 10000 units — fine for level 1's
-  // true ~5.7km world, but level 2's world is scaled up past that.
-  farClip: number;
-  cameraMode: 'player' | 'orbit';
-  // FlightController's own default (30 m/s) is tuned for level 1's true
-  // ~5.7km world — at level 2's 7x-bigger world, the same speed covers a
-  // proportionally smaller fraction of the map, so it's scaled up by the
-  // same horizontalScale to keep fly-mode traversal feeling comparable.
-  flightSpeed: number;
-};
-
-// Three ways of looking at the same data:
-// - Level 1: Y-only exaggeration. Distorts real slope angles (steeper than
-//   reality), so the player is shrunk to compensate and still feel
-//   proportionate against the now-much-steeper terrain.
-// - Level 2: uniform X/Y/Z scale. True slope angles preserved (nothing
-//   gets steeper than reality) — the world is just bigger, which by
-//   itself makes an unscaled player relatively smaller/slower.
-// - Level 3: the original Phase 3/4 validation view — true scale, no
-//   player at all, just a free orbit camera over the whole model.
-const LEVELS: Record<string, LevelConfig> = {
-  '1': {
-    label: 'Level 1: exaggerated relief, shrunk player',
-    gridResolution: 700,
-    verticalExaggeration: 10,
-    horizontalScale: 1,
-    playerScale: 0.1,
-    farClip: 10000,
-    cameraMode: 'player',
-    flightSpeed: 30,
-  },
-  // gridResolution bumped to partially offset horizontalScale stretching
-  // each mesh quad ~7x wider once rendered (700 alone would make ~57m
-  // quads — coarse enough up close to visibly diverge from getHeightAt's
-  // precise DEM sampling; 1000 brings that down to ~40m, still coarser
-  // than level 1 but less extreme). farClip raised well past the ~40km
-  // rendered world diagonal so distant terrain doesn't just vanish.
-  '2': {
-    label: 'Level 2: uniform 7x world scale',
-    gridResolution: 1000,
-    verticalExaggeration: 7,
-    horizontalScale: 7,
-    playerScale: 1,
-    farClip: 60000,
-    cameraMode: 'player',
-    flightSpeed: 210,
-  },
-  '3': {
-    label: 'Level 3: true scale, orbit view',
-    gridResolution: 700,
-    verticalExaggeration: 1,
-    horizontalScale: 1,
-    playerScale: 1,
-    farClip: 10000,
-    cameraMode: 'orbit',
-    flightSpeed: 30,
-  },
-};
-
-function currentLevelKey(): string {
-  const key = new URLSearchParams(location.search).get('level') ?? '1';
-  return key in LEVELS ? key : '1';
+function getOrCreateRunSeed(): number {
+  const stored = sessionStorage.getItem(RUN_SEED_SESSION_KEY);
+  if (stored !== null) {
+    const parsed = Number(stored);
+    if (Number.isInteger(parsed) && parsed >= 0) return parsed;
+  }
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  const seed = values[0];
+  sessionStorage.setItem(RUN_SEED_SESSION_KEY, String(seed));
+  return seed;
 }
 
 // Fly and Drive are unconditionally available in this POC — no unlock gate
@@ -249,261 +101,6 @@ function currentLevelKey(): string {
 // (packages/persistence is still a stub) and a reason to gate progression
 // at all, neither of which exists yet.
 // (ActiveMode itself lives in state/movement.ts, alongside its signal.)
-
-// Everything a level-1/2 session might want to survive a reload — position,
-// look direction, which traversal mode was active, and the live-tuned
-// scale/water/camera-height/atmosphere sliders. Saved per level key, since
-// position and scale are only meaningful within a given level's own
-// coordinate space. orbitX/Y/Z/Alpha/Beta/Radius are the level-3 (orbit)
-// equivalent — orbit's own position field above doesn't apply to it (an
-// ArcRotateCamera's "position" is a derived value of target+radius/alpha/
-// beta), but orbit sessions don't autosave any of this the way player mode
-// does; these fields only ever get written by the Copy/Load View mechanism
-// below (see THREADS.md's "View snapshot / Copy-Paste Views" thread).
-export type SavedSettings = {
-  x?: number;
-  y?: number;
-  z?: number;
-  rotationX?: number;
-  rotationY?: number;
-  activeMode?: ActiveMode;
-  hScale?: number;
-  vExag?: number;
-  waterLevel?: number;
-  cameraHeightOffset?: number;
-  timeOfDay?: number;
-  fogDensity?: number;
-  fogColor?: string;
-  overcast?: boolean;
-  weatherMode?: WeatherMode;
-  starCount?: number;
-  cloudCount?: number;
-  cloudColor?: string;
-  cloudOpacity?: number;
-  treeRegionRadius?: number;
-  trailsideHScale?: number;
-  trailsideVScale?: number;
-  trailsideCount?: number;
-  bulkForestHScale?: number;
-  bulkForestVScale?: number;
-  bulkForestCount?: number;
-  bulkForestRadius?: number;
-  waterColor?: string;
-  starColor?: string;
-  skyDayColor?: string;
-  skyNightColor?: string;
-  terrainLowColor?: string;
-  terrainHighColor?: string;
-  sunTint?: string;
-  windowTintColor?: string;
-  windowGlow?: number;
-  // Collected Lineglass part ids (state/lineglass.ts) — drives which of the
-  // grid/GPX/OSM geo-reference toggles start unlocked on reload. A list of
-  // stable ids, not a count, so a specific part is never re-awarded twice.
-  lineglassPartIds?: string[];
-  hudVisible?: boolean;
-  worldBounded?: boolean;
-  // Toggles section checkboxes (state/visibility.ts). grid/gpx/osm are
-  // combined with Lineglass unlock state on restore — see the createLineglassSignals
-  // call site — so a saved `true` only takes effect once that layer is unlocked.
-  terrainVisible?: boolean;
-  osmVisible?: boolean;
-  gpxVisible?: boolean;
-  waterVisible?: boolean;
-  cloudsVisible?: boolean;
-  gridVisible?: boolean;
-  mountainsVisible?: boolean;
-  powerLinesVisible?: boolean;
-  mechDogVisible?: boolean;
-  masterMuted?: boolean;
-  windVolume?: number;
-  footstepMuted?: boolean;
-  breathMuted?: boolean;
-  orbitTargetX?: number;
-  orbitTargetY?: number;
-  orbitTargetZ?: number;
-  orbitAlpha?: number;
-  orbitBeta?: number;
-  orbitRadius?: number;
-};
-
-function settingsStorageKey(levelKey: string): string {
-  return `trail-viewer:settings:${levelKey}`;
-}
-
-function loadSavedSettings(levelKey: string): SavedSettings {
-  const raw = localStorage.getItem(settingsStorageKey(levelKey));
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {}; // ignore malformed/corrupt localStorage value, fall back to defaults
-  }
-}
-
-function saveSettings(levelKey: string, settings: SavedSettings): void {
-  localStorage.setItem(settingsStorageKey(levelKey), JSON.stringify(settings));
-}
-
-// OSM's osmc:symbol format is "waycolor:symbolcolor:symboltext" (e.g.
-// "blue:blue:blue_bar") — only the leading waycolor is used here, which is
-// enough for a POC "does this roughly match the real blaze" visual check.
-const BLAZE_COLORS: Record<string, Color3> = {
-  blue: new Color3(0.25, 0.45, 1.0),
-  red: new Color3(1.0, 0.25, 0.2),
-  white: new Color3(1, 1, 1),
-  yellow: new Color3(1.0, 0.9, 0.2),
-  green: new Color3(0.25, 0.8, 0.3),
-  orange: new Color3(1.0, 0.55, 0.1),
-};
-const NEUTRAL_TRAIL_COLOR = new Color3(0.8, 0.75, 0.6);
-
-function blazeColorFromTags(tags?: Record<string, string>): Color3 {
-  const symbol = tags?.['osmc:symbol'];
-  const primary = symbol?.split(':')[0]?.toLowerCase();
-  if (primary && BLAZE_COLORS[primary]) return BLAZE_COLORS[primary];
-  return NEUTRAL_TRAIL_COLOR;
-}
-
-async function loadHeightmap(): Promise<{ contract: HeightmapContract; pngBytes: Uint8Array }> {
-  const [contract, pngResponse] = await Promise.all([
-    fetch(`${import.meta.env.BASE_URL}data/smr-heightmap.json`).then((r) => r.json()),
-    fetch(`${import.meta.env.BASE_URL}data/smr-heightmap.png`),
-  ]);
-  const pngBytes = new Uint8Array(await pngResponse.arrayBuffer());
-  return { contract, pngBytes };
-}
-
-async function loadTrails(): Promise<GeoPolyline[]> {
-  const geojson = await fetch(`${import.meta.env.BASE_URL}data/smr-trails.geojson`).then((r) => r.json());
-  return parseGeoJsonTrails(geojson);
-}
-
-async function loadGpxTrack(): Promise<GeoPolyline[]> {
-  const gpxXml = await fetch(`${import.meta.env.BASE_URL}data/my-track.gpx`).then((r) => r.text());
-  return parseGpxTrack(gpxXml);
-}
-
-// Curated, committed alternative to pasting Copy View's clipboard output by
-// hand — see ViewToolsRow's own comment. Same shape Copy View produces,
-// plus a human-readable "name". Edited directly by Dan; not written by the
-// app. Lives in public/data/ (fetched at runtime) rather than a static
-// import from docs/ — consistent with every other data file this app loads
-// (heightmap, trails, gpx track), and means editing it doesn't require a
-// rebuild to see reflected, just a page reload.
-async function loadSavedViews(): Promise<SavedView[]> {
-  return fetch(`${import.meta.env.BASE_URL}data/views.json`).then((r) => r.json());
-}
-
-// Landmark manifest (T21's proposed landmarks.geojson, in JSON-array form
-// for now) — named real-world points, optionally tagged with which
-// LocationProps prop types to thin-instance there. Grows by hand for now,
-// same as views.json.
-async function loadLocations(): Promise<WorldFeatureRegistry> {
-  const response = await fetch(`${import.meta.env.BASE_URL}data/locations.json`);
-  if (!response.ok) throw new Error(`Could not load world features (${response.status}).`);
-  const raw = await response.json() as unknown;
-  if (!Array.isArray(raw)) throw new Error('World feature data must be a JSON array.');
-  const entries = raw as LocationEntry[];
-  return new WorldFeatureRegistry(entries);
-}
-
-type RouteManifestEntry = { name: string; file: string };
-
-async function loadReplayRoutes(): Promise<ReplayRoute[]> {
-  const manifestResponse = await fetch(`${import.meta.env.BASE_URL}data/routes/index.json`);
-  if (!manifestResponse.ok) throw new Error(`Could not load route index (${manifestResponse.status}).`);
-  const manifest = await manifestResponse.json() as RouteManifestEntry[];
-  return Promise.all(manifest.map(async ({ name, file }) => {
-    const response = await fetch(`${import.meta.env.BASE_URL}data/routes/${encodeURIComponent(file)}`);
-    if (!response.ok) throw new Error(`Could not load route "${file}" (${response.status}).`);
-    const route = parseRouteDocument(await response.json(), file);
-    return { ...route, id: file, name };
-  }));
-}
-
-function buildPolylineMeshes(
-  scene: Scene,
-  polylines: GeoPolyline[],
-  terrain: ITerrain,
-  origin: UtmCoordinate,
-  options: {
-    namePrefix: string;
-    yLift: number;
-    horizontalScale: number;
-    colorFor: (tags?: Record<string, string>) => Color3;
-  },
-): Mesh[] {
-  const meshes: Mesh[] = [];
-  polylines.forEach((polyline, i) => {
-    if (polyline.points.length < 2) return;
-    const path = polyline.points.map((p) => {
-      // latLonToWorld returns real (unscaled) meters; scale to match the
-      // terrain's rendered space before asking it for a height there.
-      const real = latLonToWorld(p, origin);
-      const renderX = real.x * options.horizontalScale;
-      const renderZ = real.z * options.horizontalScale;
-      const y = terrain.getHeightAt(renderX, renderZ) + options.yLift;
-      return new Vector3(renderX, y, renderZ);
-    });
-    const lines = MeshBuilder.CreateLines(`${options.namePrefix}_${i}`, { points: path }, scene);
-    lines.color = options.colorFor(polyline.tags);
-    meshes.push(lines);
-  });
-  return meshes;
-}
-
-function setMeshesEnabled(meshes: Mesh[], enabled: boolean): void {
-  meshes.forEach((m) => m.setEnabled(enabled));
-}
-
-// Coalesces rapid-fire calls (e.g. every 'input' tick while dragging a
-// slider) into one trailing call after activity stops — used for the
-// trailside scatter's H/V-scale + count sliders, which commit live on
-// 'input' (so dragging previews) rather than waiting for 'change' (mouse
-// release), but shouldn't rebuild the scatter on every single tick.
-function debounce<Args extends unknown[]>(fn: (...args: Args) => void, delayMs: number): (...args: Args) => void {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return (...args: Args) => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delayMs);
-  };
-}
-
-// Same drape path as buildPolylineMeshes (project -> scale -> getHeightAt +
-// lift), kept separate because every grid line shares one visual treatment
-// and GraticuleLine has no tags/elevation metadata to branch on.
-function buildGridMeshes(
-  scene: Scene,
-  lines: GraticuleLine[],
-  terrain: ITerrain,
-  origin: UtmCoordinate,
-  horizontalScale: number,
-): Mesh[] {
-  return lines.map((line, i) => {
-    const path = line.points.map((p) => {
-      const real = latLonToWorld(p, origin);
-      const renderX = real.x * horizontalScale;
-      const renderZ = real.z * horizontalScale;
-      const y = terrain.getHeightAt(renderX, renderZ) + GRID_Y_LIFT;
-      return new Vector3(renderX, y, renderZ);
-    });
-    const mesh = MeshBuilder.CreateLines(`grid_${line.axis}_${i}`, { points: path }, scene);
-    mesh.color = GRID_LINE_COLOR;
-    mesh.alpha = GRID_LINE_ALPHA;
-    return mesh;
-  });
-}
-
-// Covers the black screen during initial load and during the several
-// reload()/href navigations this app does on purpose (Load View,
-// reset-position, the saved-views dropdown) — hidden once the scene is
-// actually ready to render, right before each branch's gameLoop.start().
-function hideLoadingOverlay(): void {
-  const overlay = document.getElementById('loading-overlay');
-  if (overlay) overlay.style.display = 'none';
-}
 
 async function main() {
   const removeAccidentalCloseGuard = preventAccidentalClose();
@@ -535,22 +132,18 @@ async function main() {
     powerLines: savedSettings.powerLinesVisible,
     mechDog: savedSettings.mechDogVisible,
   });
-  let mechDogBody: MechDogBody | null = null;
-  // Same rig/animations, reskinned — 'default' reads as the menacing mech
-  // pursuer, 'black' reads closer to a plain pet dog. Session-only; not worth
-  // a SavedSettings field yet (visibility.mechDog, the on/off toggle, is).
+  // Created here (rather than owned by MechDogController) because the
+  // shared Toggles-section HUD below reads it synchronously in a <select
+  // value=...> prop — see MechDogController's own comment on `skin`.
   const mechDogSkin = signal<MechDogSkin>('default');
-  // Index into WHISTLE_MELODIES — number keys 1-9 change it, 'M' plays
-  // whichever one it currently points at. Session-only, same as above.
-  const whistleMelodyIndex = signal(0);
-
   // state/lineglass.ts — restores whichever parts were already collected
   // last session, then combines that unlock state with the saved on/off
   // preference (defaulting to visible once unlocked, matching the historical
   // auto-enable-on-unlock behavior) before anything downstream reads
-  // visibility.osm/gpx/grid.value (the initial setMeshesEnabled(trailMeshes/
-  // gridMeshes, ...) calls further down, and ScaleTuning/VisibilityToggles'
-  // own gating). A part never re-locks a layer the player already earned —
+  // visibility.osm/gpx/grid.value (TerrainOverlaySystem's own initial-
+  // visibility constructor argument further down, and ScaleTuning/
+  // VisibilityToggles' own gating). A part never re-locks a layer the
+  // player already earned —
   // unlockedLineglassLayers is a pure function of collected count, monotonic
   // by construction.
   const lineglass = createLineglassSignals({
@@ -608,64 +201,6 @@ async function main() {
   trailPlayerAudio.setBreathMuted(audio.breathMuted.value);
   let audioStarted = false;
 
-  const light = new HemisphericLight('light', new Vector3(0.3, 1, 0.2), scene);
-  const sun = new Sun(scene, {
-    hour: atmosphere.timeOfDay.value,
-    castShadows: true,
-    // Sun's optional flare sprites currently live on Babylon's asset CDN.
-    // Leave the local sun disc enabled, but do not make runtime CDN requests.
-    lensFlare: false,
-    colorTint: Color3.FromHexString(atmosphere.sunTint.value),
-  });
-  // StarField's default radius (3000) assumed nothing else in the scene
-  // would ever be farther than that from the camera — true for DTA's small
-  // fixed-size world, false here once the mountain ring/terrain can sit tens
-  // of thousands of units out at higher H-scale. A star numerically nearer
-  // than the mountain silhouette in front of it wins the depth test and
-  // punches through, so pin the dome just inside the camera's own far-clip
-  // plane instead — nothing renders beyond maxZ anyway, so this guarantees
-  // stars are always the farthest thing on screen, whatever hScale is set to.
-  const STAR_RADIUS = level.farClip * 0.95;
-  let stars = new StarField(scene, {
-    count: atmosphere.starCount.value,
-    color: Color3.FromHexString(atmosphere.starColor.value),
-    radius: STAR_RADIUS,
-  });
-  effect(() => {
-    stars.setColor(Color3.FromHexString(atmosphere.starColor.value));
-  });
-  effect(() => {
-    sun.setColorTint(Color3.FromHexString(atmosphere.sunTint.value));
-  });
-
-  // Overcast dims both the sun and the ambient fill — a real overcast sky
-  // is heavily diffused light (soft, flat, no strong directional shadow),
-  // not just "clouds added on top" while the lighting stays sunny.
-  const OVERCAST_DIMMING = 0.6;
-  // Ambient fill dims at night too (Sun's own directional light already
-  // does this internally) — a bright hemispheric fill at midnight would
-  // fight the dark sky/sun color instead of reading as night. sun.setTimeOfDay
-  // always resets light.intensity to an absolute value first, so the *=
-  // below is safe to run more than once for the same hour/overcast pair —
-  // it never compounds.
-  const applyTimeOfDay = (hour: number) => {
-    sun.setTimeOfDay(hour);
-    const dayFactor = Math.max(0, sunHeightForHour(hour));
-    const overcastFactor = atmosphere.overcast.value ? OVERCAST_DIMMING : 1;
-    sun.light.intensity *= overcastFactor;
-    light.intensity = (0.15 + dayFactor * 0.4) * overcastFactor;
-    const skyNight = Color3.FromHexString(atmosphere.skyNightColor.value).toColor4(1);
-    const skyDay = Color3.FromHexString(atmosphere.skyDayColor.value).toColor4(1);
-    scene.clearColor = Color4.Lerp(skyNight, skyDay, dayFactor);
-    stars.setNightFactor(1 - dayFactor);
-    ambientAudio.setNightLevel(1 - dayFactor);
-  };
-  // Reads atmosphere.overcast.value too (inside applyTimeOfDay), so this
-  // effect also re-runs on an overcast toggle — the overcast checkbox's own
-  // commit handler below only needs to trigger rebuildClouds(), not repeat
-  // this call itself.
-  effect(() => applyTimeOfDay(atmosphere.timeOfDay.value));
-
   scene.fogMode = Scene.FOGMODE_EXP2;
   effect(() => {
     scene.fogDensity = atmosphere.fogDensity.value;
@@ -689,24 +224,6 @@ async function main() {
   const origin = originFromBoundingBox(contract.bbox);
   const elevations = decodeHeightmapPng(pngBytes, contract);
   const sampler = new HeightmapSampler(elevations, contract, origin);
-  // getHeightAt (used for player collision + trail draping) samples the
-  // ORIGINAL fine-resolution DEM directly, but the rendered mesh only has
-  // vertices every (width/gridResolution) meters and linearly interpolates
-  // between them — so wherever real terrain curves between two mesh
-  // vertices, the coarse rendered surface can drift from the true DEM
-  // height there, and verticalExaggeration multiplies that drift right
-  // along with the real relief. 700 (~= the DEM's own 733px width) keeps
-  // one mesh quad roughly per DEM pixel, so there's almost no gap left
-  // between vertices for the two to diverge across, however high the
-  // exaggeration goes.
-  let terrain = new HeightmapTerrain(scene, sampler, contract, origin, {
-    gridResolution: level.gridResolution,
-    verticalExaggeration: scaleTuning.vExag.value,
-    horizontalScale: scaleTuning.hScale.value,
-    lowElevationColor: Color3.FromHexString(atmosphere.terrainLowColor.value),
-    highElevationColor: Color3.FromHexString(atmosphere.terrainHighColor.value),
-    slopeTextures: TERRAIN_SLOPE_TEXTURES,
-  });
 
   // Stand-in water: the DEM has no tagged lake/river geometry to trace (see
   // WaterPlane's own comment), so this is a flat plane at a configurable
@@ -720,7 +237,8 @@ async function main() {
     // surface remains usable without it and the viewer stays fully local.
     bumpTextureUrl: null,
   });
-  water.addToRenderList(terrain.getMesh());
+  // terrain (below, once trails/gpxTrack finish loading) adds its own mesh
+  // to this render list once constructed.
   effect(() => {
     water.setColor(Color3.FromHexString(atmosphere.waterColor.value));
   });
@@ -729,20 +247,7 @@ async function main() {
   // vExag, so a rescale re-renders the same forest instead of re-rolling
   // different tree positions. World space is centered on the bbox (see
   // originFromBoundingBox/utmToWorld — origin = bbox center, so real world
-  // X/Z each span [-width/2, width/2]). Skips low-elevation ground near the
-  // waterline: there's no land-use data in this dataset to distinguish
-  // actual forest from the built-up flat area visible near the coast (see
-  // smr-trails.geojson — trail lines only, no polygons), so elevation is a
-  // simple stand-in for "this is probably slope, not town."
-  // Candidate pool feeds ForestFire (via treePointsInRegion below) and caps
-  // the "Bulk forest count" slider — 8000 was a guessed-not-measured
-  // ceiling; raised well past it (matching TREE_CANDIDATE_COUNT) so that
-  // slider can actually be dragged into the range needed to find the real
-  // one — watch the FPS readout while doing that, don't trust this number
-  // until it's been through that.
-  const MAX_TREE_COUNT = 30000;
-  const TREE_CANDIDATE_COUNT = 30000;
-  const TREE_CLEARANCE_ABOVE_WATER = 20;
+  // X/Z each span [-width/2, width/2]).
   const realWidth = contract.bbox.maxX - contract.bbox.minX;
   const realDepth = contract.bbox.maxZ - contract.bbox.minZ;
 
@@ -771,8 +276,18 @@ async function main() {
   // over ~2.5s (see WeatherSystem.update) — reading it at one rebuild moment
   // would usually show almost no change right when the toggle is flipped.
   const weatherMode = signal<WeatherMode>(savedSettings.weatherMode ?? 'clear');
+  const precipitationMode = signal<PrecipitationMode>(savedSettings.precipitationMode ?? 'none');
   const weatherSystem = new WeatherSystem(scene);
   weatherSystem.setMode(weatherMode.value);
+  weatherSystem.requestPrecipitation(
+    precipitationMode.value,
+    precipitationMode.value === 'none' ? 0 : 1,
+  );
+  const thunderScheduler = new ThunderScheduler(0x743235);
+  const precipitationVisuals = new PrecipitationVisualSystem(scene);
+  let flashRemainingSeconds = 0;
+  let flashAmbientIntensity = 0.16;
+  const baseAmbientColor = scene.ambientColor.clone();
   // Wind audio already runs weatherSystem's live windIntensity through the
   // user-facing "Wind vol" slider (see the ambientAudio.setWeatherIntensity
   // calls below); foliage sway read weatherSystem directly instead, so
@@ -785,6 +300,13 @@ async function main() {
     getWindTime: () => weatherSystem.getWindTime(),
   };
 
+  // Sky/backdrop layer — sun/light/stars (time-of-day driven) plus
+  // clouds/mountains (hScale/vExag + density driven) — see BackdropSystem's
+  // own comment for why these are one unit.
+  const backdrop = new BackdropSystem(
+    scene, water, contract, level.farClip, atmosphere, weatherMode, scaleTuning, visibility, ambientAudio,
+  );
+
   const clampToWorldBounds = (controller: { getPosition(): Vector3; setPosition(pos: Vector3): void }) => {
     if (!worldBounded.value) return;
     const pos = controller.getPosition();
@@ -796,285 +318,28 @@ async function main() {
       controller.setPosition(new Vector3(clampedX, pos.y, clampedZ));
     }
   };
-  const treePoints: TreePoint[] = [];
-  for (let i = 0; i < TREE_CANDIDATE_COUNT; i++) {
-    const x = (Math.random() - 0.5) * realWidth;
-    const z = (Math.random() - 0.5) * realDepth;
-    const groundY = sampler.sampleHeight({ x, z });
-    treePoints.push({ x, z, groundY });
-  }
-  // Consolidates the ForestFire candidate pool toward the map's center
-  // instead of covering the whole bbox corner-to-corner — a real forest
-  // reads as a region, not a uniform carpet over the entire DEM. Filters the
-  // same cached candidate pool rather than regenerating it, so this stays
-  // stable across a rescale. No HUD slider of its own anymore (see the
-  // removed "Thin-instance tree radius" control); "Bulk forest radius"
-  // reuses treeRegionRadiusMax for its own, separate range below.
-  const treeRegionRadiusMax = Math.hypot(realWidth, realDepth) / 2;
-  const defaultTreeRegionRadius = treeRegionRadiusMax * 0.4;
-  const treeRegionRadius = signal(savedSettings.treeRegionRadius ?? defaultTreeRegionRadius);
-  // WaterPlane is a freely tunable visual stand-in, not mapped hydrology.
-  // Raising it must not erase the forest candidate pool or lock the count
-  // controls. Keep vegetation's shoreline threshold stable.
-  const forestWaterline = defaultWaterLevel(contract);
-  const isForestEligible = (point: TreePoint) =>
-    point.groundY >= forestWaterline + TREE_CLEARANCE_ABOVE_WATER;
-  const treePointsInRegion = () =>
-    treePoints.filter(
-      (p) => Math.hypot(p.x, p.z) <= treeRegionRadius.value
-        && isForestEligible(p),
-    );
-
-  // Trailside (spread along the GPX/OSM trail corridor) and bulk forest
-  // (the rest of the region) are each their own signal group — visually
+  // Trailside (spread along the GPX/OSM trail corridor, player-mode-only —
+  // see the HERO_ASSETS section below) and bulk forest (the rest of the
+  // region, orbit+player) are each their own signal group — visually
   // separate clusters the user should be able to size independently rather
-  // than incidentally coupled because they're both "trees". Trailside's
-  // default count of 60 is intentionally conservative — see
-  // rebuildTrailsideScatter's own comment on why a full-trail scatter's
+  // than incidentally coupled because they're both "trees". Created here
+  // (rather than alongside the trailside GLB-loading code) because both
+  // orbit's and player's settings snapshots persist trailsideHScale/VScale/
+  // Count regardless of whether the trailside scatter itself gets built.
+  // Trailside's default count of 60 is intentionally conservative — see
+  // TrailsideForestSystem's own comment on why a full-trail scatter's
   // triangle budget needs care.
   const trailsideScale = createTrailsideScatterSignals({
     hScale: savedSettings.trailsideHScale ?? 1,
     vScale: savedSettings.trailsideVScale ?? 1,
     count: savedSettings.trailsideCount ?? 60,
   });
-  // Bulk/non-trail-adjacent forest — real (decimated) trees scattered over
-  // their own independent candidate disc (createBulkEligibleCandidatePositions
-  // below, sized by bulkForestRadius, not treePointsInRegion), so the bulk of
-  // the forest reads as the same species as the hero/trailside real trees
-  // instead of a procedural art style. Own signal group, same reasoning as
-  // trailsideScale: this governs a visually distinct cluster the user should
-  // be able to size independently.
-  const bulkForestScale = createBulkForestScatterSignals({
-    hScale: savedSettings.bulkForestHScale ?? 1,
-    vScale: savedSettings.bulkForestVScale ?? 1,
-    count: savedSettings.bulkForestCount ?? 200,
-  });
-  // Its own disc (bulkForestRadius), independent of treeRegionRadius/
-  // treePointsInRegion — the region-radius pool now only feeds ForestFire,
-  // so bulk forest generating its own candidates keeps it fully decoupled
-  // from that tier's session-fixed radius.
-  const bulkForestRadius = signal(savedSettings.bulkForestRadius ?? defaultTreeRegionRadius);
-  const bulkForestPlacedCount = signal(0);
-  // Stable string hash (FNV-1a) — gives each species its own seed salt so
-  // multiple calls at the SAME radius (dominant tree + every understory
-  // species below) don't draw the same deterministic sequence. Without
-  // this, every call's leading N accepted points were identical regardless
-  // of which species asked, since the seed depended only on radius — the
-  // understory props were landing exactly on top of the dominant tree (and
-  // each other), reading as floating/embedded rather than freestanding.
-  const hashSeed = (label: string): number => {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < label.length; i++) {
-      h ^= label.charCodeAt(i);
-      h = Math.imul(h, 0x01000193);
-    }
-    return h >>> 0;
-  };
-  const createBulkEligibleCandidatePositions = (count: number, radius: number, seedSalt: number): TreePoint[] => {
-    if (count <= 0 || radius <= 0) return [];
-    let state = ((Math.round(radius * 10) ^ 0x9e3779b9) ^ seedSalt) >>> 0;
-    const random = () => {
-      state += 0x6d2b79f5;
-      let value = state;
-      value = Math.imul(value ^ (value >>> 15), value | 1);
-      value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-    };
-    const positions: TreePoint[] = [];
-    const maxAttempts = Math.max(1_000, count * 16);
-    for (let attempt = 0; attempt < maxAttempts && positions.length < count; attempt++) {
-      const angle = random() * Math.PI * 2;
-      const distance = Math.sqrt(random()) * radius;
-      const x = Math.cos(angle) * distance;
-      const z = Math.sin(angle) * distance;
-      const point = { x, z, groundY: sampler.sampleHeight({ x, z }) };
-      if (isForestEligible(point)) positions.push(point);
-    }
-    return positions;
-  };
-  const bulkForestPoints = () =>
-    createBulkEligibleCandidatePositions(bulkForestScale.count.value, bulkForestRadius.value, hashSeed('tree_small_02_scatter'));
-  // Real (unscaled) points -> render space, same conversion HeightmapTerrain/
-  // WaterPlane use (X/Z by hScale, Y by vExag, groundY already sampled once
-  // at candidate-generation time). Shared by the dominant scatter tree and
-  // the understory mix below.
-  const toRenderPositions = (points: TreePoint[]): Vector3[] =>
-    points.map((p) => {
-      const x = p.x * scaleTuning.hScale.value;
-      const z = p.z * scaleTuning.hScale.value;
-      return new Vector3(x, p.groundY * scaleTuning.vExag.value, z);
-    });
-  const bulkForestPositions = (): Vector3[] => toRenderPositions(bulkForestPoints());
-
-  const BULK_FOREST_URL = `${import.meta.env.BASE_URL}models/tree-small-02-scatter/tree_small_02_scatter_preview.glb`;
-  let bulkForest: HeroTreeInstancesHandle | null = null;
-  try {
-    const positions = bulkForestPositions();
-    bulkForest = await loadHeroTreeInstances(
-      scene,
-      BULK_FOREST_URL,
-      positions,
-      scaleTuning.hScale.value * bulkForestScale.hScale.value,
-      scaleTuning.hScale.value * bulkForestScale.vScale.value,
-      sun.getShadowGenerator(),
-      visualWindSource,
-    );
-    bulkForestPlacedCount.value = positions.length;
-    console.info(
-      `[BulkForest] loaded ${positions.length} thin-instanced tree_small_02_scatter(s), ${bulkForest.triangleCount.toLocaleString()} tris each`,
-    );
-  } catch (error) {
-    bulkForestPlacedCount.value = 0;
-    console.error('[BulkForest] failed to load bulk forest tree', error);
-  }
-
-  // Prototype: sparse understory variety mixed into the bulk tier, same
-  // weighted-species pattern as HERO_ASSETS/trailside (independent random
-  // draw per species, sized as a fraction of the dominant tree's own count)
-  // — but using assets that already exist at a real-world scatter-tier tri
-  // budget (dead-tree-trunk-02/tree-stump-01, both already decimated-enough
-  // to have shipped as HERO_ASSETS' own understory props) rather than
-  // full-detail saplings, since bulk forest runs at 10x+ hero-grove's
-  // instance count. Fractions are deliberately small and easy to retune —
-  // no new asset authoring, just budget: at a count of 2250 this adds
-  // ~110 extra instances (~1.8M tris) on top of the dominant tree's own
-  // ~17M, for real silhouette variety instead of one repeated clone.
-  const BULK_UNDERSTORY_ASSETS = [
-    {
-      label: 'tree_stump_01',
-      url: `${import.meta.env.BASE_URL}models/tree-stump-01/tree_stump_01_preview.glb`,
-      fraction: 0.03,
-    },
-    {
-      label: 'dead_tree_trunk_02',
-      url: `${import.meta.env.BASE_URL}models/dead-tree-trunk-02/dead_tree_trunk_02_preview.glb`,
-      fraction: 0.02,
-    },
-  ] as const;
-  const bulkUnderstoryCount = (fraction: number) => Math.round(bulkForestScale.count.value * fraction);
-  const bulkUnderstoryPositions = (label: string, fraction: number): Vector3[] =>
-    toRenderPositions(
-      createBulkEligibleCandidatePositions(bulkUnderstoryCount(fraction), bulkForestRadius.value, hashSeed(label)),
-    );
-
-  const bulkUnderstoryClusters: Array<{ label: string; fraction: number; handle: HeroTreeInstancesHandle }> = [];
-  await Promise.all(
-    BULK_UNDERSTORY_ASSETS.map(async ({ label, url, fraction }) => {
-      try {
-        const positions = bulkUnderstoryPositions(label, fraction);
-        const handle = await loadHeroTreeInstances(
-          scene,
-          url,
-          positions,
-          scaleTuning.hScale.value * bulkForestScale.hScale.value,
-          scaleTuning.hScale.value * bulkForestScale.vScale.value,
-          sun.getShadowGenerator(),
-          visualWindSource,
-        );
-        bulkUnderstoryClusters.push({ label, fraction, handle });
-        console.info(`[BulkForest] loaded ${positions.length} thin-instanced ${label}(s) as understory`);
-      } catch (error) {
-        console.error(`[BulkForest] failed to load ${label} understory cluster`, error);
-      }
-    }),
+  // Owns the map-wide tree candidate pool (feeds ForestFire, below, via
+  // treePointsInRegion) plus the bulk/decimated forest scatter — see
+  // BulkForestSystem's own comment.
+  const bulkForest = await BulkForestSystem.create(
+    scene, sampler, contract, scaleTuning, backdrop.getShadowGenerator(), visualWindSource, savedSettings,
   );
-
-  const repositionBulkForest = () => {
-    const positions = bulkForestPositions();
-    if (!bulkForest) {
-      bulkForestPlacedCount.value = 0;
-    } else {
-      bulkForestPlacedCount.value = positions.length;
-      bulkForest.setPlacements(
-        positions,
-        scaleTuning.hScale.value * bulkForestScale.hScale.value,
-        scaleTuning.hScale.value * bulkForestScale.vScale.value,
-      );
-    }
-    for (const { label, fraction, handle } of bulkUnderstoryClusters) {
-      handle.setPlacements(
-        bulkUnderstoryPositions(label, fraction),
-        scaleTuning.hScale.value * bulkForestScale.hScale.value,
-        scaleTuning.hScale.value * bulkForestScale.vScale.value,
-      );
-    }
-  };
-  const repositionBulkForestDebounced = debounce(repositionBulkForest, 200);
-
-  // Same technique as @dissonance/world's CloudSystem (a decoupled sibling,
-  // DriftingClouds — CloudSystem's sizes/altitudes are hardcoded to DTA's
-  // ~800-unit world and gated behind its ExperienceProfile, neither of
-  // which fits this real-world-scale DEM viewer). Sized in real meters,
-  // then converted the same way terrain/water are: X/Z by horizontalScale,
-  // Y by verticalExaggeration.
-  // Overcast reads from atmosphere.overcast.value rather than taking a
-  // parameter — it's a scene-wide toggle, not something callers pick per
-  // call, same as `contract`/`hScale` already being closed over here.
-  const cloudOptionsFor = (currentHScale: number, currentVExag: number, count: number) => ({
-    count: atmosphere.overcast.value ? Math.max(count, 60) : count,
-    spread: (contract.bbox.maxX - contract.bbox.minX) * currentHScale * 1.3,
-    altitudeMin:
-      (atmosphere.overcast.value ? contract.elevation.max + 150 : contract.elevation.max + 250) * currentVExag,
-    altitudeMax:
-      (atmosphere.overcast.value ? contract.elevation.max + 220 : contract.elevation.max + 450) * currentVExag,
-    diameterMin: (atmosphere.overcast.value ? 600 : 300) * currentHScale,
-    diameterMax: (atmosphere.overcast.value ? 1400 : 800) * currentHScale,
-    driftSpeed: (weatherMode.value === 'windy' ? 15 : 5) * currentHScale,
-    // Manually controlled (Sky section's color picker + opacity slider) —
-    // overcast used to auto-shift these too, but now that there's direct
-    // user control it no longer overrides color/alpha, only the
-    // count/altitude/diameter density feel above.
-    color: Color3.FromHexString(atmosphere.cloudColor.value),
-    alpha: atmosphere.cloudOpacity.value,
-  });
-  let clouds = new DriftingClouds(
-    scene,
-    cloudOptionsFor(scaleTuning.hScale.value, scaleTuning.vExag.value, atmosphere.cloudCount.value),
-  );
-  clouds.getMeshes().forEach((m) => water.addToRenderList(m));
-  water.addToRenderList(sun.getMesh());
-
-  // Cloud positions/sizes are baked in at construction (unlike water's cheap
-  // setScale), so both a scale change and the cloud-density slider rebuild
-  // them from scratch. Shared so the two call sites (H/V-scale rebuild,
-  // cloud-density slider) don't duplicate the dispose/recreate/render-list
-  // dance.
-  const rebuildClouds = () => {
-    clouds.getMeshes().forEach((m) => water.removeFromRenderList(m));
-    clouds.dispose();
-    clouds = new DriftingClouds(
-      scene,
-      cloudOptionsFor(scaleTuning.hScale.value, scaleTuning.vExag.value, atmosphere.cloudCount.value),
-    );
-    clouds.getMeshes().forEach((m) => water.addToRenderList(m));
-    clouds.setVisible(visibility.clouds.value);
-  };
-
-  // Rectangle, not circle: hugs the same maxX/maxZ rectangle clampToWorldBounds
-  // uses (the DEM's actual bbox, rendered-space) so the ring sits right at
-  // the terrain's real edge on every side, corners included — no gap where
-  // the terrain just stops and the void behind it used to show through. This
-  // is independent of whether "Bounded world" (the movement clamp) is on;
-  // that toggle only affects walking past the edge, not where the ring sits.
-  // halfWidth/halfDepth scale by hScale like everything else horizontal
-  // (clouds' spread, water's extent); bottomY/heightScale scale by vExag
-  // like everything vertical (clouds' altitude, terrain's own elevation) —
-  // so the ring stays proportionate to the terrain across both sliders
-  // independently, not just at their default combination.
-  const mountainRingOptions = (currentHScale: number, currentVExag: number) => ({
-    shape: 'rectangle' as const,
-    halfWidth: (realWidth / 2) * currentHScale,
-    halfDepth: (realDepth / 2) * currentHScale,
-    bottomY: (contract.elevation.min - MOUNTAIN_BASE_MARGIN_M) * currentVExag,
-    heightScale: currentVExag,
-    nearColor: MOUNTAIN_NEAR_COLOR,
-  });
-  let mountains = new MountainRing(scene, mountainRingOptions(scaleTuning.hScale.value, scaleTuning.vExag.value));
-  const rebuildMountains = () => {
-    mountains.dispose();
-    mountains = new MountainRing(scene, mountainRingOptions(scaleTuning.hScale.value, scaleTuning.vExag.value));
-    mountains.setVisible(visibility.mountains.value);
-  };
 
   const [trails, gpxTrack, savedViews, worldFeatures, replayRoutes] = await Promise.all([
     loadTrails(),
@@ -1084,23 +349,23 @@ async function main() {
     loadReplayRoutes(),
   ]);
   const locations = worldFeatures.entries;
-  let trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
-    namePrefix: 'osmTrail',
-    yLift: OSM_TRAIL_Y_LIFT,
-    horizontalScale: scaleTuning.hScale.value,
-    colorFor: blazeColorFromTags,
-  });
-  let gpxMeshes = buildPolylineMeshes(scene, gpxTrack, terrain, origin, {
-    namePrefix: 'gpxTrack',
-    yLift: GPX_TRACK_Y_LIFT,
-    horizontalScale: scaleTuning.hScale.value,
-    colorFor: () => GPX_TRACK_COLOR,
-  });
-  // Generated once from the heightmap's real (unscaled) UTM bbox — the
-  // lat/lon line values themselves don't depend on hScale/vExag, only the
-  // meshes built from them do (see rebuildWorld below).
-  const gridLines = graticuleLines(contract.bbox, GRID_INTERVAL_DEG, GRID_LINE_SAMPLES);
-  let gridMeshes = buildGridMeshes(scene, gridLines, terrain, origin, scaleTuning.hScale.value);
+  // Owns the terrain mesh plus its OSM/GPX/grid overlays as one unit — see
+  // TerrainOverlaySystem's own comment. Grid defaults off (a measurement
+  // layer, not something every session should pay rendering cost for
+  // unless explicitly enabled).
+  const terrain = new TerrainOverlaySystem(
+    scene, sampler, contract, origin, level.gridResolution, trails, gpxTrack,
+    scaleTuning.hScale.value, scaleTuning.vExag.value,
+    Color3.FromHexString(atmosphere.terrainLowColor.value),
+    Color3.FromHexString(atmosphere.terrainHighColor.value),
+    {
+      terrain: visibility.terrain.value,
+      osm: visibility.osm.value,
+      gpx: visibility.gpx.value,
+      grid: visibility.grid.value,
+    },
+  );
+  water.addToRenderList(terrain.getMesh());
 
   const readout = document.getElementById('readout') as HTMLDivElement;
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
@@ -1117,16 +382,16 @@ async function main() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', columnGap: '10px' }}>
         <VisibilityToggles
           signals={visibility}
-          onTerrainCommit={(checked) => terrain.setVisible(checked)}
-          onOsmCommit={(checked) => setMeshesEnabled(trailMeshes, checked)}
-          onGpxCommit={(checked) => setMeshesEnabled(gpxMeshes, checked)}
+          onTerrainCommit={(checked) => terrain.setTerrainVisible(checked)}
+          onOsmCommit={(checked) => terrain.setOsmVisible(checked)}
+          onGpxCommit={(checked) => terrain.setGpxVisible(checked)}
           onWaterCommit={(checked) => water.setVisible(checked)}
-          onCloudsCommit={(checked) => clouds.setVisible(checked)}
-          onGridCommit={(checked) => setMeshesEnabled(gridMeshes, checked)}
-          onMountainsCommit={(checked) => mountains.setVisible(checked)}
+          onCloudsCommit={(checked) => backdrop.setCloudsVisible(checked)}
+          onGridCommit={(checked) => terrain.setGridVisible(checked)}
+          onMountainsCommit={(checked) => backdrop.setMountainsVisible(checked)}
           lineglassCollectedPartIds={lineglass.collectedPartIds}
         />
-        <ToggleLabel label='Overcast' signal={atmosphere.overcast} onCommit={() => rebuildClouds()} />
+        <ToggleLabel label='Overcast' signal={atmosphere.overcast} onCommit={() => backdrop.rebuildClouds()} />
         {/* Not a ToggleLabel — weatherMode is 'clear'|'windy', not a plain
             boolean signal, so it needs its own checked/onChange conversion
             rather than ToggleLabel's Signal<boolean> contract. */}
@@ -1137,10 +402,28 @@ async function main() {
             onChange={(e: JSX.TargetedEvent<HTMLInputElement>) => {
               weatherMode.value = e.currentTarget.checked ? 'windy' : 'clear';
               weatherSystem.setMode(weatherMode.value);
-              rebuildClouds();
+              backdrop.rebuildClouds();
             }}
           />{' '}
           Windy
+        </label>
+        <label>
+          Precipitation{' '}
+          <select
+            value={precipitationMode.value}
+            onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
+              precipitationMode.value = e.currentTarget.value as PrecipitationMode;
+              weatherSystem.requestPrecipitation(
+                precipitationMode.value,
+                precipitationMode.value === 'none' ? 0 : 1,
+              );
+            }}
+          >
+            <option value='none'>None</option>
+            <option value='rain'>Rain</option>
+            <option value='snow'>Snow</option>
+            <option value='storm'>Storm</option>
+          </select>
         </label>
         {level.cameraMode !== 'orbit' && (
           <ToggleLabel label='Bounded world' signal={worldBounded} onCommit={() => {}} />
@@ -1153,14 +436,14 @@ async function main() {
           <ToggleLabel
             label='Power lines'
             signal={visibility.powerLines}
-            onCommit={(checked) => utilityCorridors.setVisible(checked)}
+            onCommit={(checked) => locationFeatures.setPowerLinesVisible(checked)}
           />
         )}
         {level.cameraMode !== 'orbit' && (
           <ToggleLabel
             label='Mech dog'
             signal={visibility.mechDog}
-            onCommit={(checked) => mechDogBody?.setVisible(checked)}
+            onCommit={(checked) => mechDog.setVisible(checked)}
           />
         )}
         {/* Same rig/animations underneath either way — this just swaps
@@ -1174,9 +457,7 @@ async function main() {
             <select
               value={mechDogSkin.value}
               onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
-                const skin = e.currentTarget.value as MechDogSkin;
-                mechDogSkin.value = skin;
-                mechDogBody?.setSkin(skin);
+                mechDog.setSkin(e.currentTarget.value as MechDogSkin);
               }}
             >
               <option value='default'>Mech (default)</option>
@@ -1208,7 +489,7 @@ async function main() {
         suffix='x'
         format={(v) => v.toFixed(2)}
         commitOn='input'
-        onCommit={() => rebuildTrailsideScatterDebounced()}
+        onCommit={() => trailsideForest.rebuildDebounced()}
       />
       <SliderRow
         label='Trailside V-scale'
@@ -1219,7 +500,7 @@ async function main() {
         suffix='x'
         format={(v) => v.toFixed(2)}
         commitOn='input'
-        onCommit={() => rebuildTrailsideScatterDebounced()}
+        onCommit={() => trailsideForest.rebuildDebounced()}
       />
       <SliderRow
         label='Trailside count'
@@ -1229,57 +510,57 @@ async function main() {
         step={10}
         format={(v) => v.toFixed(0)}
         commitOn='input'
-        onCommit={() => rebuildTrailsideScatterDebounced()}
+        onCommit={() => trailsideForest.rebuildDebounced()}
       />
       <div style={{ marginTop: '10px', color: '#9cf', fontWeight: 700 }}>Bulk forest (decimated high-def GLB)</div>
       <SliderRow
         label='Bulk forest H-scale'
-        signal={bulkForestScale.hScale}
+        signal={bulkForest.bulkForestScale.hScale}
         min={0.25}
         max={3}
         step={0.25}
         suffix='x'
         format={(v) => v.toFixed(2)}
         commitOn='input'
-        onCommit={() => repositionBulkForestDebounced()}
+        onCommit={() => bulkForest.repositionDebounced()}
       />
       <SliderRow
         label='Bulk forest V-scale'
-        signal={bulkForestScale.vScale}
+        signal={bulkForest.bulkForestScale.vScale}
         min={0.25}
         max={3}
         step={0.25}
         suffix='x'
         format={(v) => v.toFixed(2)}
         commitOn='input'
-        onCommit={() => repositionBulkForestDebounced()}
+        onCommit={() => bulkForest.repositionDebounced()}
       />
       <SliderRow
         label='Bulk forest radius'
-        signal={bulkForestRadius}
+        signal={bulkForest.bulkForestRadius}
         min={0}
-        max={treeRegionRadiusMax}
-        step={treeRegionRadiusMax / 100}
+        max={bulkForest.treeRegionRadiusMax}
+        step={bulkForest.treeRegionRadiusMax / 100}
         suffix='m'
         format={(v) => v.toFixed(0)}
         commitOn='input'
-        onCommit={() => repositionBulkForestDebounced()}
+        onCommit={() => bulkForest.repositionDebounced()}
       />
       <SliderRow
         label='Bulk forest count'
-        signal={bulkForestScale.count}
+        signal={bulkForest.bulkForestScale.count}
         min={0}
         // Never derive this range from the current pool: radius=0 made
         // max=0 and physically prevented this recovery control from moving.
         max={MAX_TREE_COUNT}
         step={50}
-        format={(v) => `${v.toFixed(0)} requested / ${bulkForestPlacedCount.value.toFixed(0)} placed`}
+        format={(v) => `${v.toFixed(0)} requested / ${bulkForest.bulkForestPlacedCount.value.toFixed(0)} placed`}
         commitOn='input'
         onCommit={(value) => {
-          if (value > 0 && bulkForestRadius.value === 0) {
-            bulkForestRadius.value = defaultTreeRegionRadius;
+          if (value > 0 && bulkForest.bulkForestRadius.value === 0) {
+            bulkForest.bulkForestRadius.value = bulkForest.defaultTreeRegionRadius;
           }
-          repositionBulkForestDebounced();
+          bulkForest.repositionDebounced();
         }}
       />
       {levelKey === '1' && (
@@ -1299,10 +580,6 @@ async function main() {
     document.getElementById('world-root') as HTMLDivElement,
   );
 
-  // Default off — the grid is a measurement layer, not something every
-  // session should pay rendering cost for unless explicitly enabled.
-  setMeshesEnabled(gridMeshes, visibility.grid.value);
-
   // Sky controls — mounted here (before the orbit early-return below)
   // rather than alongside movement-mode/camera-height, since time-of-day/
   // fog/stars/clouds all render in orbit mode (level 3) too, unlike
@@ -1313,18 +590,10 @@ async function main() {
     <Section title='Sky'>
       <AtmosphereRow
         signals={atmosphere}
-        onStarCountCommit={() => {
-          stars.dispose();
-          stars = new StarField(scene, {
-            count: atmosphere.starCount.value,
-            color: Color3.FromHexString(atmosphere.starColor.value),
-            radius: STAR_RADIUS,
-          });
-          stars.setNightFactor(1 - Math.max(0, sunHeightForHour(atmosphere.timeOfDay.value)));
-        }}
-        onCloudCountCommit={() => rebuildClouds()}
-        onCloudColorCommit={() => rebuildClouds()}
-        onCloudOpacityCommit={() => rebuildClouds()}
+        onStarCountCommit={() => backdrop.rebuildStars()}
+        onCloudCountCommit={() => backdrop.rebuildClouds()}
+        onCloudColorCommit={() => backdrop.rebuildClouds()}
+        onCloudOpacityCommit={() => backdrop.rebuildClouds()}
       />
     </Section>,
     document.getElementById('atmosphere-root') as HTMLDivElement,
@@ -1426,51 +695,14 @@ async function main() {
             orbitAlpha: orbitCamera.alpha,
             orbitBeta: orbitCamera.beta,
             orbitRadius: orbitCamera.radius,
-            hScale: scaleTuning.hScale.value,
-            vExag: scaleTuning.vExag.value,
-            waterLevel: scaleTuning.waterLevel.value,
-            timeOfDay: atmosphere.timeOfDay.value,
-            fogDensity: atmosphere.fogDensity.value,
-            fogColor: atmosphere.fogColor.value,
-            overcast: atmosphere.overcast.value,
-            starCount: atmosphere.starCount.value,
-            cloudCount: atmosphere.cloudCount.value,
-            cloudColor: atmosphere.cloudColor.value,
-            cloudOpacity: atmosphere.cloudOpacity.value,
-            waterColor: atmosphere.waterColor.value,
-            starColor: atmosphere.starColor.value,
-            skyDayColor: atmosphere.skyDayColor.value,
-            skyNightColor: atmosphere.skyNightColor.value,
-            terrainLowColor: atmosphere.terrainLowColor.value,
-            terrainHighColor: atmosphere.terrainHighColor.value,
-            sunTint: atmosphere.sunTint.value,
-            windowTintColor: atmosphere.windowTintColor.value,
-            windowGlow: atmosphere.windowGlow.value,
-            treeRegionRadius: treeRegionRadius.value,
-            trailsideHScale: trailsideScale.hScale.value,
-            trailsideVScale: trailsideScale.vScale.value,
-            trailsideCount: trailsideScale.count.value,
-            bulkForestHScale: bulkForestScale.hScale.value,
-            bulkForestVScale: bulkForestScale.vScale.value,
-            bulkForestCount: bulkForestScale.count.value,
-            bulkForestRadius: bulkForestRadius.value,
-            weatherMode: weatherMode.value,
-            masterMuted: audio.masterMuted.value,
-            windVolume: audio.windVolume.value,
-            footstepMuted: audio.footstepMuted.value,
-            breathMuted: audio.breathMuted.value,
-            hudVisible,
-            worldBounded: worldBounded.value,
-            lineglassPartIds: lineglass.collectedPartIds.value,
-            terrainVisible: visibility.terrain.value,
-            osmVisible: visibility.osm.value,
-            gpxVisible: visibility.gpx.value,
-            waterVisible: visibility.water.value,
-            cloudsVisible: visibility.clouds.value,
-            gridVisible: visibility.grid.value,
-            mountainsVisible: visibility.mountains.value,
-            powerLinesVisible: visibility.powerLines.value,
-            mechDogVisible: visibility.mechDog.value,
+            ...buildSharedSettingsSnapshot({
+              scaleTuning, atmosphere, visibility, audio, lineglass,
+              trailsideScale,
+              bulkForestScale: bulkForest.bulkForestScale,
+              treeRegionRadius: bulkForest.treeRegionRadius,
+              bulkForestRadius: bulkForest.bulkForestRadius,
+              weatherMode, precipitationMode, hudVisible, worldBounded,
+            }),
           })}
           levelKey={levelKey}
           validLevelKeys={Object.keys(LEVELS)}
@@ -1523,10 +755,31 @@ async function main() {
     );
 
     const gameLoop = new GameLoop(engine, (dt) => {
-      clouds.update(dt);
+      backdrop.update(dt);
       weatherSystem.update(dt, (windIntensity) => {
         ambientAudio.setWeatherIntensity(windIntensity * audio.windVolume.value);
       });
+      const weatherState = weatherSystem.getState();
+      ambientAudio.setRainIntensity(weatherState.rainIntensity);
+      precipitationVisuals.update(weatherState, orbitCamera.position);
+      scene.fogDensity = atmosphere.fogDensity.value + weatherState.fogBoost;
+      const thunder = thunderScheduler.update(
+        dt,
+        weatherState.precipitationMode === 'storm' ? weatherState.precipitationIntensity : 0,
+      );
+      if (thunder) {
+        flashAmbientIntensity = 0.16;
+        flashRemainingSeconds = 0.12;
+        if (audioStarted) ambientAudio.playThunder(thunder.gain, thunder.clapDelaySeconds);
+      }
+      flashRemainingSeconds = Math.max(0, flashRemainingSeconds - dt);
+      scene.ambientColor = flashRemainingSeconds > 0
+        ? baseAmbientColor.add(new Color3(
+            flashAmbientIntensity,
+            flashAmbientIntensity * 1.12,
+            flashAmbientIntensity * 1.35,
+          ))
+        : baseAmbientColor;
       const pos = orbitCamera.position;
       const groundY = terrain.getHeightAt(pos.x, pos.z);
       readout.textContent =
@@ -1602,148 +855,12 @@ async function main() {
     drive.camera.rotation.copyFrom(savedRotation);
   }
 
-  // Counts are lower for the understory/deadfall props than the tree
-  // canopy — a real forest floor has far fewer stumps and dead trunks
-  // underfoot than it has live trees overhead.
-  const HERO_ASSETS = [
-    {
-      label: 'tree_small_02',
-      url: `${import.meta.env.BASE_URL}models/tree-small-02/tree_small_02_preview.glb`,
-      count: 100,
-    },
-    {
-      label: 'pine_sapling_medium',
-      url: `${import.meta.env.BASE_URL}models/pine-sapling-medium/pine_sapling_medium_preview.glb`,
-      count: 8,
-    },
-    {
-      label: 'fir_sapling_medium',
-      url: `${import.meta.env.BASE_URL}models/fir-sapling-medium/fir_sapling_medium_preview.glb`,
-      count: 8,
-    },
-    {
-      label: 'dead_tree_trunk_02',
-      url: `${import.meta.env.BASE_URL}models/dead-tree-trunk-02/dead_tree_trunk_02_preview.glb`,
-      count: 6,
-    },
-    {
-      label: 'tree_stump_01',
-      url: `${import.meta.env.BASE_URL}models/tree-stump-01/tree_stump_01_preview.glb`,
-      count: 8,
-    },
-  ] as const;
-
-  const HERO_WEIGHT_TOTAL = HERO_ASSETS.reduce((sum, asset) => sum + asset.count, 0);
-
-  // Spread along both sides of the recorded GPX track (the red line) AND
-  // the yellow-blazed OSM trails, instead of clustered in one spot — reuses
-  // HERO_ASSETS' per-species counts as MIX WEIGHTS (not absolute counts) so
-  // the trailside cluster keeps the same species proportions, scaled by the
-  // user-facing "Trailside count" slider instead of a fixed total.
-  //
-  // Segments are computed once, in real (unscaled) meters, same convention
-  // as buildPolylineMeshes — trailTotalLength stays fixed even as hScale
-  // changes, only the final render-space conversion below depends on it.
-  // Total triangle cost scales with the count slider alone, which is
-  // exactly the "watch the FPS readout and find the real ceiling" pattern
-  // this app already uses for candidate-pool-backed sliders — see
-  // MAX_TREE_COUNT's own comment. Default count (60, see trailsideScale's
-  // creation above) is intentionally conservative.
-  type TrailSegment = { ax: number; az: number; bx: number; bz: number; length: number; start: number };
-  const trailSegments: TrailSegment[] = [];
-  let trailTotalLength = 0;
-  const addTrailCorridor = (polylines: GeoPolyline[]) => {
-    for (const polyline of polylines) {
-      const realPoints = polyline.points.map((p) => latLonToWorld(p, origin));
-      for (let i = 0; i < realPoints.length - 1; i++) {
-        const a = realPoints[i];
-        const b = realPoints[i + 1];
-        const length = Math.hypot(b.x - a.x, b.z - a.z);
-        if (length <= 0) continue;
-        trailSegments.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z, length, start: trailTotalLength });
-        trailTotalLength += length;
-      }
-    }
-  };
-  addTrailCorridor(gpxTrack);
-  // smr-trails.geojson carries no osmc:symbol tag at all (blazeColorFromTags
-  // falls back to NEUTRAL_TRAIL_COLOR for all 473 features, every OSM trail
-  // currently renders the same neutral tan regardless of real blaze color)
-  // — but several way segments DO encode it in the name text instead, e.g.
-  // "Lenape Trail (Yellow)", "Lenape Yellow Blaze", "Yellow/Red Blaze".
-  // Matching on osmc:symbol too costs nothing and covers datasets that do
-  // have it.
-  addTrailCorridor(
-    trails.filter((polyline) => {
-      const primary = polyline.tags?.['osmc:symbol']?.split(':')[0]?.toLowerCase();
-      if (primary === 'yellow') return true;
-      return !!polyline.tags?.name?.toLowerCase().includes('yellow');
-    }),
+  // Player-mode-only trailside hero-detail scatter — see
+  // TrailsideForestSystem's own comment.
+  const trailsideForest = await TrailsideForestSystem.create(
+    scene, origin, gpxTrack, trails, terrain, scaleTuning, trailsideScale,
+    backdrop.getShadowGenerator(), visualWindSource,
   );
-
-  const TRAILSIDE_MIN_OFFSET = 3;
-  const TRAILSIDE_MAX_OFFSET = 14;
-  const trailsidePositions = (count: number): Vector3[] => {
-    const positions: Vector3[] = [];
-    if (trailTotalLength <= 0) return positions;
-    for (let i = 0; i < count; i++) {
-      const d = Math.random() * trailTotalLength;
-      const seg =
-        trailSegments.find((s) => d >= s.start && d < s.start + s.length) ?? trailSegments[trailSegments.length - 1];
-      const t = (d - seg.start) / seg.length;
-      const px = seg.ax + (seg.bx - seg.ax) * t;
-      const pz = seg.az + (seg.bz - seg.az) * t;
-      // Unit tangent along the segment, rotated 90 degrees in the XZ plane
-      // to get the side-to-side offset direction ("both sides" of the trail).
-      const dirX = (seg.bx - seg.ax) / seg.length;
-      const dirZ = (seg.bz - seg.az) / seg.length;
-      const side = Math.random() < 0.5 ? -1 : 1;
-      const offset = (TRAILSIDE_MIN_OFFSET + Math.random() * (TRAILSIDE_MAX_OFFSET - TRAILSIDE_MIN_OFFSET)) * side;
-      const realX = px - dirZ * offset;
-      const realZ = pz + dirX * offset;
-      const x = realX * scaleTuning.hScale.value;
-      const z = realZ * scaleTuning.hScale.value;
-      positions.push(new Vector3(x, terrain.getHeightAt(x, z), z));
-    }
-    return positions;
-  };
-
-  const trailsideSpeciesCount = (weight: number) =>
-    Math.round(trailsideScale.count.value * (weight / HERO_WEIGHT_TOTAL));
-
-  const trailsideClusters: Array<{ weight: number; handle: HeroTreeInstancesHandle }> = [];
-  await Promise.all(
-    HERO_ASSETS.map(async ({ label, url, count: weight }) => {
-      try {
-        const handle = await loadHeroTreeInstances(
-          scene,
-          url,
-          trailsidePositions(trailsideSpeciesCount(weight)),
-          scaleTuning.hScale.value * trailsideScale.hScale.value,
-          scaleTuning.hScale.value * trailsideScale.vScale.value,
-          sun.getShadowGenerator(),
-          visualWindSource,
-        );
-        trailsideClusters.push({ weight, handle });
-        console.info(
-          `[TrailsideScatter] loaded ${trailsideSpeciesCount(weight)} thin-instanced ${label}(s) along the trail`,
-        );
-      } catch (error) {
-        console.error(`[TrailsideScatter] failed to load ${label} along the trail`, error);
-      }
-    }),
-  );
-
-  const rebuildTrailsideScatter = () => {
-    for (const { weight, handle } of trailsideClusters) {
-      handle.setPlacements(
-        trailsidePositions(trailsideSpeciesCount(weight)),
-        scaleTuning.hScale.value * trailsideScale.hScale.value,
-        scaleTuning.hScale.value * trailsideScale.vScale.value,
-      );
-    }
-  };
-  const rebuildTrailsideScatterDebounced = debounce(rebuildTrailsideScatter, 200);
 
   // Landmark manifest (locations.json) — crude primitive placeholder props
   // (LocationProps.ts) thin-instanced at named real-world coordinates, one
@@ -1755,148 +872,53 @@ async function main() {
     const real = latLonToWorld({ lat, lon }, origin);
     return { x: real.x * scaleTuning.hScale.value, z: real.z * scaleTuning.hScale.value };
   };
-  let locationProps = scatterLocationProps(
-    scene,
-    locations,
-    locationToRenderXZ,
-    (x, z) => terrain.getHeightAt(x, z),
-    sun.getShadowGenerator(),
+  // Landmark-manifest-driven features (crude prop placeholders, composite
+  // building GLBs, utility-corridor power lines, Lineglass collectibles) —
+  // see WorldFeaturesSystem's own comment.
+  const locationFeatures = await WorldFeaturesSystem.create(
+    scene, locations, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines, lineglass,
+    realWidth, realDepth, backdrop.getShadowGenerator(), player,
   );
-  let compositeLocations = await loadCompositeLocations(
+  const workshopDiscoveredDebug = signal(false);
+  const strikeAcquisition = new StrikeAcquisitionSystem(
     scene,
     locations,
     locationToRenderXZ,
     scaleTuning.hScale.value,
-    scaleTuning.vExag.value,
     (x, z) => terrain.getHeightAt(x, z),
-    Color3.FromHexString(atmosphere.windowTintColor.value),
-    atmosphere.windowGlow.value,
-    sun.getShadowGenerator(),
+    getOrCreateRunSeed(),
+    weatherSystem,
+    {
+      get: (id) => locationFeatures.getPatrolDrone(id),
+      setInert: (id) => locationFeatures.setPatrolDroneInert(id),
+    },
+    {
+      flash: (intensity, durationSeconds) => {
+        flashAmbientIntensity = intensity;
+        flashRemainingSeconds = Math.max(flashRemainingSeconds, durationSeconds);
+      },
+      clap: (gain, delaySeconds) => {
+        if (audioStarted) ambientAudio.playThunder(gain, delaySeconds);
+      },
+    },
   );
-  // Composite GLBs load asynchronously. Scale/color sliders can request a
-  // second rebuild before the first one finishes, so use a generation token
-  // to ensure an older completion disposes its own newly-created meshes
-  // instead of becoming a second live copy of the boulevard.
-  let compositeLocationsGeneration = 0;
-  // Same rectangle clampToWorldBounds/mountainRingOptions already treat as
-  // "the edge of the world" (realWidth/realDepth, DEM bbox centered on
-  // origin) — a corridor with `extendToWorldBounds: true` stretches its two
-  // open ends out to this same box instead of stopping at its authored
-  // coordinates.
-  const utilityCorridorWorldBounds = () => ({
-    minX: -(realWidth / 2) * scaleTuning.hScale.value,
-    maxX: (realWidth / 2) * scaleTuning.hScale.value,
-    minZ: -(realDepth / 2) * scaleTuning.hScale.value,
-    maxZ: (realDepth / 2) * scaleTuning.hScale.value,
+  strikeAcquisition.setWorkshopDiscovered(workshopDiscoveredDebug.value);
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyE' || event.repeat) return;
+    const flags = strikeAcquisition.recover(
+      controllers[movement.activeMode.value].getPosition(),
+    );
+    if (flags) {
+      console.info('[T31] recovery hand-off', flags);
+    }
   });
-  let utilityCorridors = loadUtilityCorridors(
-    scene,
-    locations,
-    locationToRenderXZ,
-    scaleTuning.hScale.value,
-    scaleTuning.vExag.value,
-    (x, z) => terrain.getHeightAt(x, z),
-    utilityCorridorWorldBounds(),
-    sun.getShadowGenerator(),
-  );
-  utilityCorridors.setVisible(visibility.powerLines.value);
-  // state/lineglass.ts's diegetic half — parts already collected last
-  // session (lineglass.collectedPartIds, restored above) load already
-  // hidden, never re-awarded.
-  let lineglassParts = loadLineglassParts(
-    scene,
-    locations,
-    locationToRenderXZ,
-    scaleTuning.hScale.value,
-    (x, z) => terrain.getHeightAt(x, z),
-    new Set(lineglass.collectedPartIds.value),
-  );
-  // Buildings joined props/poles here 2026-07-27 ("make all buildings but
-  // milo's apartment building un-enterable") — CompositeLocations.ts's own
-  // BUILDING_COLLISION_RADII/MILOS_BUILDING_ID own the "which buildings,
-  // how big a circle" decisions; this just combines whatever each loader
-  // currently reports. Drive mode still has no collision logic at all
-  // (only PlayerController/Walk does) — still a real follow-up, unchanged.
-  const applyPlayerColliders = () => {
-    player.setColliders([
-      ...locationProps.colliders, ...utilityCorridors.colliders, ...compositeLocations.colliders,
-      // Milo's front/apartment door blocker circles (2026-07-29) — live,
-      // not static; re-included every time this runs so a door that just
-      // opened/closed is reflected immediately (see the updateDoors call
-      // in the render loop below).
-      ...compositeLocations.doorBlockerColliders(),
-    ]);
-    // Milo's stairwell steps + second-floor slab (2026-07-27) — the only
-    // FloorSurfaces that exist today; empty for every other building.
-    player.setFloorSurfaces(compositeLocations.floorSurfaces);
-  };
-  applyPlayerColliders();
-  const rebuildLocationProps = () => {
-    locationProps.dispose();
-    locationProps = scatterLocationProps(
-      scene,
-      locations,
-      locationToRenderXZ,
-      (x, z) => terrain.getHeightAt(x, z),
-      sun.getShadowGenerator(),
-    );
-    const requestedCompositeGeneration = ++compositeLocationsGeneration;
-    compositeLocations.dispose();
-    void loadCompositeLocations(
-      scene,
-      locations,
-      locationToRenderXZ,
-      scaleTuning.hScale.value,
-      scaleTuning.vExag.value,
-      (x, z) => terrain.getHeightAt(x, z),
-      Color3.FromHexString(atmosphere.windowTintColor.value),
-      atmosphere.windowGlow.value,
-      sun.getShadowGenerator(),
-    )
-      .then((next) => {
-        if (requestedCompositeGeneration !== compositeLocationsGeneration) {
-          next.dispose();
-          return;
-        }
-        compositeLocations = next;
-        applyPlayerColliders();
-      })
-      .catch((error) => {
-        console.error('[CompositeLocations] failed to rebuild', error);
-      });
-    utilityCorridors.dispose();
-    utilityCorridors = loadUtilityCorridors(
-      scene,
-      locations,
-      locationToRenderXZ,
-      scaleTuning.hScale.value,
-      scaleTuning.vExag.value,
-      (x, z) => terrain.getHeightAt(x, z),
-      utilityCorridorWorldBounds(),
-      sun.getShadowGenerator(),
-    );
-    utilityCorridors.setVisible(visibility.powerLines.value);
-    applyPlayerColliders();
-    lineglassParts.dispose();
-    lineglassParts = loadLineglassParts(
-      scene,
-      locations,
-      locationToRenderXZ,
-      scaleTuning.hScale.value,
-      (x, z) => terrain.getHeightAt(x, z),
-      // Live collected set, not savedSettings' original snapshot — a part
-      // picked up earlier this session must not respawn on an hScale/vExag
-      // rebuild.
-      new Set(lineglass.collectedPartIds.value),
-    );
-  };
 
   // Forest fire game mechanic — press F to ignite the nearest tree; fire
   // spreads through neighboring trees over time. Reuses treePointsInRegion()
   // (not the full candidate pool), so it can't ignite trees outside that
   // region — treeRegionRadius has no live HUD control anymore, so this pool
   // is fixed for the session once built.
-  let forestFire = new ForestFire(scene, treePointsInRegion(), {
+  let forestFire = new ForestFire(scene, bulkForest.treePointsInRegion(), {
     horizontalScale: scaleTuning.hScale.value,
     verticalExaggeration: scaleTuning.vExag.value,
   });
@@ -1908,98 +930,108 @@ async function main() {
     if (e.code === 'KeyF') igniteAtActiveController();
 
     // 'M' whistles the currently-selected melody (number keys 1-9 pick
-    // which one — see WHISTLE_MELODIES); 'P' pets the dog if it's close
-    // enough (mechDogPursuit/PET_DISTANCE, declared further down but
-    // already initialized by the time any of this can fire from a real
-    // keypress). Both are best-effort against mechDogBody, same as the
-    // Mech dog visibility toggle above — a null body (orbit mode/still
-    // loading) just no-ops.
-    if (e.code === 'KeyM') {
-      AudioEngine.playWhistleMelody(WHISTLE_MELODIES[whistleMelodyIndex.value].notes);
-      mechDogBody?.reactToWhistle();
-    }
+    // which one); 'P' pets the dog if it's close enough. `mechDog` is
+    // declared further down but already constructed by the time any of
+    // this can fire from a real keypress.
+    if (e.code === 'KeyM') mechDog.whistle();
     const melodyDigit = /^Digit([1-9])$/.exec(e.code);
-    if (melodyDigit) {
-      const index = Number(melodyDigit[1]) - 1;
-      if (index < WHISTLE_MELODIES.length) whistleMelodyIndex.value = index;
-    }
-    if (e.code === 'KeyP' && mechDogPursuit.getModel().distance < PET_DISTANCE) {
-      mechDogBody?.reactToPet();
-    }
+    if (melodyDigit) mechDog.selectMelody(Number(melodyDigit[1]) - 1);
+    if (e.code === 'KeyP') mechDog.tryPet();
   });
 
-  // Extra lift on top of both grounded controllers' own (scale-adjusted)
-  // eye height — levels with a shrunk player (playerScale < 1) otherwise
-  // put the camera uncomfortably close to the ground.
-  const movement = createMovementSignals({
-    activeMode: 'walk',
-    cameraHeightOffset: savedSettings.cameraHeightOffset ?? 1.5,
-  });
-  player.setHeightOffset(movement.cameraHeightOffset.value);
-  drive.setHeightOffset(movement.cameraHeightOffset.value);
+  // Walk/Fly/Drive mode-switching — see TraversalRig's own comment.
+  const { controllers, movement, switchMode } = createTraversalRig(scene, terrain, player, flight, drive, savedSettings);
 
-  // Structural shape shared by all three controllers — lets mode-switching
-  // logic below treat them uniformly instead of branching per mode.
-  type TraversalController = {
-    readonly camera: FreeCamera;
-    update(dt: number): void;
-    getPosition(): Vector3;
-    setPosition(pos: Vector3): void;
-    clearLookDelta(): void;
-  };
-  const controllers: Record<ActiveMode, TraversalController> = { walk: player, fly: flight, drive };
-  scene.activeCamera = player.camera;
-
-  const switchMode = (newMode: ActiveMode) => {
-    if (newMode === movement.activeMode.value) return;
-    const from = controllers[movement.activeMode.value];
-    const to = controllers[newMode];
-    const pos = from.getPosition();
-    if (newMode === 'fly') {
-      // Hover right where the previous controller left off.
-      to.setPosition(pos);
-    } else {
-      // Landing (Walk/Drive are both grounded) — snap to the terrain at
-      // this XZ immediately rather than leaving a mid-air position visible
-      // even for one frame.
-      const groundY = terrain.getHeightAt(pos.x, pos.z);
-      to.setPosition(new Vector3(pos.x, groundY, pos.z));
-    }
-    to.camera.rotation.copyFrom(from.camera.rotation);
-    to.clearLookDelta();
-    movement.activeMode.value = newMode;
-    scene.activeCamera = to.camera;
-  };
-
-  // Restore whichever mode was active last session, if any.
-  const validModes: ActiveMode[] = ['walk', 'fly', 'drive'];
-  if (savedSettings.activeMode && validModes.includes(savedSettings.activeMode)) {
-    switchMode(savedSettings.activeMode);
-  }
-
-  // The concrete spawn is selected on the first frame, after the active
-  // controller has grounded/raised its camera. Initial construction happens
-  // before that first update, so using camera Y here would test sightlines
-  // from the terrain surface instead of from the player's actual eye.
-  const initialMechDogTarget = controllers[movement.activeMode.value];
-  const initialMechDogTargetPosition = initialMechDogTarget.getPosition();
-  const mechDogPosition = {
-    x: initialMechDogTargetPosition.x,
-    z: initialMechDogTargetPosition.z,
-  };
-  const mechDogPursuit = new PursuerSystem(
-    WORLD_MECH_DOG_CONFIG,
-    WORLD_MECH_DOG_CONFIG.startDistance,
+  // The concrete spawn is selected on the controller's first update() call
+  // (see MechDogController), after the active controller has grounded/
+  // raised its camera — constructing before that first update would test
+  // sightlines from the terrain surface instead of from the player's
+  // actual eye.
+  const mechDog = new MechDogController(
+    scene, backdrop.getShadowGenerator(),
+    controllers[movement.activeMode.value].getPosition(),
+    visibility.mechDog.value,
+    mechDogSkin,
   );
-  mechDogBody = new MechDogBody(scene, sun.getShadowGenerator(), mechDogSkin.value);
-  // 'P' only does something within this range — petting from across the
-  // clearing doesn't make sense. Loose enough to allow for the dog's own
-  // standoff-distance wobble around the player.
-  const PET_DISTANCE = 4;
-  mechDogBody.setVisible(visibility.mechDog.value);
-  let mechDogSpawned = false;
-  let lastMechDogTargetX = initialMechDogTargetPosition.x;
-  let lastMechDogTargetZ = initialMechDogTargetPosition.z;
+
+  // Milo's-apartment surveillance-interior routing — see
+  // SurveillanceSession's own comment.
+  const interactionPrompt = document.getElementById('interaction-prompt') as HTMLDivElement;
+  const surveillance = createSurveillanceSession({
+    scene, canvas, terrain, locationFeatures, controllers, movement, switchMode, interactionPrompt,
+  });
+  const { worldSession } = surveillance;
+
+  render(
+    <>
+      <Section title='T31 Strike Acquisition'>
+        <div id='t31-strike-status'>Loading strike state…</div>
+        <label>
+          <input
+            type='checkbox'
+            checked={workshopDiscoveredDebug.value}
+            onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
+              workshopDiscoveredDebug.value = event.currentTarget.checked;
+              strikeAcquisition.setWorkshopDiscovered(event.currentTarget.checked);
+            }}
+          />{' '}
+          Workshop discovered (debug only)
+        </label>
+        <br />
+        <button
+          type='button'
+          onClick={() => {
+            const anchor = strikeAcquisition.getSelectedAnchor();
+            const controller = controllers[movement.activeMode.value];
+            controller.setPosition(new Vector3(
+              anchor.position.x,
+              anchor.position.y,
+              anchor.position.z - 10,
+            ));
+          }}
+        >
+          Go to selected strike anchor
+        </button>
+        {' '}
+        <button
+          type='button'
+          onClick={() => {
+            weatherSystem.setPrecipitationImmediate('storm', 0.5);
+          }}
+        >
+          Prime strike rain
+        </button>
+      </Section>
+      <Section title='T32 Shelter Entrance'>
+        <button
+          type='button'
+          onClick={() => {
+            const entrance = locationFeatures.falloutShelterPosition;
+            if (!entrance) return;
+            controllers[movement.activeMode.value].setPosition(
+              new Vector3(entrance.x, entrance.y, entrance.z - 15),
+            );
+          }}
+        >
+          Go to crater shelter
+        </button>
+      </Section>
+      <Section title='Surveillance Interior'>
+        <InteriorDebugRow
+          route={worldSession.route}
+          transition={worldSession.transition}
+          exteriorSnapshot={worldSession.exteriorSnapshot}
+          onEnter={() => { void surveillance.enterInterior('debug'); }}
+          onExit={surveillance.requestExit}
+        />
+      </Section>
+    </>,
+    document.getElementById('interior-debug-root') as HTMLDivElement,
+  );
+
+  if (worldSession.route.value.kind === 'surveillance') {
+    void surveillance.enterInterior('deep-link');
+  }
 
   // Live scale tuning — level 1 only. Rebuilds the terrain mesh and both
   // trail overlays from scratch with new scale values, preserving the
@@ -2018,54 +1050,37 @@ async function main() {
     const realZ = beforePos.z / scaleTuning.hScale.value;
 
     water.removeFromRenderList(terrain.getMesh());
-    terrain.dispose();
-    trailMeshes.forEach((m) => m.dispose());
-    gpxMeshes.forEach((m) => m.dispose());
-    gridMeshes.forEach((m) => m.dispose());
 
     scaleTuning.hScale.value = newHScale;
     scaleTuning.vExag.value = newVExag;
-    mechDogPosition.x *= horizontalScaleRatio;
-    mechDogPosition.z *= horizontalScaleRatio;
+    mechDog.rescale(horizontalScaleRatio);
 
-    terrain = new HeightmapTerrain(scene, sampler, contract, origin, {
-      gridResolution: level.gridResolution,
-      verticalExaggeration: scaleTuning.vExag.value,
-      horizontalScale: scaleTuning.hScale.value,
-      lowElevationColor: Color3.FromHexString(atmosphere.terrainLowColor.value),
-      highElevationColor: Color3.FromHexString(atmosphere.terrainHighColor.value),
-      slopeTextures: TERRAIN_SLOPE_TEXTURES,
-    });
-    trailMeshes = buildPolylineMeshes(scene, trails, terrain, origin, {
-      namePrefix: 'osmTrail',
-      yLift: OSM_TRAIL_Y_LIFT,
-      horizontalScale: scaleTuning.hScale.value,
-      colorFor: blazeColorFromTags,
-    });
-    gpxMeshes = buildPolylineMeshes(scene, gpxTrack, terrain, origin, {
-      namePrefix: 'gpxTrack',
-      yLift: GPX_TRACK_Y_LIFT,
-      horizontalScale: scaleTuning.hScale.value,
-      colorFor: () => GPX_TRACK_COLOR,
-    });
-    gridMeshes = buildGridMeshes(scene, gridLines, terrain, origin, scaleTuning.hScale.value);
-    terrain.setVisible(visibility.terrain.value);
-    setMeshesEnabled(trailMeshes, visibility.osm.value);
-    setMeshesEnabled(gpxMeshes, visibility.gpx.value);
-    setMeshesEnabled(gridMeshes, visibility.grid.value);
-    player.setTerrain(terrain);
-    drive.setTerrain(terrain);
+    terrain.rebuild(
+      scaleTuning.hScale.value,
+      scaleTuning.vExag.value,
+      Color3.FromHexString(atmosphere.terrainLowColor.value),
+      Color3.FromHexString(atmosphere.terrainHighColor.value),
+      {
+        terrain: visibility.terrain.value,
+        osm: visibility.osm.value,
+        gpx: visibility.gpx.value,
+        grid: visibility.grid.value,
+      },
+    );
+    // player/drive already hold this same TerrainOverlaySystem instance
+    // (it implements ITerrain and rebuilds itself in place, rather than
+    // being replaced) — no setTerrain() call needed after a rebuild.
     water.setScale(scaleTuning.hScale.value, scaleTuning.vExag.value, scaleTuning.waterLevel.value);
     water.addToRenderList(terrain.getMesh());
-    rebuildTrailsideScatter();
-    rebuildLocationProps();
+    trailsideForest.rebuild();
+    locationFeatures.rebuild();
 
-    rebuildClouds();
-    rebuildMountains();
+    backdrop.rebuildClouds();
+    backdrop.rebuildMountains();
 
     // Positions are cached (treePoints), so this just re-scatters the same
     // candidate points at the new scale rather than re-rolling placement.
-    repositionBulkForest();
+    bulkForest.reposition();
     forestFire.setScale(scaleTuning.hScale.value, scaleTuning.vExag.value);
 
     const newRenderX = realX * scaleTuning.hScale.value;
@@ -2095,6 +1110,7 @@ async function main() {
         <MovementRow
           signals={movement}
           onModeChange={(mode) => {
+            if (!worldSession.isExterior()) return;
             switchMode(mode);
             persistSettings();
           }}
@@ -2117,52 +1133,15 @@ async function main() {
               z: pos.z,
               rotationX: activeCamera.rotation.x,
               rotationY: activeCamera.rotation.y,
-              hScale: scaleTuning.hScale.value,
-              vExag: scaleTuning.vExag.value,
-              waterLevel: scaleTuning.waterLevel.value,
               cameraHeightOffset: movement.cameraHeightOffset.value,
-              timeOfDay: atmosphere.timeOfDay.value,
-              fogDensity: atmosphere.fogDensity.value,
-              fogColor: atmosphere.fogColor.value,
-              overcast: atmosphere.overcast.value,
-              starCount: atmosphere.starCount.value,
-              cloudCount: atmosphere.cloudCount.value,
-              cloudColor: atmosphere.cloudColor.value,
-              cloudOpacity: atmosphere.cloudOpacity.value,
-              waterColor: atmosphere.waterColor.value,
-              starColor: atmosphere.starColor.value,
-              skyDayColor: atmosphere.skyDayColor.value,
-              skyNightColor: atmosphere.skyNightColor.value,
-              terrainLowColor: atmosphere.terrainLowColor.value,
-              terrainHighColor: atmosphere.terrainHighColor.value,
-              sunTint: atmosphere.sunTint.value,
-              windowTintColor: atmosphere.windowTintColor.value,
-              windowGlow: atmosphere.windowGlow.value,
-              treeRegionRadius: treeRegionRadius.value,
-              trailsideHScale: trailsideScale.hScale.value,
-              trailsideVScale: trailsideScale.vScale.value,
-              trailsideCount: trailsideScale.count.value,
-              bulkForestHScale: bulkForestScale.hScale.value,
-              bulkForestVScale: bulkForestScale.vScale.value,
-              bulkForestCount: bulkForestScale.count.value,
-              bulkForestRadius: bulkForestRadius.value,
-              weatherMode: weatherMode.value,
-              masterMuted: audio.masterMuted.value,
-              windVolume: audio.windVolume.value,
-              footstepMuted: audio.footstepMuted.value,
-              breathMuted: audio.breathMuted.value,
-              hudVisible,
-              worldBounded: worldBounded.value,
-              lineglassPartIds: lineglass.collectedPartIds.value,
-              terrainVisible: visibility.terrain.value,
-              osmVisible: visibility.osm.value,
-              gpxVisible: visibility.gpx.value,
-              waterVisible: visibility.water.value,
-              cloudsVisible: visibility.clouds.value,
-              gridVisible: visibility.grid.value,
-              mountainsVisible: visibility.mountains.value,
-              powerLinesVisible: visibility.powerLines.value,
-              mechDogVisible: visibility.mechDog.value,
+              ...buildSharedSettingsSnapshot({
+                scaleTuning, atmosphere, visibility, audio, lineglass,
+                trailsideScale,
+                bulkForestScale: bulkForest.bulkForestScale,
+                treeRegionRadius: bulkForest.treeRegionRadius,
+                bulkForestRadius: bulkForest.bulkForestRadius,
+                weatherMode, precipitationMode, hudVisible, worldBounded,
+              }),
             };
           }}
           levelKey={levelKey}
@@ -2248,7 +1227,6 @@ async function main() {
   // own effect()s already own those properties while above water, and
   // fighting them every frame would make live-dragging Fog while surfaced
   // pointless.
-  let wasSubmerged = false;
   const persistSettings = () => {
     const activeCamera = controllers[movement.activeMode.value].camera;
     const pos = controllers[movement.activeMode.value].getPosition();
@@ -2259,72 +1237,57 @@ async function main() {
       rotationX: activeCamera.rotation.x,
       rotationY: activeCamera.rotation.y,
       activeMode: movement.activeMode.value,
-      hScale: scaleTuning.hScale.value,
-      vExag: scaleTuning.vExag.value,
-      waterLevel: scaleTuning.waterLevel.value,
       cameraHeightOffset: movement.cameraHeightOffset.value,
-      timeOfDay: atmosphere.timeOfDay.value,
-      fogDensity: atmosphere.fogDensity.value,
-      fogColor: atmosphere.fogColor.value,
-      overcast: atmosphere.overcast.value,
-      starCount: atmosphere.starCount.value,
-      cloudCount: atmosphere.cloudCount.value,
-      cloudColor: atmosphere.cloudColor.value,
-      cloudOpacity: atmosphere.cloudOpacity.value,
-      waterColor: atmosphere.waterColor.value,
-      starColor: atmosphere.starColor.value,
-      skyDayColor: atmosphere.skyDayColor.value,
-      skyNightColor: atmosphere.skyNightColor.value,
-      terrainLowColor: atmosphere.terrainLowColor.value,
-      terrainHighColor: atmosphere.terrainHighColor.value,
-      sunTint: atmosphere.sunTint.value,
-      windowTintColor: atmosphere.windowTintColor.value,
-      windowGlow: atmosphere.windowGlow.value,
-      treeRegionRadius: treeRegionRadius.value,
-      trailsideHScale: trailsideScale.hScale.value,
-      trailsideVScale: trailsideScale.vScale.value,
-      trailsideCount: trailsideScale.count.value,
-      bulkForestHScale: bulkForestScale.hScale.value,
-      bulkForestVScale: bulkForestScale.vScale.value,
-      bulkForestCount: bulkForestScale.count.value,
-      bulkForestRadius: bulkForestRadius.value,
-      weatherMode: weatherMode.value,
-      hudVisible,
-      worldBounded: worldBounded.value,
-      masterMuted: audio.masterMuted.value,
-      windVolume: audio.windVolume.value,
-      footstepMuted: audio.footstepMuted.value,
-      breathMuted: audio.breathMuted.value,
-      lineglassPartIds: lineglass.collectedPartIds.value,
-      terrainVisible: visibility.terrain.value,
-      osmVisible: visibility.osm.value,
-      gpxVisible: visibility.gpx.value,
-      waterVisible: visibility.water.value,
-      cloudsVisible: visibility.clouds.value,
-      gridVisible: visibility.grid.value,
-      mountainsVisible: visibility.mountains.value,
-      powerLinesVisible: visibility.powerLines.value,
-      mechDogVisible: visibility.mechDog.value,
+      ...buildSharedSettingsSnapshot({
+        scaleTuning, atmosphere, visibility, audio, lineglass,
+        trailsideScale,
+        bulkForestScale: bulkForest.bulkForestScale,
+        treeRegionRadius: bulkForest.treeRegionRadius,
+        bulkForestRadius: bulkForest.bulkForestRadius,
+        weatherMode, precipitationMode, hudVisible, worldBounded,
+      }),
     });
   };
   window.addEventListener('beforeunload', persistSettings);
   window.addEventListener('pagehide', persistSettings);
 
   const gameLoop = new GameLoop(engine, (dt) => {
-    controllers[movement.activeMode.value].update(dt);
-    clampToWorldBounds(controllers[movement.activeMode.value]);
-    clouds.update(dt);
+    if (worldSession.isExterior()) {
+      controllers[movement.activeMode.value].update(dt);
+      clampToWorldBounds(controllers[movement.activeMode.value]);
+    }
+    backdrop.update(dt);
     weatherSystem.update(dt, (windIntensity) => {
       ambientAudio.setWeatherIntensity(windIntensity * audio.windVolume.value);
     });
+    const weatherState = weatherSystem.getState();
+    ambientAudio.setRainIntensity(weatherState.rainIntensity);
+    const thunder = thunderScheduler.update(
+      dt,
+      weatherState.precipitationMode === 'storm' ? weatherState.precipitationIntensity : 0,
+    );
+    if (thunder) {
+      flashAmbientIntensity = 0.16;
+      flashRemainingSeconds = 0.12;
+      if (audioStarted) ambientAudio.playThunder(thunder.gain, thunder.clapDelaySeconds);
+    }
+    flashRemainingSeconds = Math.max(0, flashRemainingSeconds - dt);
+    scene.ambientColor = flashRemainingSeconds > 0
+      ? baseAmbientColor.add(new Color3(
+          flashAmbientIntensity,
+          flashAmbientIntensity * 1.12,
+          flashAmbientIntensity * 1.35,
+        ))
+      : baseAmbientColor;
     forestFire.update(dt);
+    locationFeatures.updatePatrolDrones(dt);
 
     // Breath/footsteps: PlayerController (walk) is the only controller with
     // a BreathSystem — Fly/Drive are deliberately simpler traversal tools
     // with no breath/adrenaline (see their own file comments) — so this
     // only runs while walking, and stops footsteps immediately otherwise.
     const breathReadout = document.getElementById('breath-load-value');
-    if (movement.activeMode.value === 'walk') {
+    if (worldSession.isExterior() && movement.activeMode.value === 'walk') {
       const breathLoad = player.breath.getLoad();
       trailPlayerAudio.updateBreath(breathLoad);
       trailPlayerAudio.updateFootsteps(player.getSpeed());
@@ -2335,60 +1298,28 @@ async function main() {
     }
 
     const pos = controllers[movement.activeMode.value].getPosition();
+    if (worldSession.isExterior()) strikeAcquisition.update(dt, pos);
+    precipitationVisuals.update(weatherState, pos);
     const groundY = terrain.getHeightAt(pos.x, pos.z);
-    if (!mechDogSpawned) {
-      const forward = controllers[movement.activeMode.value].camera.getForwardRay().direction;
-      const horizontalForwardLength = Math.hypot(forward.x, forward.z);
-      const forwardX = horizontalForwardLength > 0.001 ? forward.x / horizontalForwardLength : 0;
-      const forwardZ = horizontalForwardLength > 0.001 ? forward.z / horizontalForwardLength : 1;
-      const candidateDistances = [12, 10, 8, 6, 4];
-      const clearDistance = candidateDistances.find((distance) => {
-        const candidateX = pos.x + forwardX * distance;
-        const candidateZ = pos.z + forwardZ * distance;
-        const dogTopY = terrain.getHeightAt(candidateX, candidateZ) + MECH_DOG_VISUAL_HEIGHT;
-        for (let sample = 1; sample < 8; sample++) {
-          const t = sample / 8;
-          const sampleX = pos.x + (candidateX - pos.x) * t;
-          const sampleZ = pos.z + (candidateZ - pos.z) * t;
-          const sightlineY = pos.y + (dogTopY - pos.y) * t;
-          if (terrain.getHeightAt(sampleX, sampleZ) + 0.05 > sightlineY) return false;
-        }
-        return true;
-      }) ?? candidateDistances[candidateDistances.length - 1];
-      mechDogPosition.x = pos.x + forwardX * clearDistance;
-      mechDogPosition.z = pos.z + forwardZ * clearDistance;
-      lastMechDogTargetX = pos.x;
-      lastMechDogTargetZ = pos.z;
-      mechDogSpawned = true;
+    if (worldSession.isExterior()) locationFeatures.updateDoors(dt, pos.x, pos.z);
+    mechDog.update(
+      dt,
+      controllers[movement.activeMode.value],
+      movement.activeMode.value === 'walk' && player.isCrouching,
+      (x, z) => terrain.getHeightAt(x, z),
+    );
+    const mechDogModel = mechDog.getModel();
+    const strikeSnapshot = strikeAcquisition.snapshot();
+    const strikeStatus = document.getElementById('t31-strike-status');
+    if (strikeStatus) {
+      strikeStatus.textContent =
+        `${strikeSnapshot.state} — ${strikeSnapshot.blockingReason} · ` +
+        `LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · ` +
+        `Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · ` +
+        `drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · ` +
+        `rain ${Math.round(strikeSnapshot.rainIntensity * 100)}% · ` +
+        `windup ${Math.round(strikeSnapshot.windupProgress * 100)}%`;
     }
-    const targetDx = pos.x - lastMechDogTargetX;
-    const targetDz = pos.z - lastMechDogTargetZ;
-    const targetSpeed = dt > 0 ? Math.hypot(targetDx, targetDz) / dt : 0;
-    lastMechDogTargetX = pos.x;
-    lastMechDogTargetZ = pos.z;
-
-    const dogDx = pos.x - mechDogPosition.x;
-    const dogDz = pos.z - mechDogPosition.z;
-    const dogDistance = Math.hypot(dogDx, dogDz);
-    if (dogDistance > MECH_DOG_STANDOFF_DISTANCE) {
-      mechDogPursuit.update(
-        dt,
-        targetSpeed,
-        pos,
-        mechDogPosition,
-        true,
-        movement.activeMode.value === 'walk' && player.isCrouching,
-      );
-    }
-    const mechDogGroundY = terrain.getHeightAt(mechDogPosition.x, mechDogPosition.z);
-    mechDogBody?.update(dt, mechDogPosition, mechDogGroundY);
-    const mechDogModel = mechDogPursuit.getModel();
-
-    // Milo's front/apartment doors (2026-07-29) — swings open on approach,
-    // closes and blocks again once the player backs away (see MilosInterior.
-    // ts's createDoorController). Only re-runs applyPlayerColliders() on the
-    // frame a door's blocking state actually flips, not every frame.
-    if (compositeLocations.updateDoors(dt, pos.x, pos.z)) applyPlayerColliders();
 
     // state/lineglass.ts — walking within pickup range collects a part
     // outright, no interact key (matching this app's existing "proximity is
@@ -2396,7 +1327,9 @@ async function main() {
     // binding for one feature). Newly-unlocked layers auto-enable their
     // visibility signal so the moment of unlock is immediately visible,
     // not just newly-toggleable.
-    const newlyCollected = lineglassParts.update(dt, pos.x, pos.z);
+    const newlyCollected = worldSession.isExterior()
+      ? locationFeatures.updateLineglass(dt, pos.x, pos.z)
+      : [];
     if (newlyCollected.length > 0) {
       const before = unlockedLineglassLayers(lineglass.collectedPartIds.value.length);
       lineglass.collectedPartIds.value = [...lineglass.collectedPartIds.value, ...newlyCollected];
@@ -2416,33 +1349,51 @@ async function main() {
     // rather than adding a getter to that class for one call site.
     const waterY = scaleTuning.waterLevel.value * scaleTuning.vExag.value;
     const isSubmerged = visibility.water.value && pos.y < waterY;
-    if (isSubmerged !== wasSubmerged) {
-      if (isSubmerged) {
-        scene.fogColor = UNDERWATER_FOG_COLOR;
-        scene.fogDensity = UNDERWATER_FOG_DENSITY;
-      } else {
-        scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
-        scene.fogDensity = atmosphere.fogDensity.value;
-      }
-      wasSubmerged = isSubmerged;
+    if (isSubmerged) {
+      scene.fogColor = UNDERWATER_FOG_COLOR;
+      scene.fogDensity = UNDERWATER_FOG_DENSITY;
+    } else {
+      scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
+      scene.fogDensity = atmosphere.fogDensity.value + weatherState.fogBoost;
     }
 
     const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
     const latLon = worldToLatLon(real, origin);
     const controlsHint =
-      movement.activeMode.value === 'fly'
+      worldSession.transition.value === 'interior'
+        ? 'surveillance interior placeholder — press E to exit'
+        : movement.activeMode.value === 'fly'
         ? 'click canvas to look around, WASD to fly, space/ctrl up/down, shift to boost'
         : movement.activeMode.value === 'drive'
           ? 'click canvas to look around, WASD to drive, shift to boost'
           : 'click canvas to look around, WASD to move, shift to run';
+    const routeLabel = worldSession.route.value.kind === 'exterior'
+      ? 'exterior'
+      : `surveillance/${worldSession.route.value.locationId}`;
     readout.textContent =
+      `route: ${routeLabel} (${worldSession.transition.value})\n` +
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `lat/lon: ${latLon.lat.toFixed(6)}, ${latLon.lon.toFixed(6)}\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
       `mech dog: ${mechDogModel.distance.toFixed(1)}m (${mechDogModel.state})\n` +
-      `whistle [M]: "${WHISTLE_MELODIES[whistleMelodyIndex.value].label}" (1-${WHISTLE_MELODIES.length} to pick) — pet [P]${mechDogModel.distance < PET_DISTANCE ? '' : ' (get closer)'}\n` +
+      `T31: ${strikeSnapshot.state} · ${strikeSnapshot.anchorId} · windup ${Math.round(strikeSnapshot.windupProgress * 100)}%` +
+        `${strikeSnapshot.flags.chassisRecovered ? ' · recovered' : ''}\n` +
+      `T31 gate: LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · rain ${Math.round(strikeSnapshot.rainIntensity * 100)}%\n` +
+      `whistle [M]: "${WHISTLE_MELODIES[mechDog.whistleMelodyIndex.value].label}" (1-${WHISTLE_MELODIES.length} to pick) — pet [P]${mechDog.isPettable() ? '' : ' (get closer)'}\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
+
+    if (worldSession.isExterior()) {
+      if (strikeSnapshot.recoveryAvailable) {
+        interactionPrompt.textContent = 'E — Recover emitter and drone chassis';
+        interactionPrompt.style.display = 'block';
+      } else if (surveillance.isNearEntrance()) {
+        interactionPrompt.textContent = 'E — Enter Milo’s apartment';
+        interactionPrompt.style.display = 'block';
+      } else {
+        interactionPrompt.style.display = 'none';
+      }
+    }
     scene.render();
 
     timeSinceSave += dt;

@@ -5,6 +5,8 @@ import {
   PBRMaterial,
 } from '@babylonjs/core';
 import type { Scene } from '@babylonjs/core';
+import { createScrollingTexture } from '@dissonance/materials';
+import type { ScrollingTextureHandle } from '@dissonance/materials';
 import type { LocationEntry } from './LocationProps';
 
 // The diegetic collectible half of state/lineglass.ts's tiered unlock —
@@ -28,8 +30,18 @@ const PART_SPIN_RADIANS_PER_SECOND = 0.8;
 // (§8: "cyan edges", "warm amber... points of importance") rather than
 // picking one — this is the device's own component, it gets both.
 const PART_COLOR = new Color3(0.55, 0.85, 0.9);
-const PART_EMISSIVE = new Color3(0.35, 0.75, 0.85);
+// Tints the scrolling readout texture (below) rather than being the sole
+// emissive source — boosted above the old flat-color value since
+// multiplying a muted tint against the texture's own bright streaks
+// washed them out toward monochrome cyan.
+const PART_BODY_EMISSIVE_TINT = new Color3(0.6, 1.15, 1.3);
 const PART_ACCENT_EMISSIVE = new Color3(0.95, 0.65, 0.25);
+// Body reads as a live signal readout, not a jamming/static pattern —
+// echo17-signal-palette (a "live feed" strip) fits the Lineglass fiction
+// (compass/map/nav device) better than echo17-scramble-screen would.
+// See docs/dissonance/instanced-material-pipeline-prompt-v1.md.
+const BODY_TEXTURE_PATH = '/textures/echo17-signal-palette/echo17_signal_palette_emissive_512.jpg';
+const BODY_SCROLL_SPEED_U = 0.5;
 
 export interface LineglassPartsHandle {
   // Called once per frame with dt (seconds) and the active controller's
@@ -40,10 +52,11 @@ export interface LineglassPartsHandle {
   dispose(): void;
 }
 
-function buildPartMesh(scene: Scene, name: string): Mesh {
+function buildPartMesh(scene: Scene, name: string, bodyTexture: ScrollingTextureHandle['texture']): Mesh {
   const mat = new PBRMaterial(`${name}_mat`, scene);
   mat.albedoColor = PART_COLOR;
-  mat.emissiveColor = PART_EMISSIVE;
+  mat.emissiveColor = PART_BODY_EMISSIVE_TINT;
+  mat.emissiveTexture = bodyTexture;
   mat.roughness = 0.25;
   mat.metallic = 0.6;
 
@@ -77,6 +90,12 @@ export function loadLineglassParts(
 ): LineglassPartsHandle {
   const pending: Array<{ id: string; mesh: Mesh; x: number; z: number }> = [];
   const allMeshes: Mesh[] = [];
+  // One shared texture+scroll-driver for every part, not one per part —
+  // they're read as the same device's readout, so synced scrolling is
+  // correct, not a bug, and it avoids loading the same 512px jpeg N times.
+  const bodyTexture = createScrollingTexture(scene, BODY_TEXTURE_PATH, {
+    scrollSpeedU: BODY_SCROLL_SPEED_U,
+  });
 
   for (const location of locations) {
     if (!location.lineglassParts) continue;
@@ -84,7 +103,7 @@ export function loadLineglassParts(
     for (const part of location.lineglassParts) {
       const x = anchor.x + part.local[0] * horizontalScale;
       const z = anchor.z + part.local[1] * horizontalScale;
-      const mesh = buildPartMesh(scene, `lineglassPart_${part.id}`);
+      const mesh = buildPartMesh(scene, `lineglassPart_${part.id}`, bodyTexture.texture);
       const groundY = getHeightAt(x, z);
       mesh.position.set(x, groundY + PART_HOVER_HEIGHT, z);
       allMeshes.push(mesh);
@@ -118,6 +137,7 @@ export function loadLineglassParts(
     },
     dispose() {
       allMeshes.forEach((mesh) => mesh.dispose());
+      bodyTexture.dispose();
     },
   };
 }

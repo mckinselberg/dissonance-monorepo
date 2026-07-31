@@ -25,7 +25,40 @@ The apartment remains part of the same world session:
 - canonical WGS84/world position remains the save and return authority;
 - apartment state loads separately from exterior render state;
 - leaving restores the prior controller, camera transform, and exterior position;
-- no page navigation or second Vite application is involved.
+- semantic URL routes select the active world mode without reloading the page;
+- no second Vite application is involved.
+
+### World routing and session state
+
+Use semantic routes to identify the active experience:
+
+```text
+/world/                              # exterior world
+/world/surveillance/milos-apartment  # Milo's monitored interior
+```
+
+Do not encode camera implementation details such as `iso` or `ortho` in the
+route. Orthographic-isometric presentation is currently how surveillance
+interiors render, not the stable identity of the location or game mode.
+
+An app-local world session coordinator is the authority for runtime handoff:
+
+- the URL identifies the active world mode and location;
+- the session coordinator owns the exterior return snapshot;
+- `@dissonance/archaeology` owns serialization-safe artifact records;
+- `@dissonance/persistence` owns durable local archaeology storage;
+- the apartment handle owns transient hover, selection, animation, scanner UI,
+  and camera state.
+
+Route changes use the History API and never reload the World application.
+Entering pushes the surveillance route. Exiting replaces or pushes `/world/`
+according to navigation intent. Browser Back while inside performs the same
+coordinated exit and restoration as the in-world exit control.
+
+A direct visit to `/world/surveillance/milos-apartment` has no prior exterior
+snapshot. In that case, derive a deterministic return snapshot from the stable
+`milos-building` doorway placement. Exiting returns the player to that doorway
+in the exterior world.
 
 ## 2. Scope cut
 
@@ -54,6 +87,8 @@ Deferred until that loop is signed off:
 ### World-owned
 
 - exterior trigger and `milos-building` stable identity;
+- semantic world-route parsing and History API synchronization;
+- world session coordinator and exterior return snapshot;
 - transition orchestration;
 - controller/camera suspension and restoration;
 - apartment scene root lifecycle;
@@ -109,9 +144,10 @@ names use:
 
 Gate: all four workspaces build and their production base paths are correct.
 
-### Slice 1 — Surveilled-location transition seam
+### Slice 1 — World route and surveilled-location transition seam
 
-Add an app-local transition state machine:
+Add an app-local world router, session coordinator, and transition state
+machine:
 
 ```text
 exterior → entering → interior → exiting → exterior
@@ -119,16 +155,23 @@ exterior → entering → interior → exiting → exterior
 
 Requirements:
 
+- map `/world/` to the exterior runtime;
+- map `/world/surveillance/milos-apartment` to the Milo apartment runtime;
+- change routes with the History API without a page reload;
 - identify the doorway through `milos-building`, not a mesh-name guess;
 - snapshot active traversal mode, position, camera rotation, and pointer-lock state;
 - suspend exterior controller updates while inside;
 - load/unload one apartment root without reloading the page;
 - restore the snapshot exactly on exit;
+- derive the doorway return snapshot on a direct interior deep link;
+- make browser Back perform a coordinated interior exit;
 - reject re-entry while a transition is active;
-- expose transition state in the Dev HUD.
+- expose route, transition state, and snapshot status in the Dev HUD.
 
 Gate: enter/exit Milo's empty apartment five times without duplicated meshes,
-observers, audio, UI, or position drift.
+observers, audio, UI, or position drift. Direct-load the surveillance route,
+exit to Milo's doorway, and verify browser Back/Forward cannot bypass lifecycle
+or restoration logic.
 
 ### Slice 2 — Orthographic-isometric interior camera
 
@@ -207,7 +250,7 @@ Gate: production walkthrough and explicit decision on the deferred artifact set.
 | Session | Deliverable |
 |---|---|
 | 1 | Slice 0: app migration, museum, launcher, deployment |
-| 2 | Slice 1: reusable surveilled-location transition |
+| 2 | Slice 1: semantic world route, session coordinator, and reusable surveilled-location transition |
 | 3 | Slice 2: orthographic-isometric camera and cutaway |
 | 4 | Slice 3: capture classification and lifecycle |
 | 5 | Slice 4: cassette archaeology spine |

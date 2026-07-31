@@ -68,6 +68,25 @@ export type LocationEntry = {
   // pickup needs an exact, individually-addressable position and a stable
   // id `state/lineglass.ts` can persist.
   lineglassParts?: Array<{ id: string; local: [number, number] }>;
+  // Individually-addressable, app-local surveillance agents. Route points
+  // use the same local-meter convention as corridor.path/lineglassParts.
+  patrolDrones?: Array<{
+    id: string;
+    route: Array<[number, number]>;
+    speedMetersPerSecond?: number;
+    altitudeMeters?: number;
+  }>;
+  strikeAnchors?: Array<{
+    id: string;
+    local: [number, number];
+    patrolDroneRef: string;
+    eligible: boolean;
+    weight?: number;
+  }>;
+  shelterEntrance?: {
+    local: [number, number];
+    headingDegrees: number;
+  };
 };
 
 export interface LocationPropsHandle {

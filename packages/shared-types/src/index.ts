@@ -3,6 +3,7 @@
 export type ExperienceMode = 'radio' | 'ps1' | 'ps2' | 'ps3';
 export type DepartureTime = 'afternoon' | 'dusk' | 'night';
 export type WeatherMode = 'clear' | 'windy';
+export type PrecipitationMode = 'none' | 'rain' | 'snow' | 'storm';
 export type PursuerState = 'far' | 'near' | 'close' | 'caught';
 
 export interface ExperienceProfile {

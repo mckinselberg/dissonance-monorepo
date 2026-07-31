@@ -3,7 +3,11 @@
     "id": "mountain-crater",
     "name": "mountain crater",
     "latLong": [40.755397, -74.274582],
-    "props": ["rocks"]
+    "props": ["rocks"],
+    "shelterEntrance": {
+      "local": [0, 0],
+      "headingDegrees": 165
+    }
   },
   {
     "id": "milos-apartment",
@@ -375,7 +379,38 @@
       "poleSpacingMeters": 40,
       "wireCount": 2,
       "extendToWorldBounds": true
-    }
+    },
+    "patrolDrones": [
+      {
+        "id": "boulevard-patrol-01",
+        "route": [[-2, -5], [2, 11], [-2, 26], [2, 41]],
+        "speedMetersPerSecond": 3.2,
+        "altitudeMeters": 4.2
+      }
+    ],
+    "strikeAnchors": [
+      {
+        "id": "boulevard-strike-south",
+        "local": [0, 10],
+        "patrolDroneRef": "boulevard-patrol-01",
+        "eligible": true,
+        "weight": 1
+      },
+      {
+        "id": "boulevard-strike-mid",
+        "local": [0, 26],
+        "patrolDroneRef": "boulevard-patrol-01",
+        "eligible": true,
+        "weight": 1
+      },
+      {
+        "id": "boulevard-strike-north",
+        "local": [1, 40],
+        "patrolDroneRef": "boulevard-patrol-01",
+        "eligible": true,
+        "weight": 1
+      }
+    ]
   },
   {
     "id": "old-picnic-grounds",

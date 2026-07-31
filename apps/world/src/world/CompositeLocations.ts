@@ -45,7 +45,15 @@ export interface CompositeLocationsHandle {
   // since this changes as the player walks up to/away from a door, unlike
   // everything else in that array.
   doorBlockerColliders(): Collider[];
+  milosEntrance: SurveilledLocationEntrance | null;
   dispose(): void;
+}
+
+export interface SurveilledLocationEntrance {
+  featureId: 'milos-building';
+  position: Vector3;
+  cameraRotation: Vector3;
+  interactionRadius: number;
 }
 
 // Real footprint dimensions read straight off each glTF's own position
@@ -502,6 +510,22 @@ function localFloorSurfaceToWorld(
   };
 }
 
+function localPointToWorld(
+  local: Vector3,
+  placement: ExpandedPlacement,
+  baseWorldY: number,
+): Vector3 {
+  const cos = Math.cos(placement.rotationRadians);
+  const sin = Math.sin(placement.rotationRadians);
+  const scaledX = local.x * placement.scaleXZ;
+  const scaledZ = local.z * placement.scaleXZ;
+  return new Vector3(
+    placement.x + (scaledX * cos - scaledZ * sin),
+    baseWorldY + local.y * placement.scaleY,
+    placement.z + (scaledX * sin + scaledZ * cos),
+  );
+}
+
 // Dan's own couch.glb (2026-07-29, D:\dan\code\dissonance-related\Furniture)
 // — one real furniture asset dropped into the otherwise-procedural
 // apartment. Same bake-then-reparent idiom as placeSingleTransformMesh/
@@ -563,6 +587,7 @@ async function loadMilosBuilding(
   wallColliders: Collider[];
   frontDoor: DoorController;
   apartmentDoor: DoorController;
+  entrance: SurveilledLocationEntrance;
 }> {
   const container = await LoadAssetContainerAsync(`${CITY_ASSET_BASE}${CITY_ASSETS['building-medium']}`, scene);
   container.addAllToScene();
@@ -602,7 +627,20 @@ async function loadMilosBuilding(
   const frontDoor = makeDoorController(geometry.frontDoor);
   const apartmentDoor = makeDoorController(geometry.apartmentDoor);
 
-  return { container, extraMeshes, floorSurfaces, wallColliders, frontDoor, apartmentDoor };
+  const position = localPointToWorld(new Vector3(-2, 0, 1.75), placement, baseWorldY);
+  const doorTarget = localPointToWorld(new Vector3(-2, 1.15, 0), placement, baseWorldY);
+  const direction = doorTarget.subtract(position);
+  const entrance: SurveilledLocationEntrance = {
+    featureId: MILOS_BUILDING_ID,
+    position,
+    cameraRotation: new Vector3(
+      Math.atan2(-direction.y, Math.hypot(direction.x, direction.z)),
+      Math.atan2(direction.x, direction.z),
+      0,
+    ),
+    interactionRadius: 3 * placement.scaleXZ,
+  };
+  return { container, extraMeshes, floorSurfaces, wallColliders, frontDoor, apartmentDoor, entrance };
 }
 
 async function loadThinInstancedAsset(
@@ -726,6 +764,7 @@ export async function loadCompositeLocations(
   let floorSurfaces: FloorSurface[] = [];
   let milosFrontDoor: DoorController | undefined;
   let milosApartmentDoor: DoorController | undefined;
+  let milosEntrance: SurveilledLocationEntrance | null = null;
   await Promise.all([
     ...[...byAsset].map(async ([asset, entries]) => {
       if (asset in PROCEDURAL_ASSETS) {
@@ -751,6 +790,7 @@ export async function loadCompositeLocations(
       colliders.push(...milos.wallColliders);
       milosFrontDoor = milos.frontDoor;
       milosApartmentDoor = milos.apartmentDoor;
+      milosEntrance = milos.entrance;
       console.info(`[CompositeLocations] placed milos-building (door/stairwell/second-floor, ${floorSurfaces.length} floor surfaces)`);
     })(),
   ]);
@@ -771,6 +811,7 @@ export async function loadCompositeLocations(
       if (apartment) blockers.push(apartment);
       return blockers;
     },
+    milosEntrance,
     dispose: () => {
       containers.forEach((container) => container.dispose());
       // false/true: skip the (already-null) parent-hierarchy walk, do

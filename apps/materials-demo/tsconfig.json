@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@dissonance/materials": ["../../packages/materials/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}
