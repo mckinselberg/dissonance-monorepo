@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { resolveLineglassModules, nextModuleIndex } from './model';
 import type {
@@ -12,9 +12,30 @@ import './lineglass.css';
 
 const MODES: LineglassMode[] = ['inspect', 'tune', 'author', 'system'];
 const SOURCES: LineglassValueSource[] = ['profile', 'override', 'live'];
+const PREFERENCE_KEY = 'dissonance.dev-lineglass.ui.v1';
+
+type LineglassPreferences = {
+  mode?: LineglassMode;
+  openByMode?: Partial<Record<LineglassMode, string>>;
+};
+
+function loadPreferences(initialMode: LineglassMode): Required<LineglassPreferences> {
+  const fallback = { mode: initialMode, openByMode: { inspect: 'context', tune: 'world' } };
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PREFERENCE_KEY) ?? 'null') as LineglassPreferences | null;
+    const mode = parsed?.mode && MODES.includes(parsed.mode) ? parsed.mode : fallback.mode;
+    return { mode, openByMode: { ...fallback.openByMode, ...parsed?.openByMode } };
+  } catch {
+    return fallback;
+  }
+}
 
 function statusLabel(status: LineglassStatus): string {
   return status === 'normal' ? 'normal' : status;
+}
+
+function SourceBadge({ source }: { source: LineglassValueSource }) {
+  return <span class={`lineglass-value-source lineglass-value-source--${source}`}>{source}</span>;
 }
 
 export interface LineglassShellProps {
@@ -28,16 +49,24 @@ export function LineglassShell({
   capabilities,
   initialMode = 'inspect',
 }: LineglassShellProps) {
-  const [mode, setMode] = useState<LineglassMode>(initialMode);
-  const [openByMode, setOpenByMode] = useState<Partial<Record<LineglassMode, string>>>({
-    inspect: 'context',
-    tune: 'world',
-  });
+  const initialPreferences = useMemo(() => loadPreferences(initialMode), [initialMode]);
+  const [mode, setMode] = useState<LineglassMode>(initialPreferences.mode);
+  const [openByMode, setOpenByMode] = useState<Partial<Record<LineglassMode, string>>>(
+    initialPreferences.openByMode,
+  );
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const capabilitySet = useMemo(() => new Set(capabilities), [capabilities]);
   const visibleModules = resolveLineglassModules(modules, mode, capabilitySet);
   const visibleIds = new Set(visibleModules.map((module) => module.id));
   const openId = openByMode[mode];
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PREFERENCE_KEY, JSON.stringify({ mode, openByMode }));
+    } catch {
+      // UI preferences are optional; storage denial must not hide the HUD.
+    }
+  }, [mode, openByMode]);
 
   const selectMode = (nextMode: LineglassMode) => {
     setMode(nextMode);
@@ -120,8 +149,13 @@ export function LineglassShell({
                   <span class='lineglass-module__summary'>
                     {summary.primary}{summary.secondary ? ` · ${summary.secondary}` : ''}
                   </span>
+                  {module.source && <SourceBadge source={module.source} />}
                 </span>
-                {summary.badge && <span class='lineglass-module__badge'>{summary.badge}</span>}
+                {(summary.badge || module.overrideCount) && (
+                  <span class='lineglass-module__badge'>
+                    {summary.badge ?? module.overrideCount}
+                  </span>
+                )}
                 <span class='lineglass-module__chevron' aria-hidden='true'>{isOpen ? '⌃' : '›'}</span>
               </button>
               <div

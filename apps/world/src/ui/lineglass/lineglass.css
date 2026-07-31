@@ -66,6 +66,15 @@
 .lineglass-module--error .lineglass-module__label i { background: var(--lineglass-error); }
 .lineglass-module--disabled { opacity: .45; }
 .lineglass-module__summary { display: block; overflow: hidden; color: var(--lineglass-text-muted); white-space: nowrap; text-overflow: ellipsis; }
+.lineglass-value-source {
+  display: inline-block; margin-top: 3px; padding: 0 5px; border: 1px solid var(--lineglass-border);
+  color: var(--lineglass-text-muted); font-size: 9px; line-height: 16px; text-transform: uppercase;
+}
+.lineglass-value-source--profile { color: var(--lineglass-accent); }
+.lineglass-value-source--override { color: var(--lineglass-override); border-color: #936100; }
+.lineglass-value-source--live { color: var(--lineglass-live); border-color: #3e7636; }
+.lineglass-value-source--recorded { color: #b278ff; border-color: #694096; }
+.lineglass-value-source--derived { color: #a9c6cb; }
 .lineglass-module__badge { padding: 1px 6px; color: var(--lineglass-override); border: 1px solid #936100; border-radius: 2px; }
 .lineglass-module__chevron { color: #bde8ef; font-size: 20px; }
 .lineglass-module__panel { padding: 4px 11px 13px; border-top: 1px solid var(--lineglass-border); }

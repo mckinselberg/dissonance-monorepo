@@ -30,7 +30,11 @@ Source labels must accompany color so the distinction remains accessible.
 
 Phase 1 wraps the canonical legacy control roots in the new shell. This keeps
 one state and command path while the controls move module-by-module. World,
-Sky, Audio, Context, Authoring, and Diagnostics have Lineglass homes. The next
-slice should split the combined authoring root into Movement, Navigation,
-Routes, and Replay adapters, then add source metadata to individual controls.
-The legacy `Section` component should be removed only after that parity pass.
+Sky, Audio, Context, Movement, Navigation, Routes, Replay, and Diagnostics now
+have separate Lineglass homes. The active mode and last-open module per mode
+persist as UI preferences. Module rows expose the dominant value source and an
+override count where saved runtime settings can be identified safely.
+
+The next slice should move source metadata down to individual controls and
+replace the remaining legacy `Section` headings with primary/advanced/
+engineering Lineglass disclosures.

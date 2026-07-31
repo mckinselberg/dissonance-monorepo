@@ -24,6 +24,8 @@ export interface LineglassModuleDefinition {
   modes: LineglassMode[];
   priority: number;
   status?: LineglassStatus;
+  source?: LineglassValueSource;
+  overrideCount?: number;
   capabilities?: LineglassCapability[];
   summary: () => LineglassSummary;
   rootIds: string[];

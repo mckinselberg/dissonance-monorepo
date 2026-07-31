@@ -415,12 +415,18 @@ async function main() {
     {
       id: 'context', label: 'Interior', icon: '▣', modes: ['inspect'], priority: 10,
       capabilities: ['inspect-world'],
+      source: 'live',
       summary: () => ({ primary: level.cameraMode === 'orbit' ? 'Overview' : 'Exterior', secondary: 'active' }),
       rootIds: ['interior-debug-root'],
     },
     {
       id: 'world', label: 'World', icon: '♟', modes: ['tune'], priority: 10,
       capabilities: ['edit-world'],
+      source: 'profile',
+      overrideCount: [
+        savedSettings.hScale, savedSettings.vExag, savedSettings.waterLevel,
+        savedSettings.trailsideCount, savedSettings.bulkForestCount, savedSettings.bulkForestRadius,
+      ].filter((value) => value !== undefined).length,
       summary: () => ({
         primary: 'Forest',
         secondary: `${bulkForest.bulkForestPlacedCount.value.toFixed(0)} placed · R ${bulkForest.bulkForestRadius.value.toFixed(0)} m`,
@@ -430,6 +436,11 @@ async function main() {
     {
       id: 'sky', label: 'Sky', icon: '☁', modes: ['tune'], priority: 20,
       capabilities: ['edit-world'],
+      source: 'profile',
+      overrideCount: [
+        savedSettings.timeOfDay, savedSettings.fogDensity, savedSettings.overcast,
+        savedSettings.starCount, savedSettings.cloudCount, savedSettings.cloudOpacity,
+      ].filter((value) => value !== undefined).length,
       summary: () => ({
         primary: atmosphere.overcast.value ? 'Overcast' : 'Clear',
         secondary: `Fog ${atmosphere.fogDensity.value.toFixed(4)}`,
@@ -439,21 +450,56 @@ async function main() {
     {
       id: 'audio', label: 'Audio', icon: '≋', modes: ['inspect', 'tune'], priority: 30,
       capabilities: ['inspect-world'],
+      source: 'live',
+      overrideCount: [
+        savedSettings.masterMuted, savedSettings.windVolume,
+        savedSettings.footstepMuted, savedSettings.breathMuted,
+      ].filter((value) => value !== undefined).length,
       summary: () => ({
         primary: `Wind ${Math.round(audio.windVolume.value * 100)}%`,
         secondary: audio.masterMuted.value ? 'muted' : 'active',
       }),
       rootIds: ['audio-root'],
     },
+    ...(level.cameraMode === 'orbit' ? [] : [{
+      id: 'movement', label: 'Movement', icon: '↟', modes: ['inspect', 'tune'], priority: 40,
+      capabilities: ['inspect-world'],
+      source: 'live',
+      summary: () => ({
+        primary: savedSettings.activeMode ?? 'walk',
+        secondary: `${(savedSettings.cameraHeightOffset ?? 0).toFixed(1)} m camera`,
+      }),
+      rootIds: ['movement-root'],
+    } satisfies LineglassModuleDefinition]),
     {
-      id: 'authoring', label: 'Navigation & Routes', icon: '⌖', modes: ['author'], priority: 10,
+      id: 'navigation', label: 'Navigation', icon: '⌖', modes: ['inspect', 'author'], priority: 20,
+      capabilities: ['teleport'],
+      source: 'live',
+      summary: () => ({ primary: level.cameraMode === 'orbit' ? 'Orbit position' : 'World position', secondary: 'locations · views' }),
+      rootIds: ['navigation-root'],
+    },
+    {
+      id: 'routes', label: 'Routes', icon: '⌁', modes: ['author'], priority: 30,
       capabilities: ['author-routes'],
-      summary: () => ({ primary: 'Views · locations · routes', secondary: 'authoring tools' }),
-      rootIds: ['mode-controls-root'],
+      source: 'recorded',
+      summary: () => ({ primary: 'Route recorder', secondary: 'local draft' }),
+      rootIds: ['routes-root'],
+    },
+    {
+      id: 'replay', label: 'Replay', icon: '▷', modes: ['author'], priority: 40,
+      capabilities: ['author-routes'],
+      source: 'recorded',
+      status: replayRoutes.length === 0 ? 'disabled' : 'normal',
+      summary: () => ({
+        primary: replayRoutes.length === 0 ? 'No route selected' : `${replayRoutes.length} routes`,
+        secondary: 'playback',
+      }),
+      rootIds: ['replay-root'],
     },
     {
       id: 'diagnostics', label: 'Diagnostics', icon: '⌁', modes: ['system'], priority: 10,
       capabilities: ['view-diagnostics'],
+      source: 'derived',
       summary: () => ({ primary: level.label, secondary: 'live engineering state' }),
       rootIds: ['level-links', 'level-label', 'readout'],
     },
@@ -792,7 +838,7 @@ async function main() {
     scene.activeCamera = orbitCamera;
 
     render(
-      <Section title='Navigation & Views'>
+      <>
         <ViewToolsRow
           buildSnapshot={() => ({
             level: levelKey,
@@ -834,6 +880,10 @@ async function main() {
           }}
           locations={locations}
         />
+      </>,
+      document.getElementById('navigation-root') as HTMLDivElement,
+    );
+    render(
         <RouteRecorder
           storageKey='trail-viewer.route-recorder.v1'
           getCurrentSample={() => {
@@ -848,6 +898,10 @@ async function main() {
             } satisfies RouteSample;
           }}
         />
+      ,
+      document.getElementById('routes-root') as HTMLDivElement,
+    );
+    render(
         <RouteReplay
           routes={replayRoutes}
           onSeek={({ lat, lon }) => {
@@ -857,8 +911,8 @@ async function main() {
             orbitCamera.target = new Vector3(renderX, terrain.getHeightAt(renderX, renderZ), renderZ);
           }}
         />
-      </Section>,
-      document.getElementById('mode-controls-root') as HTMLDivElement,
+      ,
+      document.getElementById('replay-root') as HTMLDivElement,
     );
 
     const gameLoop = new GameLoop(engine, (dt) => {
@@ -1322,9 +1376,7 @@ async function main() {
   });
 
   render(
-    <>
-      <Section title='Movement'>
-        <MovementRow
+    <MovementRow
           signals={movement}
           onModeChange={(mode) => {
             if (!isExteriorGameplay()) return;
@@ -1335,10 +1387,12 @@ async function main() {
             player.setHeightOffset(value);
             drive.setHeightOffset(value);
           }}
-        />
-      </Section>
-      <Section title='Navigation & Views'>
-        <ViewToolsRow
+    />,
+    document.getElementById('movement-root') as HTMLDivElement,
+  );
+  render(
+    <>
+      <ViewToolsRow
           buildSnapshot={() => {
             const activeCamera = controllers[movement.activeMode.value].camera;
             const pos = controllers[movement.activeMode.value].getPosition();
@@ -1405,7 +1459,11 @@ async function main() {
           }}
           locations={locations}
         />
-        <RouteRecorder
+    </>,
+    document.getElementById('navigation-root') as HTMLDivElement,
+  );
+  render(
+    <RouteRecorder
           storageKey='trail-viewer.route-recorder.v1'
           getCurrentSample={() => {
             const pos = controllers[movement.activeMode.value].getPosition();
@@ -1418,8 +1476,11 @@ async function main() {
               worldZ: real.z,
             } satisfies RouteSample;
           }}
-        />
-        <RouteReplay
+    />,
+    document.getElementById('routes-root') as HTMLDivElement,
+  );
+  render(
+    <RouteReplay
           routes={replayRoutes}
           onSeek={({ lat, lon }) => {
             const real = latLonToWorld({ lat, lon }, origin);
@@ -1430,10 +1491,8 @@ async function main() {
             const y = movement.activeMode.value === 'fly' ? groundY + 5 : groundY;
             activeController.setPosition(new Vector3(renderX, y, renderZ));
           }}
-        />
-      </Section>
-    </>,
-    document.getElementById('mode-controls-root') as HTMLDivElement,
+    />,
+    document.getElementById('replay-root') as HTMLDivElement,
   );
 
   const SAVE_INTERVAL_SECONDS = 2;
