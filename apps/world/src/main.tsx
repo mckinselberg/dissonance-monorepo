@@ -61,8 +61,11 @@ import { createTraversalRig } from './world/TraversalRig';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
 import { createLineglassSignals, unlockedLineglassLayers, LINEGLASS_TIERS } from './state/lineglass';
-import { createDefaultEnvironmentRenderingProfile } from './state/environmentRenderingProfile';
+import type { EnvironmentRenderingProfile } from './state/environmentRenderingProfile';
+import { applyEnvironmentRenderingProfile } from './state/applyEnvironmentRenderingProfile';
+import { createEnvironmentProfileRegistry, findEnvironmentProfile } from './state/environmentProfiles';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
+import { EnvironmentProfileRow } from './ui/EnvironmentProfileRow';
 import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
@@ -152,11 +155,18 @@ async function main() {
   // First concrete T1/T24 profile seam. Only existing live consumers (fog)
   // are applied today; chunk/LOD distances remain validated profile data
   // until their systems land, rather than appearing as inert HUD controls.
-  const environmentProfile = createDefaultEnvironmentRenderingProfile({
+  const environmentProfiles = createEnvironmentProfileRegistry({
     farClip: level.farClip,
-    fogDensity: savedSettings.fogDensity ?? 0,
-    fogColor: savedSettings.fogColor ?? '#8ca6c7',
+    defaultFogDensity: savedSettings.fogDensity ?? 0,
+    defaultFogColor: savedSettings.fogColor ?? '#8ca6c7',
   });
+  const initialEnvironmentProfile = findEnvironmentProfile(
+    environmentProfiles,
+    savedSettings.environmentProfileId,
+  );
+  const environmentProfileId = signal(initialEnvironmentProfile.id);
+  let activeEnvironmentProfile = initialEnvironmentProfile;
+  let renderingPipeline: DefaultRenderingPipeline | undefined;
 
   // Persisted via SavedSettings/persistSettings and both buildSnapshot()
   // export paths — grid/gpx/osm are handled separately below since they're
@@ -195,8 +205,10 @@ async function main() {
   // Preact-rendered #atmosphere-root panel mounted further down.
   const atmosphere = createAtmosphereSignals({
     timeOfDay: savedSettings.timeOfDay ?? 12,
-    fogDensity: environmentProfile.atmosphere.fogDensity,
-    fogColor: environmentProfile.atmosphere.fogColor,
+    // Persisted values are explicit runtime overrides layered on the named
+    // profile. Selecting a profile below resets these signals to its values.
+    fogDensity: savedSettings.fogDensity ?? initialEnvironmentProfile.atmosphere.fogDensity,
+    fogColor: savedSettings.fogColor ?? initialEnvironmentProfile.atmosphere.fogColor,
     overcast: savedSettings.overcast ?? false,
     starCount: savedSettings.starCount ?? 800,
     cloudCount: savedSettings.cloudCount ?? 16,
@@ -239,7 +251,7 @@ async function main() {
   trailPlayerAudio.setBreathMuted(audio.breathMuted.value);
   let audioStarted = false;
 
-  scene.fogMode = Scene.FOGMODE_EXP2;
+  applyEnvironmentRenderingProfile(scene, activeEnvironmentProfile);
   effect(() => {
     scene.fogDensity = atmosphere.fogDensity.value;
   });
@@ -438,11 +450,11 @@ async function main() {
       capabilities: ['edit-world'],
       source: 'profile',
       overrideCount: [
-        savedSettings.timeOfDay, savedSettings.fogDensity, savedSettings.overcast,
+        savedSettings.environmentProfileId, savedSettings.timeOfDay, savedSettings.fogDensity, savedSettings.overcast,
         savedSettings.starCount, savedSettings.cloudCount, savedSettings.cloudOpacity,
       ].filter((value) => value !== undefined).length,
       summary: () => ({
-        primary: atmosphere.overcast.value ? 'Overcast' : 'Clear',
+        primary: findEnvironmentProfile(environmentProfiles, environmentProfileId.value).label,
         secondary: `Fog ${atmosphere.fogDensity.value.toFixed(4)}`,
       }),
       rootIds: ['atmosphere-root'],
@@ -739,8 +751,27 @@ async function main() {
   // Walk/Fly/Drive which orbit has no equivalent of. Preact-rendered pilot
   // (see docs/THREADS.md); commit handlers below mirror the dispose/
   // recreate bodies the old change-listeners used 1:1.
+  const selectEnvironmentProfile = (profile: EnvironmentRenderingProfile) => {
+    activeEnvironmentProfile = profile;
+    environmentProfileId.value = profile.id;
+    atmosphere.fogDensity.value = profile.atmosphere.fogDensity;
+    atmosphere.fogColor.value = profile.atmosphere.fogColor;
+    const windows = profile.emissive?.windows;
+    if (windows) {
+      atmosphere.windowTintColor.value = windows.color;
+      atmosphere.windowGlow.value = windows.intensity;
+    }
+    applyEnvironmentRenderingProfile(scene, profile, renderingPipeline);
+    saveSettings(levelKey, { ...loadSavedSettings(levelKey), environmentProfileId: profile.id });
+  };
+
   render(
     <Section title='Sky'>
+      <EnvironmentProfileRow
+        profiles={environmentProfiles}
+        activeProfileId={environmentProfileId}
+        onSelect={selectEnvironmentProfile}
+      />
       <AtmosphereRow
         signals={atmosphere}
         onStarCountCommit={() => backdrop.rebuildStars()}
@@ -854,7 +885,7 @@ async function main() {
               bulkForestScale: bulkForest.bulkForestScale,
               treeRegionRadius: bulkForest.treeRegionRadius,
               bulkForestRadius: bulkForest.bulkForestRadius,
-              weatherMode, precipitationMode, hudVisible, worldBounded,
+              weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
             }),
           })}
           levelKey={levelKey}
@@ -1002,12 +1033,12 @@ async function main() {
   // camera self-registers on construction) — no per-controller wiring
   // needed. Every other pipeline feature (FXAA, grain, DoF, vignette,
   // chromatic aberration) stays off; this is scoped to bloom alone.
-  const bloomPipeline = new DefaultRenderingPipeline('bloomPipeline', true, scene, scene.cameras);
-  bloomPipeline.bloomEnabled = true;
-  bloomPipeline.bloomThreshold = 0.65;
-  bloomPipeline.bloomWeight = 0.4;
-  bloomPipeline.bloomKernel = 64;
-  bloomPipeline.bloomScale = 0.5;
+  renderingPipeline = new DefaultRenderingPipeline('bloomPipeline', true, scene, scene.cameras);
+  applyEnvironmentRenderingProfile(scene, activeEnvironmentProfile, renderingPipeline);
+  // The named profile is the inherited source; persisted fog values are
+  // explicit runtime overrides and must win after post-processing setup.
+  scene.fogDensity = atmosphere.fogDensity.value;
+  scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
 
   // Autosave never restored look direction even before the Copy/Load View
   // mechanism existed (only position) — a real gap, since "the same spot,
@@ -1411,7 +1442,7 @@ async function main() {
                 bulkForestScale: bulkForest.bulkForestScale,
                 treeRegionRadius: bulkForest.treeRegionRadius,
                 bulkForestRadius: bulkForest.bulkForestRadius,
-                weatherMode, precipitationMode, hudVisible, worldBounded,
+                weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
               }),
             };
           }}
@@ -1538,7 +1569,7 @@ async function main() {
         bulkForestScale: bulkForest.bulkForestScale,
         treeRegionRadius: bulkForest.treeRegionRadius,
         bulkForestRadius: bulkForest.bulkForestRadius,
-        weatherMode, precipitationMode, hudVisible, worldBounded,
+        weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
       }),
     });
   };

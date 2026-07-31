@@ -12,6 +12,7 @@ import type { ActiveMode } from './movement';
 // does; these fields only ever get written by the Copy/Load View mechanism
 // below (see THREADS.md's "View snapshot / Copy-Paste Views" thread).
 export type SavedSettings = {
+  environmentProfileId?: string;
   x?: number;
   y?: number;
   z?: number;

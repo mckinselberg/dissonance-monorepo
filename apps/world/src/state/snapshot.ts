@@ -19,6 +19,7 @@ import type { SavedSettings } from './settingsStorage';
 export type SharedSettingsSnapshot = Pick<
   SavedSettings,
   | 'hScale'
+  | 'environmentProfileId'
   | 'vExag'
   | 'waterLevel'
   | 'timeOfDay'
@@ -80,13 +81,15 @@ export function buildSharedSettingsSnapshot(deps: {
   // call time rather than unwrapped here.
   hudVisible: boolean;
   worldBounded: Signal<boolean>;
+  environmentProfileId: Signal<string>;
 }): SharedSettingsSnapshot {
   const {
     scaleTuning, atmosphere, visibility, audio,
     trailsideScale, bulkForestScale, treeRegionRadius, bulkForestRadius,
-    weatherMode, precipitationMode, hudVisible, worldBounded,
+    weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
   } = deps;
   return {
+    environmentProfileId: environmentProfileId.value,
     hScale: scaleTuning.hScale.value,
     vExag: scaleTuning.vExag.value,
     waterLevel: scaleTuning.waterLevel.value,
