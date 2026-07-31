@@ -142,6 +142,7 @@ async function main() {
   });
   const restoredExterior = worldSave.snapshot().lastExterior;
   const restoredHere = restoredExterior?.levelKey === levelKey ? restoredExterior : null;
+  const flashlightEnabled = signal(worldSave.snapshot().equipment.flashlightEnabled);
   if (worldSave.snapshot().activeRoute !== 'exterior') {
     // Interior cameras/geometry are runtime resources, not safe reload
     // targets. A reload resumes from the last committed exterior transform.
@@ -853,6 +854,7 @@ async function main() {
   );
 
   const player = new PlayerController(scene, startPosition, { scale: level.playerScale, farClip: level.farClip });
+  player.setFlashlightEnabled(flashlightEnabled.value);
   player.setTerrain(terrain);
 
   // Fast air travel — a free-fly camera for covering this real-world-scale
@@ -1051,6 +1053,7 @@ async function main() {
     controllers,
     movement,
     corridorSeed: getOrCreateRunSeed(),
+    flashlightEnabled: flashlightEnabled.value,
     onEntered: () => {
       commitExteriorState('workshop');
       story.set('shelterAlarmSilenced');
@@ -1072,6 +1075,15 @@ async function main() {
     } else if (workshop.isNearEntrance()) {
       workshop.enter();
     }
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyL' || event.repeat) return;
+    flashlightEnabled.value = !flashlightEnabled.value;
+    worldSave.setFlashlightEnabled(flashlightEnabled.value);
+    workshop.setFlashlightEnabled(flashlightEnabled.value);
+    player.setFlashlightEnabled(
+      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
+    );
   });
 
   render(
@@ -1142,6 +1154,19 @@ async function main() {
             }}
           />{' '}
           Unlock workshop test corridor (debug only)
+        </label>
+        <br />
+        <label>
+          <input
+            type='checkbox'
+            checked={flashlightEnabled.value}
+            onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
+              flashlightEnabled.value = event.currentTarget.checked;
+              worldSave.setFlashlightEnabled(flashlightEnabled.value);
+              workshop.setFlashlightEnabled(flashlightEnabled.value);
+            }}
+          />{' '}
+          Milo flashlight (L)
         </label>
       </Section>
       <Section title='Surveillance Interior'>
@@ -1398,6 +1423,10 @@ async function main() {
   window.addEventListener('pagehide', persistSettings);
 
   const gameLoop = new GameLoop(engine, (dt) => {
+    player.setFlashlightEnabled(
+      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
+    );
+    workshop.setFlashlightEnabled(flashlightEnabled.value && workshop.isInterior());
     if (isExteriorGameplay()) {
       controllers[movement.activeMode.value].update(dt);
       clampToWorldBounds(controllers[movement.activeMode.value]);
@@ -1518,14 +1547,14 @@ async function main() {
     const latLon = worldToLatLon(real, origin);
     const controlsHint =
       workshop.isInterior()
-        ? 'underground workshop — click to look, WASD to move, return to the threshold to exit'
+        ? 'underground workshop — click to look, WASD to move, L flashlight, return to the threshold to exit'
         : worldSession.transition.value === 'interior'
         ? 'surveillance interior placeholder — press E to exit'
         : movement.activeMode.value === 'fly'
         ? 'click canvas to look around, WASD to fly, space/ctrl up/down, shift to boost'
         : movement.activeMode.value === 'drive'
           ? 'click canvas to look around, WASD to drive, shift to boost'
-          : 'click canvas to look around, WASD to move, shift to run';
+          : 'click canvas to look around, WASD to move, shift to run, L flashlight';
     const routeLabel = workshop.isInterior()
       ? 'workshop/mountain-crater'
       : worldSession.route.value.kind === 'exterior'

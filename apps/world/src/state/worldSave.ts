@@ -17,6 +17,9 @@ export interface WorldSaveDocument {
   savedAt: number;
   activeRoute: WorldRouteId;
   lastExterior: ExteriorPlayerState | null;
+  equipment: {
+    flashlightEnabled: boolean;
+  };
   progression: {
     storyFlags: string[];
     inventory: {
@@ -70,6 +73,12 @@ function parseDocument(value: unknown): WorldSaveDocument | null {
     savedAt: Number.isFinite(raw.savedAt) ? raw.savedAt as number : Date.now(),
     activeRoute: raw.activeRoute as WorldRouteId,
     lastExterior: parseExterior(raw.lastExterior),
+    equipment: {
+      flashlightEnabled:
+        typeof raw.equipment?.flashlightEnabled === 'boolean'
+          ? raw.equipment.flashlightEnabled
+          : true,
+    },
     progression: {
       storyFlags: uniqueStrings(progression.storyFlags),
       inventory: {
@@ -107,6 +116,9 @@ function migrate(seed: WorldSaveMigrationSeed): WorldSaveDocument {
       position: seed.position!,
       rotation: seed.rotation!,
     } : null,
+    equipment: {
+      flashlightEnabled: true,
+    },
     progression: {
       storyFlags,
       inventory: {
@@ -179,6 +191,13 @@ export class WorldSaveStore {
           lineglassPartIds: uniqueStrings(lineglassPartIds),
         },
       },
+    });
+  }
+
+  setFlashlightEnabled(flashlightEnabled: boolean): void {
+    this.update({
+      ...this.document,
+      equipment: { flashlightEnabled },
     });
   }
 

@@ -11,6 +11,7 @@ import {
   type Scene,
 } from '@babylonjs/core';
 import type { ActiveMode, MovementSignals } from '../state/movement';
+import { CameraFlashlight } from '@dissonance/player';
 import type { TraversalController } from '../world/TraversalRig';
 import type { WorldFeaturesSystem } from '../world/WorldFeaturesSystem';
 import {
@@ -30,6 +31,7 @@ export interface WorkshopSession {
   corridorDiagnostics(): CorridorDiagnostics;
   isCorridorUnlocked(): boolean;
   setCorridorUnlocked(unlocked: boolean): void;
+  setFlashlightEnabled(enabled: boolean): void;
   enter(): void;
   exit(): void;
   update(): void;
@@ -50,6 +52,7 @@ export function createWorkshopSession(deps: {
   controllers: Record<ActiveMode, TraversalController>;
   movement: MovementSignals;
   corridorSeed: number;
+  flashlightEnabled: boolean;
   onEntered: () => void;
   onWorkbenchEntered: () => void;
 }): WorkshopSession {
@@ -60,6 +63,7 @@ export function createWorkshopSession(deps: {
     controllers,
     movement,
     corridorSeed,
+    flashlightEnabled,
     onEntered,
     onWorkbenchEntered,
   } = deps;
@@ -172,6 +176,8 @@ export function createWorkshopSession(deps: {
   camera.keysRight = [68];
   camera.checkCollisions = true;
   camera.ellipsoid = new Vector3(0.4, 0.85, 0.4);
+  const flashlight = new CameraFlashlight(scene, camera, 'workshopFlashlight');
+  flashlight.setEnabled(flashlightEnabled);
 
   let interior = false;
   let previousCamera: Camera | null = null;
@@ -228,10 +234,13 @@ export function createWorkshopSession(deps: {
       corridorUnlocked = unlocked;
       corridorGate.setEnabled(!unlocked);
     },
+    setFlashlightEnabled: (enabled) => flashlight.setEnabled(enabled),
     enter,
     exit,
     update: () => {
-      if (!interior || discoveredThisVisit) return;
+      if (!interior) return;
+      flashlight.update();
+      if (discoveredThisVisit) return;
       if (Vector3.DistanceSquared(camera.position, WORKBENCH_POSITION.add(new Vector3(0, 1.5, 0))) > 16) return;
       discoveredThisVisit = true;
       onWorkbenchEntered();
@@ -239,6 +248,7 @@ export function createWorkshopSession(deps: {
     dispose: () => {
       exit();
       camera.dispose();
+      flashlight.dispose();
       light.dispose();
       corridor.dispose();
       meshes.forEach((mesh) => mesh.dispose(false, true));

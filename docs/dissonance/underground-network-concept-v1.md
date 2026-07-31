@@ -180,3 +180,9 @@ walked in both directions without making it canonical progression.
 Production build validation is complete. Manual full-speed checks remain
 required for wall seams, the small elevation step, camera collision, and
 returning through the unlocked portal on the slow authoring machine.
+
+The corridor visibility gate reuses `@dissonance/player`'s extracted
+camera-carried flashlight. Milo's persisted flashlight state follows the
+active first-person camera across the exterior/workshop threshold; `L` toggles
+it, and the T32 Dev HUD exposes the same control. This is illumination for
+traversal validation, not a new inventory or acquisition beat.

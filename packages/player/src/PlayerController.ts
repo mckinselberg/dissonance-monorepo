@@ -1,9 +1,10 @@
-import { Vector3, FreeCamera, Scene, SpotLight, Color3 } from '@babylonjs/core';
+import { Vector3, FreeCamera, Scene } from '@babylonjs/core';
 import { PLAYER_CONFIG } from './defaults';
 import { BreathSystem } from './BreathSystem';
 import { AdrenalineSystem } from './AdrenalineSystem';
 import type { ITerrain } from '@dissonance/world';
 import type { Collider } from '@dissonance/world';
+import { CameraFlashlight, type FlashlightTuning } from './CameraFlashlight';
 
 const STAND_HEIGHT = 1.7;
 const CROUCH_HEIGHT = 0.9;
@@ -45,19 +46,11 @@ export type PlayerControllerOptions = {
   farClip?: number;
 };
 
-export type FlashlightTuning = {
-  intensity: number;
-  range: number;
-  angle: number;
-  exponent: number;
-  color: { r: number; g: number; b: number };
-};
-
 export class PlayerController {
   readonly camera: FreeCamera;
   readonly breath: BreathSystem;
   readonly adrenaline: AdrenalineSystem;
-  private readonly flashlight: SpotLight;
+  private readonly flashlight: CameraFlashlight;
 
   isCrouching = false;
 
@@ -65,8 +58,6 @@ export class PlayerController {
   private mouseDeltaX = 0;
   private mouseDeltaY = 0;
   private isPointerLocked = false;
-  private flashlightEnabled = false;
-  private flashlightIntensity = 2.8;
   private sprintLocked = false;
   private currentSpeed = 0;
   private shakeTime = 0;
@@ -108,13 +99,7 @@ export class PlayerController {
     // magic) elsewhere in this class. Deliberately no shadow generator
     // here — per-light shadow maps are expensive, and the moonlight sun
     // in DaylightSystem already covers that job.
-    this.flashlight = new SpotLight(
-      'flashlight', startPosition.clone(), Vector3.Forward(), Math.PI / 3, 2, scene,
-    );
-    this.flashlight.diffuse = new Color3(1.0, 0.82, 0.55);
-    this.flashlight.specular = Color3.Black();
-    this.flashlight.intensity = 0; // starts off — Game enables it after phone pickup
-    this.flashlight.range = 22;
+    this.flashlight = new CameraFlashlight(scene, this.camera);
 
     this.setupInput(scene);
   }
@@ -134,51 +119,22 @@ export class PlayerController {
 
   // Intensity-based toggle is more reliable than setEnabled() across BabylonJS versions.
   setFlashlightEnabled(enabled: boolean): void {
-    this.flashlightEnabled = enabled;
-    this.flashlight.intensity = enabled ? this.flashlightIntensity : 0;
+    this.flashlight.setEnabled(enabled);
   }
 
   setFlashlightTuning(tuning: FlashlightTuning): void {
-    this.flashlightIntensity = tuning.intensity;
-    this.flashlight.range = tuning.range;
-    this.flashlight.angle = tuning.angle;
-    this.flashlight.exponent = tuning.exponent;
-    this.flashlight.diffuse = new Color3(tuning.color.r, tuning.color.g, tuning.color.b);
-    if (this.flashlightEnabled) this.flashlight.intensity = this.flashlightIntensity;
+    this.flashlight.setTuning(tuning);
   }
 
   // Cone + range test against the flashlight — same relative-angle math
   // already used elsewhere (pursuer audio panning, line-of-sight) just
   // clamped to the spotlight's half-angle instead of a full circle.
   isPointIlluminated(point: Vector3): boolean {
-    if (this.flashlight.intensity <= 0) return false;
-    const toPoint = point.subtract(this.camera.position);
-    const dist = toPoint.length();
-    if (dist < 0.001 || dist > this.flashlight.range) return false;
-    const dir = this.camera.getDirection(Vector3.Forward());
-    const cosAngle = Vector3.Dot(dir, toPoint.normalize());
-    // Use full half-angle (not half of it) — detection fills the entire visible cone.
-    return cosAngle > Math.cos(this.flashlight.angle);
+    return this.flashlight.isPointIlluminated(point);
   }
 
   getFlashlightPressure(point: Vector3): number {
-    if (this.flashlight.intensity <= 0) return 0;
-    const toPoint = point.subtract(this.camera.position);
-    const dist = toPoint.length();
-    if (dist < 0.001 || dist > this.flashlight.range) return 0;
-
-    const dir = this.camera.getDirection(Vector3.Forward());
-    const cosAngle = Vector3.Dot(dir, toPoint.normalize());
-    const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
-    const inner = this.flashlight.angle;
-    const outer = inner * 1.65;
-    if (angle >= outer) return 0;
-
-    const conePressure = angle <= inner
-      ? 1
-      : 1 - (angle - inner) / (outer - inner);
-    const rangePressure = 1 - Math.min(0.45, dist / this.flashlight.range * 0.45);
-    return Math.max(0, Math.min(1, conePressure * rangePressure));
+    return this.flashlight.getPressure(point);
   }
 
   setTerrain(terrain: ITerrain): void {
@@ -318,8 +274,7 @@ export class PlayerController {
       this.camera.rotation.y += ny * shakeMag * 0.5;
     }
 
-    this.flashlight.position.copyFrom(this.camera.position);
-    this.flashlight.direction = this.camera.getDirection(Vector3.Forward());
+    this.flashlight.update();
   }
 
   private tryMove(dx: number, dz: number): void {

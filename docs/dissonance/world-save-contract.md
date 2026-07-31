@@ -13,6 +13,7 @@ museum/DTA key `dta_player_state`.
 | recovered hardware | World save inventory | yes |
 | Lineglass part IDs | World save inventory | yes |
 | last safe exterior transform and traversal mode | World save | yes |
+| Milo flashlight enabled state | World save equipment | yes |
 | active exterior/workshop/surveillance route | World save | yes, diagnostic/recovery |
 | atmosphere, visibility, audio, scale, HUD tuning | per-level settings | yes, preferences |
 | camera/view presets | view snapshot | authored/exported |
@@ -37,6 +38,9 @@ type WorldSaveDocument = {
     position: { x: number; y: number; z: number };
     rotation: { x: number; y: number; z: number };
   } | null;
+  equipment: {
+    flashlightEnabled: boolean;
+  };
   progression: {
     storyFlags: string[];
     inventory: {
