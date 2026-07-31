@@ -1,6 +1,6 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.50
+**Version:** 9.51
 **Date:** 2026-07-30
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
 
@@ -43,6 +43,10 @@
 | T28 | Rural infrastructure backlog (silos, windmills, water towers, self-storage, airport, highway, compass) | new 2026-07-27 — backlog only; power lines already shipped, see T21 |
 | T29 | Diegetic communications / terminal layer | experimental — offline docking slice first; networking remains T11 |
 | T30 | Instanced material pipeline (scatter-prop variation + emissive data patterns) | first pass landed 2026-07-29 — see entry for what's deferred |
+| T31 | Emitter / captured drone (interference verb) | acquisition slice landed; later verb deferred |
+| T32 | Repair-pipeline hack (ride-the-mend) | experimental; downstream of T31 |
+| T33 | Infrastructure corridor (rail + power + EM charge) | provisional; Phase 0 sign-off required |
+| T34 | Acoustic mech disable (“the right song”) | experimental; blocked on T9 and T4 |
 
 ---
 
@@ -375,6 +379,27 @@ Surveillance Boulevard PoC mined for: boulevard axial layout (urban-edge level d
 
 ---
 
+### T31 — Emitter / captured drone
+- **Status:** acquisition slice landed; mounted-emitter verb deferred.
+- **Scope:** a Milo-proximity- and LOS-gated strike commands T21 weather, disables a patrol drone, and makes its chassis recoverable. The later non-lethal emitter is short-range, charge-bound, and self-incriminating.
+- **Control:** terminal access / misused authorization, not a handheld remote; piloting is T14 viewpoint binding.
+- **Owning delta:** `dissonance/THREADS-delta-T31-T32.md`.
+
+### T32 — Repair-pipeline hack
+- **Status:** experimental; downstream of T31 terminal control.
+- **Scope:** lost drones are repaired and returned to patrol. Milo exploits that queue by presenting a controlled drone as something the system already wants to mend.
+- **Discovery:** teach the pipeline through disappearance/reappearance and legible interface state, never explanatory narration.
+
+### T33 — Infrastructure corridor
+- **Status:** provisional; gated on the owning prompt’s Phase 0 audit.
+- **Scope:** one shared full-axis right-of-way carrying graded rail, high-tension power, an EM charging line, a tunnel, a climbable knowledge-bearing pylon, and PATROL/ALERT binding.
+- **Owning docs:** `dissonance/rail-and-lines-corridor-prompt-v3.md` and `dissonance/THREADS-delta-corridor.md`.
+
+### T34 — Acoustic mech disable
+- **Status:** experimental; blocked on T9 and T4.
+- **Scope:** a learned pattern drives a corridor mech into recoverable DORMANT state via `applyDisruption('acoustic-desync', magnitude)`. Performing it raises player legibility; it never destroys.
+- **Open canon:** Resistance resolution versus Synod password, and headphone attenuation versus full negation.
+
 ## Decisions (frozen — do not relitigate in sessions)
 
 **D1. Audio engine: Tone.js owns the AudioContext. Babylon never plays sound.** One context, one master chain in `@dta/audio`. Named buses: spatial / ambient-beds / interior (heartbeat, stings) / music-synth. Ducking constants defined once, between buses. Spatialization via `Tone.Panner3D` + `Tone.Listener`. Babylon's sole audio role: a bridge system syncing listener/emitter positions from the render loop (~15–20Hz throttle). AudioContext unlock shares T12's permission+calibration moment on mobile. Panner budget: dozens OK, hundreds not — swarm life stays in 2D beds. Keep `Tone.Transport` (musical time) distinct from game-loop time.
@@ -511,6 +536,7 @@ T3 was believed to be the single biggest unlock still to run. **2026-07-17 audit
 
 | Version | Date | Change |
 |---|---|---|
+| 9.51 | 2026-07-30 | Reconciled staged design deltas with the stable registry: emitter/captured-drone and repair-pipeline work became T31/T32; corridor and acoustic-disable work became T33/T34. Removed duplicate `plans/` copies in favor of canonical `docs/dissonance/` artifacts. |
 | 9.50 | 2026-07-30 | Milo's building interior made functional: hinged front + apartment doors (proximity swing, real collision blocker), a skinnable lobby carved into the ground floor with wall-chain colliders, stair railings, and a decimated real couch (`@gltf-transform/cli`, 285k→35k tris). Fixed duplicate `"milos-building"` tags across the two boulevard blocks and added a dedicated `locations.json` nav pin. |
 | 9.49 | 2026-07-29 | **T30 opened and landed (first pass):** `instanced-material-pipeline-prompt-v1.md` run locally — new `packages/materials` (`ScatterVariationMaterialPlugin`, `createScatterMaterial`, `EmissiveDataPatternMaterial`), baked textures under `apps/world/public/textures/echo17-*/`, verified live via a new dev-only `apps/materials-demo` (144 thin instances, both emissive planes, no shader errors). Package-location open decision resolved to `packages/materials` (Dan) — DTA confirmed permanently out of scope for new work, not just this thread. Four items deferred, not resolved: three of five named swatch families skipped (source-resolution too low), atlas-vs-single-tile moot until a second family exists, offset-and-heal tiling leaves a faint seam (mirror-quad tried first, rejected — kaleidoscope artifact), and Echo-17 reference-art licensing not independently verified (Dan-supplied AI-generated project art, flagged in each texture's `ASSET-LICENSE.txt` rather than assumed clear). New O13–O16; constants/tradeoffs detail in `instanced-material-pipeline-constants.md`. |
 | 9.48 | 2026-07-28 | Docs folder reorg (Dan: "can you reorganize the docs folder for me"): extended the `dissonance/`/`dta/` per-game split Dan had already started to the rest of `docs/` — `trail-viewer-poc/`→`dissonance/world/`, `game-story-and-trails-plan.md`→`dissonance/`, `monorepo-docs/`→`monorepo/`, `generation-systems-audit.md`→`monorepo/`, and a new `archive/` for the two superseded THREADS docs. Moves only (`git mv`, no content rewrites); every broken cross-reference across the repo (2 app READMEs, one source comment, one plans/ doc, and this file's own Doc Inventory + 3 inline citations) found via a full-repo grep and fixed; `docs/README.md` rewritten to match. `plans/` deliberately left flat. Full detail in the Doc Inventory section's new reorg note. |

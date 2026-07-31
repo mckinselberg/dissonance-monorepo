@@ -2,11 +2,11 @@
 
 **Apply against local v9.x. Bump revision to next minor. Paste-ready sections below; merge, don't overwrite.**
 
-Summary of this delta: new **T26 Infrastructure corridor** (rail + power + EM-charge, tunnel, climbable pylon, patrol binding); new **T27 Acoustic mech disable** (song-gated, headphone-countered); **T4** gains the dog SensorProfile (dual-sense hunt) + EM-charge dependency on the broken-mech rung; **T9** gains its first real agent target; **T10** gains two load-bearing principles (disarmament-into-infrastructure; EM-charging corridor). Two prior prompts archived per P1.
+Summary of this delta: new **T33 Infrastructure corridor** (rail + power + EM-charge, tunnel, climbable pylon, patrol binding); new **T34 Acoustic mech disable** (song-gated, headphone-countered); **T4** gains the dog SensorProfile (dual-sense hunt) + EM-charge dependency on the broken-mech rung; **T9** gains its first real agent target; **T10** gains two load-bearing principles (disarmament-into-infrastructure; EM-charging corridor). Two prior prompts archived per P1.
 
 ---
 
-## NEW — T26. Infrastructure corridor (rail + power + EM-charge)
+## NEW — T33. Infrastructure corridor (rail + power + EM-charge)
 
 - **Status:** provisional — design landed; implementation gated on Phase 0 sign-off
 - **Owning doc:** `rail-and-lines-corridor-prompt-v3.md`
@@ -17,10 +17,10 @@ Summary of this delta: new **T26 Infrastructure corridor** (rail + power + EM-ch
 - **Cross-links:** T6.2 (power pipeline reuse), T7 (corridor-clear + exposure gradient, now vertical at the pylon), T4 (patrol embodiment; off-corridor run-down feeds broken-mech rung), T5 (detection seam), T13 (patrol skeleton), T8 (all meshes), T10 (active-vs-derelict fiction), T17 (SurfaceField).
 - **Four authored defaults awaiting one-word sign-off (Phase 0):** pylon-payload = knowledge; EM-vestige = retrofit-on-old-telephone-easement; off-corridor-run-down = canon-yes; Tesla-aesthetic = cold/invisible.
 
-## NEW — T27. Acoustic mech disable ("the right song")
+## NEW — T34. Acoustic mech disable ("the right song")
 
 - **Status:** experimental — rests on two unresolved canon choices (below)
-- **Scope:** corridor patrol mech (T26/T4) is disableable by a player who has *learned* the correct pattern. Performing it (T9 match-score) above `DISABLE_MATCH_THRESHOLD` held `DISABLE_HOLD_DURATION` → new **DORMANT** state (data on the corridor-patrol variant ONLY; pursuer brain never gets it). Recoverable window (`DORMANT_DURATION`), not a kill — nonviolence-safe. Entry point: `applyDisruption('acoustic-desync', magnitude)` (T4 stub). Performing the song spikes player legibility (amplitude = signal) — the tool that clears the corridor lights you up on it.
+- **Scope:** corridor patrol mech (T33/T4) is disableable by a player who has *learned* the correct pattern. Performing it (T9 match-score) above `DISABLE_MATCH_THRESHOLD` held `DISABLE_HOLD_DURATION` → new **DORMANT** state (data on the corridor-patrol variant ONLY; pursuer brain never gets it). Recoverable window (`DORMANT_DURATION`), not a kill — nonviolence-safe. Entry point: `applyDisruption('acoustic-desync', magnitude)` (T4 stub). Performing the song spikes player legibility (amplitude = signal) — the tool that clears the corridor lights you up on it.
 - **Two open canon choices (need sign-off before hardening):**
   1. **Which song** — Resistance-resolution-as-disruptor (in-tune correctness intolerable to a detuned system; recommended) vs. Synod-password-as-override (closer to T14 possession). Possible two-verb split: resolution *stalls*, password *possesses*.
   2. **Nonviolence framing** — confirm disable = recoverable dormancy, never destruction. (Permanent-disable variant only via the already-broken T4 rung: the song lets it *finally stop* — pathos, not violence.)
@@ -32,7 +32,7 @@ Summary of this delta: new **T26 Infrastructure corridor** (rail + power + EM-ch
 ## EDIT — T4 (append to Added scope)
 
 - **Added scope — dog SensorProfile (dual-sense hunt, PoC target):** mech dog hunts by **two legible, exploitable senses**. (1) **Audio** — subscribes to player noise-level (the T9/detection-meter amplitude value); movement, foliage-proximity (T7 mow-line), culvert-masking, and the disable-song all feed it. (2) **Vision** — rudimentary, degraded, narrow cone (per T15 "vision degraded, sound/warmth-forward"); surfaced diegetically as a **Lineglass (T19) cyan-outline machine-read** — the dog sees as the Synod sees. Different blind spots → quiet beats audio, break-LoS beats vision, hidden-quiet-spot beats both. **Squeal-inducer (experimental):** when both senses are denied, the dog emits a high-pitch tone designed to induce an involuntary flinch/squeal, *re-generating* the lost noise signature — sound as coercion, forcing expression from a body trying to stay silent. **Nonviolence guard:** targets involuntary reaction/discomfort, never injury; recoverable; no damage model. **Counter = Milo's headphones** (below). This is the **fourth `SensorProfile` axis** flagged as highest-leverage — this design is its spec; write `mech-dog-sensor-prompt-v1.md` (a.k.a. embodiment prompt v2).
-- **Added scope — EM-charge dependency:** corridor mechs are charged by the T26 EM-charge line. Off-corridor → run-down/strand. This gives the **broken-mech ladder rung** (rung 4) a *cause*: it wandered off its charging field and never made it back. Pathos with an engineering reason.
+- **Added scope — EM-charge dependency:** corridor mechs are charged by the T33 EM-charge line. Off-corridor → run-down/strand. This gives the **broken-mech ladder rung** (rung 4) a *cause*: it wandered off its charging field and never made it back. Pathos with an engineering reason.
 
 ## NEW — T18/monitoring adjacent — Milo's headphones as diegetic UI
 
@@ -44,7 +44,7 @@ Summary of this delta: new **T26 Infrastructure corridor** (rail + power + EM-ch
 
 ## EDIT — T9 (append to Scope)
 
-- **First real agent target:** the abstract "drone" of the oscilloscope prototype becomes the corridor mech (T26) and the mech dog (T4). Match-score output → `BehaviorProfile` DORMANT transition (T27) and → the dog's noise-tracking sense. This is the sound-as-control system finding what it acts *on*.
+- **First real agent target:** the abstract "drone" of the oscilloscope prototype becomes the corridor mech (T33) and the mech dog (T4). Match-score output → `BehaviorProfile` DORMANT transition (T34) and → the dog's noise-tracking sense. This is the sound-as-control system finding what it acts *on*.
 
 ---
 
@@ -61,12 +61,12 @@ Summary of this delta: new **T26 Infrastructure corridor** (rail + power + EM-ch
 
 ## Open decisions — append
 
-5. **T26 pylon payload:** knowledge-unlock vs. craftable resource. *Recommend knowledge (protects frozen T15 boundary).*
-6. **T26 EM-line vestige:** retrofit-on-old-telephone-easement vs. purpose-built. *Recommend retrofit.*
-7. **T26/T4 off-corridor run-down:** accept mech charging-field dependency as canon? *Recommend yes (load-bearing fiction→mechanic).*
-8. **T26 EM aesthetic:** confirm cold/invisible/felt, never arcing/glowing.
-9. **T27 which song:** Resistance-resolution vs. Synod-password (vs. both as two verbs). *Recommend resolution; hold password for T14.*
-10. **T27 nonviolence framing:** confirm recoverable dormancy, never destruction.
+5. **T33 pylon payload:** knowledge-unlock vs. craftable resource. *Recommend knowledge (protects frozen T15 boundary).*
+6. **T33 EM-line vestige:** retrofit-on-old-telephone-easement vs. purpose-built. *Recommend retrofit.*
+7. **T33/T4 off-corridor run-down:** accept mech charging-field dependency as canon? *Recommend yes (load-bearing fiction→mechanic).*
+8. **T33 EM aesthetic:** confirm cold/invisible/felt, never arcing/glowing.
+9. **T34 which song:** Resistance-resolution vs. Synod-password (vs. both as two verbs). *Recommend resolution; hold password for T14.*
+10. **T34 nonviolence framing:** confirm recoverable dormancy, never destruction.
 11. **T10 confiscation:** living memory vs. settled history.
 12. **Headphone inducer-counter:** full negate vs. attenuate-only. *Recommend attenuate (tenser).*
 
@@ -76,8 +76,8 @@ Summary of this delta: new **T26 Infrastructure corridor** (rail + power + EM-ch
 
 Add to FLOATING / THEN as appropriate:
 ```
-T26 corridor: surface spine authorable now (Phase 0 sign-off) | tunnel waits O1/O2 | patrol binds placeholder until T4
-T27 acoustic disable: paper design now; implementation after T9 TS port + T4
+T33 corridor: surface spine authorable now (Phase 0 sign-off) | tunnel waits O1/O2 | patrol binds placeholder until T4
+T34 acoustic disable: paper design now; implementation after T9 TS port + T4
 T4 SensorProfile (mech-dog-sensor-prompt-v1 / embodiment v2): highest-leverage next artifact — spec'd this session
 ```
 

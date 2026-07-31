@@ -1,6 +1,6 @@
 # rail-and-lines-corridor-prompt-v3.md
 
-**Owning thread:** T26 (Infrastructure corridor) — see THREADS delta.
+**Owning thread:** T33 (Infrastructure corridor) — see THREADS delta.
 **Supersedes:** `rail-spine-prompt-v1.md`, `rail-and-lines-corridor-prompt-v1.md` (+ patrol delta v2). Archive prior per P1.
 **Web-session role:** design/architecture. This doc is a complete handoff to a local Claude Code session.
 
@@ -122,7 +122,7 @@ Report before writing anything. Stop and surface conflicts; Dan signs off; then 
 - Rolling stock; any moving train; physics.
 - **Crafting / resource systems** — pylon payload is knowledge, not parts (7a).
 - Energized behavior beyond hooks (EM hum audio, field-read visualization) — `@dta/audio`/T5/monitoring-rig own these; emit data only.
-- **Acoustic mech disable / squeal-inducer / dog SensorProfile** — separate threads (T9 / T27 / T4 SensorProfile). Corridor exposes the *hooks* (`applyDisruption` entry, detection seam); it does not implement them.
+- **Acoustic mech disable / squeal-inducer / dog SensorProfile** — separate threads (T9 / T34 / T4 SensorProfile). Corridor exposes the *hooks* (`applyDisruption` entry, detection seam); it does not implement them.
 - Luring mechs off-corridor as a player verb — the run-down *fiction* lands here; the *verb* is a future mechanics thread.
 - Navmesh coupling of the tunnel stamp (O1/O2, upstream).
 - Second corridor, branch, junction.
