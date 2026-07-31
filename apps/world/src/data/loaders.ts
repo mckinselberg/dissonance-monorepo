@@ -9,6 +9,7 @@ import { parseRouteDocument, type ReplayRoute } from '../ui/RouteReplay';
 import { WorldFeatureRegistry } from '../world/WorldFeatureRegistry';
 import type { LocationEntry } from '../world/LocationProps';
 import { parseStoryManifest, type StoryManifest } from '../state/story';
+import { parseStrikeProfile, type StrikeProfile } from '../systems/strike/strikeProfile';
 
 export async function loadHeightmap(): Promise<{ contract: HeightmapContract; pngBytes: Uint8Array }> {
   const [contract, pngResponse] = await Promise.all([
@@ -59,6 +60,12 @@ export async function loadStoryManifest(
   const response = await fetch(`${import.meta.env.BASE_URL}data/story-beats.json`);
   if (!response.ok) throw new Error(`Could not load story manifest (${response.status}).`);
   return parseStoryManifest(await response.json() as unknown, worldFeatures);
+}
+
+export async function loadStrikeProfile(): Promise<StrikeProfile> {
+  const response = await fetch(`${import.meta.env.BASE_URL}data/strike-profile.json`);
+  if (!response.ok) throw new Error(`Could not load strike profile (${response.status}).`);
+  return parseStrikeProfile(await response.json() as unknown);
 }
 
 type RouteManifestEntry = { name: string; file: string };

@@ -393,6 +393,7 @@
         "id": "boulevard-strike-south",
         "local": [0, 10],
         "patrolDroneRef": "boulevard-patrol-01",
+        "losProbeOffset": [0, 0.15, 0],
         "eligible": true,
         "weight": 1
       },
@@ -400,6 +401,7 @@
         "id": "boulevard-strike-mid",
         "local": [0, 26],
         "patrolDroneRef": "boulevard-patrol-01",
+        "losProbeOffset": [0, 0.15, 0],
         "eligible": true,
         "weight": 1
       },
@@ -407,6 +409,7 @@
         "id": "boulevard-strike-north",
         "local": [1, 40],
         "patrolDroneRef": "boulevard-patrol-01",
+        "losProbeOffset": [0, 0.15, 0],
         "eligible": true,
         "weight": 1
       }

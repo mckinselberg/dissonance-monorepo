@@ -5,6 +5,7 @@ export interface StrikeAnchor {
   id: string;
   position: Vector3;
   patrolDroneRef: string;
+  losProbeOffset: Vector3;
   eligible: boolean;
   weight: number;
 }
@@ -46,6 +47,7 @@ export function buildStrikeAnchors(
         id: definition.id,
         position: new Vector3(x, getHeightAt(x, z), z),
         patrolDroneRef: definition.patrolDroneRef,
+        losProbeOffset: new Vector3(...definition.losProbeOffset),
         eligible: definition.eligible,
         weight: Math.max(0, definition.weight ?? 1),
       });
@@ -54,9 +56,15 @@ export function buildStrikeAnchors(
   return anchors;
 }
 
-export function selectStrikeAnchor(anchors: StrikeAnchor[], runSeed: number): StrikeAnchor {
+export function selectStrikeAnchor(
+  anchors: StrikeAnchor[],
+  runSeed: number,
+  restoredAnchorId?: string,
+): StrikeAnchor {
   const eligible = anchors.filter((anchor) => anchor.eligible && anchor.weight > 0);
   if (eligible.length === 0) throw new Error('At least one eligible strike anchor is required.');
+  const restored = eligible.find((anchor) => anchor.id === restoredAnchorId);
+  if (restored) return restored;
   const totalWeight = eligible.reduce((sum, anchor) => sum + anchor.weight, 0);
   let cursor = seededUnit(runSeed, 'strike-anchor') * totalWeight;
   for (const anchor of eligible) {

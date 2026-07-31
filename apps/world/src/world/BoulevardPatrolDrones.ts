@@ -17,7 +17,6 @@ const DEFAULT_ALTITUDE_METERS = 4.2;
 const BODY_RADIUS = 0.62;
 const READ_CONE_RADIUS = 7;
 const READ_CONE_ARC = 0.19;
-const INERT_SETTLE_SECONDS = 1.25;
 
 export type PatrolDroneState = 'patrolling' | 'inert';
 
@@ -25,7 +24,6 @@ export interface PatrolDroneSnapshot {
   id: string;
   state: PatrolDroneState;
   position: Vector3;
-  losProbePoint: Vector3;
 }
 
 class BoulevardPatrolDrone {
@@ -38,6 +36,7 @@ class BoulevardPatrolDrone {
   private segmentProgress = 0;
   private state: PatrolDroneState = 'patrolling';
   private inertElapsed = 0;
+  private inertSettleSeconds = 1.25;
   private groundY = 0;
 
   constructor(
@@ -113,8 +112,8 @@ class BoulevardPatrolDrone {
   update(dt: number, getHeightAt: (x: number, z: number) => number): void {
     this.groundY = getHeightAt(this.root.position.x, this.root.position.z);
     if (this.state === 'inert') {
-      this.inertElapsed = Math.min(INERT_SETTLE_SECONDS, this.inertElapsed + Math.max(0, dt));
-      const t = this.inertElapsed / INERT_SETTLE_SECONDS;
+      this.inertElapsed = Math.min(this.inertSettleSeconds, this.inertElapsed + Math.max(0, dt));
+      const t = this.inertElapsed / this.inertSettleSeconds;
       this.root.position.y = this.groundY + this.altitude * (1 - t) + BODY_RADIUS * t;
       this.root.rotation.z = t * 1.15;
       const gutter = Math.max(0, 1 - t) * (0.45 + Math.sin(this.inertElapsed * 31) * 0.35);
@@ -143,10 +142,12 @@ class BoulevardPatrolDrone {
     this.readCone.rotation.y = this.root.rotation.y - Math.PI * READ_CONE_ARC;
   }
 
-  setInert(): void {
+  setInert(position: Vector3, settleSeconds: number): void {
     if (this.state === 'inert') return;
+    this.root.position.copyFrom(position);
     this.state = 'inert';
     this.inertElapsed = 0;
+    this.inertSettleSeconds = Math.max(0.01, settleSeconds);
     this.readCone.setEnabled(false);
   }
 
@@ -156,7 +157,6 @@ class BoulevardPatrolDrone {
       id: this.id,
       state: this.state,
       position,
-      losProbePoint: position.add(new Vector3(0, 0.15, 0)),
     };
   }
 
@@ -171,7 +171,7 @@ class BoulevardPatrolDrone {
 export interface BoulevardPatrolDronesHandle {
   update(dt: number): void;
   get(id: string): PatrolDroneSnapshot | null;
-  setInert(id: string): boolean;
+  setInert(id: string, position: Vector3, settleSeconds: number): boolean;
   dispose(): void;
 }
 
@@ -219,10 +219,10 @@ export function loadBoulevardPatrolDrones(
     get(id) {
       return drones.get(id)?.snapshot() ?? null;
     },
-    setInert(id) {
+    setInert(id, position, settleSeconds) {
       const drone = drones.get(id);
       if (!drone) return false;
-      drone.setInert();
+      drone.setInert(position, settleSeconds);
       return true;
     },
     dispose() {

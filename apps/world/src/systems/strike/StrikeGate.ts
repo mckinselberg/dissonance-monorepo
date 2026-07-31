@@ -1,11 +1,10 @@
 import type { StrikeAnchor } from './StrikeAnchorSelector';
 import { seededUnit } from './StrikeAnchorSelector';
-import { STRIKE_CONSTANTS } from './strikeConstants';
+import type { StrikeProfile } from './strikeProfile';
 
 export type StrikeGateState = 'DORMANT' | 'ARMED' | 'FIRING' | 'SPENT';
 
 export interface StrikeGateInputs {
-  workshopDiscovered: boolean;
   hasLineOfSight: boolean;
   distanceToAnchor: number;
   droneDistanceToAnchor: number;
@@ -22,30 +21,35 @@ export class StrikeGate {
   private rainWaitSeconds = 0;
   private windupElapsedSeconds = 0;
   private windupStarted = false;
-  readonly windupSeconds: number;
+  private readonly windupUnit: number;
 
   constructor(
     readonly anchor: StrikeAnchor,
     runSeed: number,
     private readonly actions: StrikeGateActions,
+    private readonly profile: StrikeProfile,
+    private readonly restoredWindupSeconds?: number,
   ) {
-    this.windupSeconds =
-      STRIKE_CONSTANTS.strikeWindupMinSeconds +
-      seededUnit(runSeed, `strike-windup:${anchor.id}`) *
-        (STRIKE_CONSTANTS.strikeWindupMaxSeconds - STRIKE_CONSTANTS.strikeWindupMinSeconds);
+    this.windupUnit = seededUnit(runSeed, `strike-windup:${anchor.id}`);
+  }
+
+  get windupSeconds(): number {
+    return this.restoredWindupSeconds ??
+      this.profile.strikeWindupMinSeconds +
+      this.windupUnit *
+        (this.profile.strikeWindupMaxSeconds - this.profile.strikeWindupMinSeconds);
   }
 
   update(dt: number, inputs: StrikeGateInputs): StrikeGateState {
     const delta = Math.max(0, dt);
     if (this.state === 'DORMANT') {
       if (
-        inputs.workshopDiscovered &&
         inputs.hasLineOfSight &&
-        inputs.distanceToAnchor <= STRIKE_CONSTANTS.losRange &&
-        inputs.droneDistanceToAnchor <= STRIKE_CONSTANTS.strikeAnchorCaptureRange
+        inputs.distanceToAnchor <= this.profile.losRange &&
+        inputs.droneDistanceToAnchor <= this.profile.strikeAnchorCaptureRange
       ) {
         this.state = 'ARMED';
-        if (inputs.rainIntensity < STRIKE_CONSTANTS.strikeRainThreshold) {
+        if (inputs.rainIntensity < this.profile.strikeRainThreshold) {
           this.actions.requestStorm();
         }
       }
@@ -53,9 +57,9 @@ export class StrikeGate {
     }
 
     if (this.state !== 'ARMED') return this.state;
-    if (inputs.rainIntensity < STRIKE_CONSTANTS.strikeRainThreshold) {
+    if (inputs.rainIntensity < this.profile.strikeRainThreshold) {
       this.rainWaitSeconds += delta;
-      if (this.rainWaitSeconds >= STRIKE_CONSTANTS.rainEstablishTimeoutSeconds) {
+      if (this.rainWaitSeconds >= this.profile.rainEstablishTimeoutSeconds) {
         this.actions.forceStormThreshold();
       }
       return this.state;
@@ -66,7 +70,7 @@ export class StrikeGate {
     if (
       this.windupElapsedSeconds >= this.windupSeconds &&
       inputs.hasLineOfSight &&
-      inputs.droneDistanceToAnchor <= STRIKE_CONSTANTS.strikeAnchorCaptureRange
+      inputs.droneDistanceToAnchor <= this.profile.strikeAnchorCaptureRange
     ) {
       this.state = 'FIRING';
     }

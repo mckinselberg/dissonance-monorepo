@@ -20,7 +20,7 @@
         "kind": "system-event",
         "event": "strikeGateSpent"
       },
-      "requires": ["workshopDiscovered"],
+      "requires": [],
       "sets": ["droneStrikeWitnessed"],
       "once": true,
       "status": "implemented"

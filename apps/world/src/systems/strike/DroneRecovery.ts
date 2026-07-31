@@ -1,5 +1,5 @@
 import { Vector3 } from '@babylonjs/core';
-import { STRIKE_CONSTANTS } from './strikeConstants';
+import type { StrikeProfile } from './strikeProfile';
 
 export interface RecoveryFlags {
   emitterAcquired: boolean;
@@ -12,6 +12,8 @@ export class DroneRecovery {
     emitterAcquired: false,
     chassisRecovered: false,
   };
+
+  constructor(private readonly profile: StrikeProfile) {}
 
   markRecoverable(position: Vector3): void {
     this.recoverablePosition = position.clone();
@@ -30,7 +32,7 @@ export class DroneRecovery {
         playerPosition.x - this.recoverablePosition.x,
         playerPosition.z - this.recoverablePosition.z,
       ) <=
-        STRIKE_CONSTANTS.recoveryProximityRange
+        this.profile.recoveryProximityRange
     );
   }
 
@@ -42,5 +44,9 @@ export class DroneRecovery {
 
   getFlags(): RecoveryFlags {
     return { ...this.flags };
+  }
+
+  getRecoverablePosition(): Vector3 | null {
+    return this.recoverablePosition?.clone() ?? null;
   }
 }

@@ -20,6 +20,12 @@ export interface WorldSaveDocument {
   equipment: {
     flashlightEnabled: boolean;
   };
+  strike: {
+    runSeed: number;
+    anchorId: string | null;
+    windupSeconds: number | null;
+    recoverablePosition: { x: number; y: number; z: number } | null;
+  };
   progression: {
     storyFlags: string[];
     inventory: {
@@ -35,6 +41,7 @@ export interface WorldSaveMigrationSeed {
   position?: { x: number; y: number; z: number };
   rotation?: { x: number; y: number; z: number };
   lineglassPartIds?: string[];
+  runSeed: number;
 }
 
 const uniqueStrings = (value: unknown): string[] =>
@@ -58,7 +65,14 @@ function parseExterior(value: unknown): ExteriorPlayerState | null {
   return raw as ExteriorPlayerState;
 }
 
-function parseDocument(value: unknown): WorldSaveDocument | null {
+function parsePosition(value: unknown): { x: number; y: number; z: number } | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const raw = value as { x?: unknown; y?: unknown; z?: unknown };
+  if (![raw.x, raw.y, raw.z].every(Number.isFinite)) return null;
+  return { x: raw.x as number, y: raw.y as number, z: raw.z as number };
+}
+
+function parseDocument(value: unknown, fallbackRunSeed = 0): WorldSaveDocument | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Partial<WorldSaveDocument>;
   if (raw.version !== 1 || !['exterior', 'workshop', 'surveillance'].includes(raw.activeRoute ?? '')) {
@@ -78,6 +92,16 @@ function parseDocument(value: unknown): WorldSaveDocument | null {
         typeof raw.equipment?.flashlightEnabled === 'boolean'
           ? raw.equipment.flashlightEnabled
           : true,
+    },
+    strike: {
+      runSeed: Number.isInteger(raw.strike?.runSeed) && (raw.strike?.runSeed ?? -1) >= 0
+        ? raw.strike!.runSeed
+        : fallbackRunSeed,
+      anchorId: typeof raw.strike?.anchorId === 'string' ? raw.strike.anchorId : null,
+      windupSeconds: Number.isFinite(raw.strike?.windupSeconds)
+        ? raw.strike!.windupSeconds
+        : null,
+      recoverablePosition: parsePosition(raw.strike?.recoverablePosition),
     },
     progression: {
       storyFlags: uniqueStrings(progression.storyFlags),
@@ -119,6 +143,12 @@ function migrate(seed: WorldSaveMigrationSeed): WorldSaveDocument {
     equipment: {
       flashlightEnabled: true,
     },
+    strike: {
+      runSeed: seed.runSeed,
+      anchorId: null,
+      windupSeconds: null,
+      recoverablePosition: null,
+    },
     progression: {
       storyFlags,
       inventory: {
@@ -135,7 +165,10 @@ export class WorldSaveStore {
   constructor(seed: WorldSaveMigrationSeed) {
     let loaded: WorldSaveDocument | null = null;
     try {
-      loaded = parseDocument(JSON.parse(localStorage.getItem(WORLD_SAVE_KEY) ?? 'null') as unknown);
+      loaded = parseDocument(
+        JSON.parse(localStorage.getItem(WORLD_SAVE_KEY) ?? 'null') as unknown,
+        seed.runSeed,
+      );
     } catch {
       loaded = null;
     }
@@ -199,6 +232,10 @@ export class WorldSaveStore {
       ...this.document,
       equipment: { flashlightEnabled },
     });
+  }
+
+  setStrikeProgress(strike: WorldSaveDocument['strike']): void {
+    this.update({ ...this.document, strike: structuredClone(strike) });
   }
 
   private update(document: WorldSaveDocument): void {

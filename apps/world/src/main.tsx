@@ -46,6 +46,7 @@ import {
   loadLocations,
   loadReplayRoutes,
   loadStoryManifest,
+  loadStrikeProfile,
 } from './data/loaders';
 import { hideLoadingOverlay } from './utils';
 import { createAtmosphereSignals } from './state/atmosphere';
@@ -66,6 +67,7 @@ import { applyEnvironmentRenderingProfile } from './state/applyEnvironmentRender
 import { createEnvironmentProfileRegistry, findEnvironmentProfile } from './state/environmentProfiles';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
 import { EnvironmentProfileRow } from './ui/EnvironmentProfileRow';
+import { StrikeTuningRow } from './ui/StrikeTuningRow';
 import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
@@ -133,6 +135,7 @@ async function main() {
   const levelKey = currentLevelKey();
   const level = LEVELS[levelKey];
   const savedSettings = loadSavedSettings(levelKey);
+  const sessionRunSeed = getOrCreateRunSeed();
   const worldSave = new WorldSaveStore({
     levelKey,
     mode: savedSettings.activeMode,
@@ -143,7 +146,9 @@ async function main() {
       ? { x: savedSettings.rotationX, y: savedSettings.rotationY, z: 0 }
       : undefined,
     lineglassPartIds: savedSettings.lineglassPartIds,
+    runSeed: sessionRunSeed,
   });
+  const runSeed = worldSave.snapshot().strike.runSeed;
   const restoredExterior = worldSave.snapshot().lastExterior;
   const restoredHere = restoredExterior?.levelKey === levelKey ? restoredExterior : null;
   const flashlightEnabled = signal(worldSave.snapshot().equipment.flashlightEnabled);
@@ -391,12 +396,13 @@ async function main() {
     scene, sampler, contract, scaleTuning, backdrop.getShadowGenerator(), visualWindSource, savedSettings,
   );
 
-  const [trails, gpxTrack, savedViews, worldFeatures, replayRoutes] = await Promise.all([
+  const [trails, gpxTrack, savedViews, worldFeatures, replayRoutes, strikeProfile] = await Promise.all([
     loadTrails(),
     loadGpxTrack(),
     loadSavedViews(),
     loadLocations(),
     loadReplayRoutes(),
+    loadStrikeProfile(),
   ]);
   const storyManifest = await loadStoryManifest(worldFeatures);
   const story = createStoryState(storyManifest, {
@@ -1086,11 +1092,13 @@ async function main() {
     locationToRenderXZ,
     scaleTuning.hScale.value,
     (x, z) => terrain.getHeightAt(x, z),
-    getOrCreateRunSeed(),
+    runSeed,
+    strikeProfile,
     weatherSystem,
     {
       get: (id) => locationFeatures.getPatrolDrone(id),
-      setInert: (id) => locationFeatures.setPatrolDroneInert(id),
+      setInert: (id, position, settleSeconds) =>
+        locationFeatures.setPatrolDroneInert(id, position, settleSeconds),
     },
     {
       flash: (intensity, durationSeconds) => {
@@ -1101,13 +1109,15 @@ async function main() {
         if (audioStarted) ambientAudio.playThunder(gain, delaySeconds);
       },
     },
+    worldSave.snapshot().strike,
   );
-  strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
   strikeAcquisition.restoreProgress({
     droneStrikeWitnessed: story.has('droneStrikeWitnessed'),
     emitterAcquired: story.has('emitterAcquired'),
     chassisRecovered: story.has('chassisRecovered'),
   });
+  let strikeProgressPersisted =
+    story.has('droneStrikeWitnessed') && worldSave.snapshot().strike.anchorId !== null;
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyE' || event.repeat) return;
     const flags = strikeAcquisition.recover(
@@ -1201,7 +1211,7 @@ async function main() {
     locationFeatures,
     controllers,
     movement,
-    corridorSeed: getOrCreateRunSeed(),
+    corridorSeed: runSeed,
     flashlightEnabled: flashlightEnabled.value,
     onEntered: () => {
       commitExteriorState('workshop');
@@ -1212,7 +1222,6 @@ async function main() {
       if (story.applyBeat('discover-underground-workshop')) {
         console.info('[T32] underground workshop discovered');
       }
-      strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
     },
   });
   const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
@@ -1239,18 +1248,7 @@ async function main() {
     <>
       <Section title='T31 Strike Acquisition'>
         <div id='t31-strike-status'>Loading strike state…</div>
-        <label>
-          <input
-            type='checkbox'
-            checked={story.has('workshopDiscovered')}
-            onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
-              story.set('workshopDiscovered', event.currentTarget.checked);
-              strikeAcquisition.setWorkshopDiscovered(story.has('workshopDiscovered'));
-            }}
-          />{' '}
-          Workshop discovered (persistent story flag debug)
-        </label>
-        <br />
+        <StrikeTuningRow profile={strikeProfile} />
         <button
           type='button'
           onClick={() => {
@@ -1649,6 +1647,13 @@ async function main() {
     const strikeSnapshot = strikeAcquisition.snapshot();
     if (strikeSnapshot.state === 'SPENT') {
       story.applyBeat('witness-boulevard-drone-strike');
+      if (!strikeProgressPersisted) {
+        worldSave.setStrikeProgress({
+          runSeed,
+          ...strikeAcquisition.persistenceSnapshot(),
+        });
+        strikeProgressPersisted = true;
+      }
     }
     const strikeStatus = document.getElementById('t31-strike-status');
     if (strikeStatus) {

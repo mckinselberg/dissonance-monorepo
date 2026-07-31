@@ -143,8 +143,8 @@ export class WorldFeaturesSystem {
     return this.patrolDrones.get(id);
   }
 
-  setPatrolDroneInert(id: string): boolean {
-    return this.patrolDrones.setInert(id);
+  setPatrolDroneInert(id: string, position: Vector3, settleSeconds: number): boolean {
+    return this.patrolDrones.setInert(id, position, settleSeconds);
   }
 
   // Buildings joined props/poles here 2026-07-27 ("make all buildings but

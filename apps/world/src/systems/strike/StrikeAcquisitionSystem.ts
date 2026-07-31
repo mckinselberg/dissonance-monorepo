@@ -9,11 +9,11 @@ import {
   type StrikeAnchor,
 } from './StrikeAnchorSelector';
 import { StrikeGate, type StrikeGateState } from './StrikeGate';
-import { STRIKE_CONSTANTS } from './strikeConstants';
+import type { StrikeProfile } from './strikeProfile';
 
 export interface StrikeDroneAccess {
   get(id: string): PatrolDroneSnapshot | null;
-  setInert(id: string): boolean;
+  setInert(id: string, position: Vector3, settleSeconds: number): boolean;
 }
 
 export interface StrikePresentation {
@@ -26,7 +26,6 @@ export interface StrikeAcquisitionSnapshot {
   anchorId: string;
   droneId: string;
   windupProgress: number;
-  workshopDiscovered: boolean;
   recoveryAvailable: boolean;
   flags: RecoveryFlags;
   hasLineOfSight: boolean;
@@ -38,8 +37,7 @@ export interface StrikeAcquisitionSnapshot {
 
 export class StrikeAcquisitionSystem {
   private readonly gate: StrikeGate;
-  private readonly recovery = new DroneRecovery();
-  private workshopDiscovered = false;
+  private readonly recovery: DroneRecovery;
   private recoveryAvailable = false;
   private hasCurrentLineOfSight = false;
   private currentDistanceToAnchor = Infinity;
@@ -52,30 +50,51 @@ export class StrikeAcquisitionSystem {
     horizontalScale: number,
     getHeightAt: (x: number, z: number) => number,
     runSeed: number,
+    private readonly profile: StrikeProfile,
     private readonly weather: WeatherSystem,
     private readonly drones: StrikeDroneAccess,
     private readonly presentation: StrikePresentation,
+    restored?: {
+      anchorId?: string | null;
+      windupSeconds?: number | null;
+      recoverablePosition?: { x: number; y: number; z: number } | null;
+    },
   ) {
+    this.recovery = new DroneRecovery(profile);
     const anchors = buildStrikeAnchors(
       locations,
       toRenderXZ,
       horizontalScale,
       getHeightAt,
     );
-    const anchor = selectStrikeAnchor(anchors, runSeed);
+    const anchor = selectStrikeAnchor(anchors, runSeed, restored?.anchorId ?? undefined);
     this.gate = new StrikeGate(anchor, runSeed, {
       requestStorm: () => this.weather.requestPrecipitation('storm', 1),
       forceStormThreshold: () =>
         this.weather.setPrecipitationImmediate(
           'storm',
-          STRIKE_CONSTANTS.strikeRainThreshold,
+          profile.strikeRainThreshold,
         ),
-    });
+    }, profile, restored?.windupSeconds ?? undefined);
+    if (restored?.recoverablePosition) {
+      this.recovery.markRecoverable(new Vector3(
+        restored.recoverablePosition.x,
+        restored.recoverablePosition.y,
+        restored.recoverablePosition.z,
+      ));
+    }
   }
 
   update(dt: number, playerPosition: Vector3): void {
     const drone = this.drones.get(this.gate.anchor.patrolDroneRef);
     if (!drone) return;
+    if (this.gate.getState() === 'SPENT' && drone.state !== 'inert') {
+      this.drones.setInert(
+        this.gate.anchor.patrolDroneRef,
+        this.recovery.getRecoverablePosition() ?? drone.position,
+        this.profile.droneInertSettleSeconds,
+      );
+    }
     const hasLineOfSight = this.hasLineOfSight(playerPosition, drone);
     const distanceToAnchor = Vector3.Distance(playerPosition, this.gate.anchor.position);
     const droneDistanceToAnchor = Math.hypot(
@@ -86,7 +105,6 @@ export class StrikeAcquisitionSystem {
     this.currentDistanceToAnchor = distanceToAnchor;
     this.currentDroneDistanceToAnchor = droneDistanceToAnchor;
     const state = this.gate.update(dt, {
-      workshopDiscovered: this.workshopDiscovered,
       hasLineOfSight,
       distanceToAnchor,
       droneDistanceToAnchor,
@@ -98,21 +116,21 @@ export class StrikeAcquisitionSystem {
     }
 
     this.presentation.flash(
-      STRIKE_CONSTANTS.flashIntensity,
-      STRIKE_CONSTANTS.flashDurationSeconds,
+      this.profile.flashIntensity,
+      this.profile.flashDurationSeconds,
     );
-    this.presentation.clap(1, STRIKE_CONSTANTS.clapDelayFromFlashSeconds);
-    if (!this.drones.setInert(this.gate.anchor.patrolDroneRef)) {
+    this.presentation.clap(1, this.profile.clapDelayFromFlashSeconds);
+    if (!this.drones.setInert(
+      this.gate.anchor.patrolDroneRef,
+      drone.position,
+      this.profile.droneInertSettleSeconds,
+    )) {
       console.error(`[Strike] could not set drone "${this.gate.anchor.patrolDroneRef}" inert.`);
       return;
     }
     this.recovery.markRecoverable(drone.position);
     this.gate.markSpent();
     this.recoveryAvailable = this.recovery.isAvailable(playerPosition);
-  }
-
-  setWorkshopDiscovered(discovered: boolean): void {
-    this.workshopDiscovered = discovered;
   }
 
   restoreProgress(flags: {
@@ -123,14 +141,19 @@ export class StrikeAcquisitionSystem {
     if (!flags.droneStrikeWitnessed) return;
     const drone = this.drones.get(this.gate.anchor.patrolDroneRef);
     if (!drone) return;
-    this.drones.setInert(this.gate.anchor.patrolDroneRef);
+    const recoverablePosition = this.recovery.getRecoverablePosition() ?? drone.position;
+    this.drones.setInert(
+      this.gate.anchor.patrolDroneRef,
+      recoverablePosition,
+      this.profile.droneInertSettleSeconds,
+    );
     this.gate.restoreSpent();
     this.recovery.restore(
       {
         emitterAcquired: flags.emitterAcquired,
         chassisRecovered: flags.chassisRecovered,
       },
-      flags.chassisRecovered ? null : drone.position,
+      flags.chassisRecovered ? null : recoverablePosition,
     );
   }
 
@@ -149,20 +172,19 @@ export class StrikeAcquisitionSystem {
     const state = this.gate.getState();
     let blockingReason = 'complete';
     if (state === 'DORMANT') {
-      if (!this.workshopDiscovered) blockingReason = 'workshop not discovered';
-      else if (this.currentDistanceToAnchor > STRIKE_CONSTANTS.losRange) blockingReason = 'Milo outside anchor range';
+      if (this.currentDistanceToAnchor > this.profile.losRange) blockingReason = 'Milo outside anchor range';
       else if (!this.hasCurrentLineOfSight) blockingReason = 'drone not in line of sight';
-      else if (this.currentDroneDistanceToAnchor > STRIKE_CONSTANTS.strikeAnchorCaptureRange) {
+      else if (this.currentDroneDistanceToAnchor > this.profile.strikeAnchorCaptureRange) {
         blockingReason = 'waiting for drone at anchor';
       } else blockingReason = 'ready to arm';
     } else if (state === 'ARMED') {
-      if (this.weather.getRainIntensity() < STRIKE_CONSTANTS.strikeRainThreshold) {
+      if (this.weather.getRainIntensity() < this.profile.strikeRainThreshold) {
         blockingReason = 'building rain';
       } else if (this.gate.getWindupProgress() < 1) {
         blockingReason = 'seeded windup';
       } else if (!this.hasCurrentLineOfSight) {
         blockingReason = 'holding for witnessed LOS';
-      } else if (this.currentDroneDistanceToAnchor > STRIKE_CONSTANTS.strikeAnchorCaptureRange) {
+      } else if (this.currentDroneDistanceToAnchor > this.profile.strikeAnchorCaptureRange) {
         blockingReason = 'holding for drone return';
       } else blockingReason = 'ready to fire';
     } else if (state === 'FIRING') {
@@ -173,7 +195,6 @@ export class StrikeAcquisitionSystem {
       anchorId: this.gate.anchor.id,
       droneId: this.gate.anchor.patrolDroneRef,
       windupProgress: this.gate.getWindupProgress(),
-      workshopDiscovered: this.workshopDiscovered,
       recoveryAvailable: this.recoveryAvailable,
       flags: this.recovery.getFlags(),
       hasLineOfSight: this.hasCurrentLineOfSight,
@@ -184,10 +205,22 @@ export class StrikeAcquisitionSystem {
     };
   }
 
+  persistenceSnapshot() {
+    const recoverable = this.recovery.getRecoverablePosition();
+    return {
+      anchorId: this.gate.anchor.id,
+      windupSeconds: this.gate.windupSeconds,
+      recoverablePosition: recoverable
+        ? { x: recoverable.x, y: recoverable.y, z: recoverable.z }
+        : null,
+    };
+  }
+
   private hasLineOfSight(playerPosition: Vector3, drone: PatrolDroneSnapshot): boolean {
-    const toDrone = drone.losProbePoint.subtract(playerPosition);
+    const probePoint = drone.position.add(this.gate.anchor.losProbeOffset);
+    const toDrone = probePoint.subtract(playerPosition);
     const distance = toDrone.length();
-    if (distance <= 0.001 || distance > STRIKE_CONSTANTS.losRange) return false;
+    if (distance <= 0.001 || distance > this.profile.losRange) return false;
     const ray = new Ray(playerPosition, toDrone.scale(1 / distance), distance);
     const hit = this.scene.pickWithRay(
       ray,

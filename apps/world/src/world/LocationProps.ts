@@ -80,6 +80,7 @@ export type LocationEntry = {
     id: string;
     local: [number, number];
     patrolDroneRef: string;
+    losProbeOffset: [number, number, number];
     eligible: boolean;
     weight?: number;
   }>;

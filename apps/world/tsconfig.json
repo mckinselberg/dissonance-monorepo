@@ -16,5 +16,6 @@
       "@dissonance/utils": ["../../packages/utils/src/index.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }
