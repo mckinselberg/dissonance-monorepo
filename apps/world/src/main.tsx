@@ -71,6 +71,7 @@ import { GotoRow } from './ui/GotoRow';
 import { RouteRecorder, type RouteSample } from './ui/RouteRecorder';
 import { RouteReplay } from './ui/RouteReplay';
 import { Section } from './ui/Section';
+import { LineglassShell, type LineglassModuleDefinition } from './ui/lineglass';
 import { AudioRow } from './ui/AudioRow';
 import type { MechDogSkin } from './pursuer/MechDogBody';
 import { MechDogController } from './pursuer/MechDogController';
@@ -410,7 +411,70 @@ async function main() {
   );
   water.addToRenderList(terrain.getMesh());
 
+  const lineglassModules: LineglassModuleDefinition[] = [
+    {
+      id: 'context', label: 'Interior', icon: '▣', modes: ['inspect'], priority: 10,
+      capabilities: ['inspect-world'],
+      summary: () => ({ primary: level.cameraMode === 'orbit' ? 'Overview' : 'Exterior', secondary: 'active' }),
+      rootIds: ['interior-debug-root'],
+    },
+    {
+      id: 'world', label: 'World', icon: '♟', modes: ['tune'], priority: 10,
+      capabilities: ['edit-world'],
+      summary: () => ({
+        primary: 'Forest',
+        secondary: `${bulkForest.bulkForestPlacedCount.value.toFixed(0)} placed · R ${bulkForest.bulkForestRadius.value.toFixed(0)} m`,
+      }),
+      rootIds: ['toggles-root', 'world-root'],
+    },
+    {
+      id: 'sky', label: 'Sky', icon: '☁', modes: ['tune'], priority: 20,
+      capabilities: ['edit-world'],
+      summary: () => ({
+        primary: atmosphere.overcast.value ? 'Overcast' : 'Clear',
+        secondary: `Fog ${atmosphere.fogDensity.value.toFixed(4)}`,
+      }),
+      rootIds: ['atmosphere-root'],
+    },
+    {
+      id: 'audio', label: 'Audio', icon: '≋', modes: ['inspect', 'tune'], priority: 30,
+      capabilities: ['inspect-world'],
+      summary: () => ({
+        primary: `Wind ${Math.round(audio.windVolume.value * 100)}%`,
+        secondary: audio.masterMuted.value ? 'muted' : 'active',
+      }),
+      rootIds: ['audio-root'],
+    },
+    {
+      id: 'authoring', label: 'Navigation & Routes', icon: '⌖', modes: ['author'], priority: 10,
+      capabilities: ['author-routes'],
+      summary: () => ({ primary: 'Views · locations · routes', secondary: 'authoring tools' }),
+      rootIds: ['mode-controls-root'],
+    },
+    {
+      id: 'diagnostics', label: 'Diagnostics', icon: '⌁', modes: ['system'], priority: 10,
+      capabilities: ['view-diagnostics'],
+      summary: () => ({ primary: level.label, secondary: 'live engineering state' }),
+      rootIds: ['level-links', 'level-label', 'readout'],
+    },
+  ];
+  render(
+    <LineglassShell
+      modules={lineglassModules}
+      capabilities={[
+        'inspect-world', 'edit-world', 'author-routes', 'view-diagnostics',
+        'teleport', 'edit-profile',
+      ]}
+    />,
+    document.getElementById('lineglass-root') as HTMLDivElement,
+  );
+
+  const levelLinks = document.getElementById('level-links') as HTMLDivElement;
+  levelLinks.innerHTML = 'Level: <a href="?level=1">1</a> <a href="?level=2">2</a> <a href="?level=3">3 (orbit)</a>';
+  const activeLevelLink = levelLinks.querySelector<HTMLAnchorElement>(`a[href="?level=${levelKey}"]`);
+  activeLevelLink?.classList.add('active');
   const readout = document.getElementById('readout') as HTMLDivElement;
+  readout.textContent = 'loading...';
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
   levelLabel.textContent = level.label;
 
