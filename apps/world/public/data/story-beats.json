@@ -36,6 +36,18 @@
       "sets": ["emitterAcquired", "chassisRecovered"],
       "once": true,
       "status": "implemented"
+    },
+    {
+      "id": "glimpse-rey-caverns-lurker",
+      "locationId": "mountain-crater",
+      "trigger": {
+        "kind": "system-event",
+        "event": "reyLurkerFled"
+      },
+      "requires": ["workshopDiscovered"],
+      "sets": ["reyLurkerFled"],
+      "once": true,
+      "status": "implemented"
     }
   ]
 }

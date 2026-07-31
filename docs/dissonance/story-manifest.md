@@ -46,6 +46,14 @@ IDs are stable lowercase kebab-case. Flags are stable lower camel case.
 This manifest ends at acquisition. Emitter construction, interference,
 piloting, repair, and loss remain separate later beats.
 
+## Rey Caverns boundary
+
+The one-shot `glimpse-rey-caverns-lurker` beat sits after workshop discovery
+without unlocking inhabited space. Proximity or direct flashlight illumination
+causes the stable figure `rey-caverns-lurker-01` to flee through the far
+hallway boundary and sets `reyLurkerFled`. The event grants no inventory,
+trust, dialogue, access, or cultural information.
+
 ## Runtime consumer
 
 World validates the manifest version, beat IDs, location references, flag

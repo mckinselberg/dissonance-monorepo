@@ -34,7 +34,7 @@ crater shelter
   -> Milo's workshop (solitary pole)
   -> locked utility continuation
   -> future infrastructure nodes
-  -> T33 cavern-hub (inhabited pole; not yet authored)
+  -> T33 Rey Caverns (inhabited pole; gated)
 ```
 
 Authored nodes own story interactions, distinctive silhouettes, inventory
@@ -150,8 +150,10 @@ An authored node is required when a place:
 
 The workshop qualifies on the first three grounds. Its benches and shelves
 will become inventory-as-room surfaces for recovered hardware, but only after
-the relevant T31 beat is authorized. T33 qualifies as a future authored node,
-but remains blocked on its name, trust economy, and tonal-language design.
+the relevant T31 beat is authorized. T33's working name is **Rey Caverns**,
+but its inhabited space remains blocked on culture and trust-economy design.
+Its tonal language is separately parked on the unadapted Dissonance Audio HUD
+repository; see `rey-caverns-concept-v1.md`.
 
 ## Implementation order
 

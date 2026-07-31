@@ -1213,6 +1213,7 @@ async function main() {
     movement,
     corridorSeed: runSeed,
     flashlightEnabled: flashlightEnabled.value,
+    lurkerInitiallyGone: story.has('reyLurkerFled'),
     onEntered: () => {
       commitExteriorState('workshop');
       story.set('shelterAlarmSilenced');
@@ -1221,6 +1222,11 @@ async function main() {
     onWorkbenchEntered: () => {
       if (story.applyBeat('discover-underground-workshop')) {
         console.info('[T32] underground workshop discovered');
+      }
+    },
+    onLurkerFled: (trigger) => {
+      if (story.applyBeat('glimpse-rey-caverns-lurker')) {
+        console.info(`[T33] Rey Caverns lurker fled from ${trigger}`);
       }
     },
   });
@@ -1315,6 +1321,18 @@ async function main() {
           />{' '}
           Milo flashlight (L)
         </label>
+      </Section>
+      <Section title='T33 Rey Caverns Boundary'>
+        <div id='t33-lurker-status'>Lurker: loading…</div>
+        <button
+          type='button'
+          onClick={() => {
+            story.set('reyLurkerFled', false);
+            workshop.resetLurker();
+          }}
+        >
+          Reset hallway lurker (debug only)
+        </button>
       </Section>
       <Section title='Surveillance Interior'>
         <InteriorDebugRow
@@ -1626,7 +1644,15 @@ async function main() {
 
     const pos = controllers[movement.activeMode.value].getPosition();
     if (isExteriorGameplay()) strikeAcquisition.update(dt, pos);
-    workshop.update();
+    workshop.update(dt);
+    const lurkerStatus = document.getElementById('t33-lurker-status');
+    if (lurkerStatus) {
+      const lurker = workshop.lurkerSnapshot();
+      lurkerStatus.textContent =
+        `Lurker: ${lurker.state}` +
+        `${lurker.trigger ? ` · trigger ${lurker.trigger}` : ''}` +
+        `${Number.isFinite(lurker.distanceToMilo) ? ` · ${lurker.distanceToMilo.toFixed(1)}m` : ''}`;
+    }
     const shelterDoor = locationFeatures.falloutShelterDoor;
     if (audioStarted && isExteriorGameplay() && shelterDoor) {
       const distance = Math.hypot(pos.x - shelterDoor.position.x, pos.z - shelterDoor.position.z);

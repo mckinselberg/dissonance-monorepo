@@ -19,6 +19,7 @@ import {
   createUndergroundCorridor,
   type CorridorDiagnostics,
 } from './UndergroundCorridor';
+import { CorridorLurker, type CorridorLurkerSnapshot } from './CorridorLurker';
 
 const INTERIOR_ORIGIN = new Vector3(60_000, -1_000, 60_000);
 const WORKBENCH_POSITION = INTERIOR_ORIGIN.add(new Vector3(0, 0, 22));
@@ -32,9 +33,11 @@ export interface WorkshopSession {
   isCorridorUnlocked(): boolean;
   setCorridorUnlocked(unlocked: boolean): void;
   setFlashlightEnabled(enabled: boolean): void;
+  lurkerSnapshot(): CorridorLurkerSnapshot;
+  resetLurker(): void;
   enter(): void;
   exit(): void;
-  update(): void;
+  update(dt: number): void;
   dispose(): void;
 }
 
@@ -53,8 +56,10 @@ export function createWorkshopSession(deps: {
   movement: MovementSignals;
   corridorSeed: number;
   flashlightEnabled: boolean;
+  lurkerInitiallyGone: boolean;
   onEntered: () => void;
   onWorkbenchEntered: () => void;
+  onLurkerFled: (trigger: 'proximity' | 'flashlight') => void;
 }): WorkshopSession {
   const {
     scene,
@@ -64,8 +69,10 @@ export function createWorkshopSession(deps: {
     movement,
     corridorSeed,
     flashlightEnabled,
+    lurkerInitiallyGone,
     onEntered,
     onWorkbenchEntered,
+    onLurkerFled,
   } = deps;
   const root = new TransformNode('undergroundWorkshop', scene);
   root.position.copyFrom(INTERIOR_ORIGIN);
@@ -178,6 +185,19 @@ export function createWorkshopSession(deps: {
   camera.ellipsoid = new Vector3(0.4, 0.85, 0.4);
   const flashlight = new CameraFlashlight(scene, camera, 'workshopFlashlight');
   flashlight.setEnabled(flashlightEnabled);
+  const finalDirection = new Vector3(
+    Math.sin(finalHeading),
+    0,
+    Math.cos(finalHeading),
+  );
+  const lurker = new CorridorLurker(
+    scene,
+    root,
+    finalEnd.subtract(finalDirection.scale(2)),
+    finalEnd.add(finalDirection.scale(12)),
+    lurkerInitiallyGone,
+    onLurkerFled,
+  );
 
   let interior = false;
   let previousCamera: Camera | null = null;
@@ -235,11 +255,18 @@ export function createWorkshopSession(deps: {
       corridorGate.setEnabled(!unlocked);
     },
     setFlashlightEnabled: (enabled) => flashlight.setEnabled(enabled),
+    lurkerSnapshot: () => lurker.snapshot(),
+    resetLurker: () => lurker.reset(),
     enter,
     exit,
-    update: () => {
+    update: (dt) => {
       if (!interior) return;
       flashlight.update();
+      lurker.update(
+        dt,
+        camera.position,
+        flashlight.isPointIlluminated(lurker.getLookPoint()),
+      );
       if (discoveredThisVisit) return;
       if (Vector3.DistanceSquared(camera.position, WORKBENCH_POSITION.add(new Vector3(0, 1.5, 0))) > 16) return;
       discoveredThisVisit = true;
@@ -249,6 +276,7 @@ export function createWorkshopSession(deps: {
       exit();
       camera.dispose();
       flashlight.dispose();
+      lurker.dispose();
       light.dispose();
       corridor.dispose();
       meshes.forEach((mesh) => mesh.dispose(false, true));
