@@ -1,5 +1,15 @@
 # haze-band-fog + emissive-dot machinery — implementation prompt v1
 
+**Status (2026-07-31):** runtime implementation landed as environment-profile
+machinery, not a saved view. The Phase 0/schema/profile-data slice landed in
+`014abe1`; the fixed-four shared material plugin, World window/lamp adapters,
+and red-channel consumer are now wired through the existing apply seam. Type
+checks, focused tests, and the production World build pass. The mandatory live
+depth-ramp/reference tuning pass remains a follow-up; `occupancyMask` is still
+the intentionally nullable, unimplemented silhouette slot. Canonical runtime
+ownership resolved to T1/T2 (profile/apply/HUD) plus T30 (`packages/materials`);
+the original T6 ownership line below is retained as prompt provenance only.
+
 **Session type:** local Claude Code (filesystem write access)
 **Owning thread:** T6 (landscape profiles) presentation machinery; cross-links T1 (profile pattern)
 **Design source:** web session reference-match against two concept images (urban-edge dusk; open-hardscape fog)

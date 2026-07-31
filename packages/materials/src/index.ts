@@ -13,3 +13,15 @@ export { EmissiveDataPatternMaterial } from './EmissiveDataPatternMaterial';
 export type { EmissiveDataPatternParams } from './EmissiveDataPatternMaterial';
 export { createScrollingTexture } from './createScrollingTexture';
 export type { ScrollingTextureParams, ScrollingTextureHandle } from './createScrollingTexture';
+export {
+  HazeBandFogMaterialPlugin,
+  HazeBandFogSceneController,
+  attachHazeBandFogToScene,
+} from './HazeBandFogMaterialPlugin';
+export type {
+  FixedFourHazeBands,
+  HazeBandFogBand,
+  HazeBandFogConfig,
+  HazeBandFogDensitySource,
+  HazeBandFogMaterial,
+} from './HazeBandFogMaterialPlugin';

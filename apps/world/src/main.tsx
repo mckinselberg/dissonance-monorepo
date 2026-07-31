@@ -7,6 +7,7 @@ import {
   DefaultRenderingPipeline,
 } from '@babylonjs/core';
 import { GameLoop } from '@dissonance/engine';
+import { HazeBandFogSceneController } from '@dissonance/materials';
 import {
   WaterPlane,
   defaultWaterLevel,
@@ -65,6 +66,7 @@ import { createAudioSignals } from './state/audio';
 import { createLineglassSignals, unlockedLineglassLayers, LINEGLASS_TIERS } from './state/lineglass';
 import type { EnvironmentRenderingProfile } from './state/environmentRenderingProfile';
 import { applyEnvironmentRenderingProfile } from './state/applyEnvironmentRenderingProfile';
+import { EnvironmentEmissiveController } from './state/EnvironmentEmissiveController';
 import { createEnvironmentProfileRegistry, findEnvironmentProfile } from './state/environmentProfiles';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
 import { EnvironmentProfileRow } from './ui/EnvironmentProfileRow';
@@ -179,9 +181,23 @@ async function main() {
     environmentProfiles,
     savedSettings.environmentProfileId,
   );
+  const initialWindowPresentation = initialEnvironmentProfile.emissive?.windows;
   const environmentProfileId = signal(initialEnvironmentProfile.id);
   let activeEnvironmentProfile = initialEnvironmentProfile;
   let renderingPipeline: DefaultRenderingPipeline | undefined;
+  const environmentPresentationConsumers = {
+    haze: new HazeBandFogSceneController(scene),
+    emissive: new EnvironmentEmissiveController(scene),
+  };
+  const applyActiveEnvironmentProfile = (
+    profile: EnvironmentRenderingProfile,
+    pipeline = renderingPipeline,
+  ) => applyEnvironmentRenderingProfile(
+    scene,
+    profile,
+    pipeline,
+    environmentPresentationConsumers,
+  );
 
   // Persisted via SavedSettings/persistSettings and both buildSnapshot()
   // export paths — grid/gpx/osm are handled separately below since they're
@@ -236,9 +252,24 @@ async function main() {
     terrainLowColor: savedSettings.terrainLowColor ?? '#241c12',
     terrainHighColor: savedSettings.terrainHighColor ?? '#8c8c85',
     sunTint: savedSettings.sunTint ?? '#ffffff',
-    windowTintColor: savedSettings.windowTintColor ?? '#ffffff',
-    windowGlow: savedSettings.windowGlow ?? 0,
+    windowTintColor: savedSettings.windowTintColor ?? initialWindowPresentation?.color ?? '#ffffff',
+    windowGlow: savedSettings.windowGlow ?? initialWindowPresentation?.intensity ?? 0,
   });
+  const applyWindowEmissiveOverride = () => {
+    const inherited = activeEnvironmentProfile.emissive?.windows;
+    environmentPresentationConsumers.emissive.setProfile({
+      ...(activeEnvironmentProfile.emissive ?? {}),
+      windows: {
+        color: atmosphere.windowTintColor.value,
+        intensity: atmosphere.windowGlow.value,
+        bloomThreshold: inherited?.bloomThreshold
+          ?? activeEnvironmentProfile.bloom?.threshold
+          ?? 0.65,
+        flicker: inherited?.flicker ?? { amp: 0, hz: 0, seed: 0 },
+        occupancyMask: inherited?.occupancyMask ?? null,
+      },
+    });
+  };
 
   // Ported from dont-turn-around (@dissonance/audio) — AmbientAudio and
   // HeartbeatAudio are already fully generic (no ExperienceProfile/DTA
@@ -266,7 +297,10 @@ async function main() {
   trailPlayerAudio.setBreathMuted(audio.breathMuted.value);
   let audioStarted = false;
 
-  applyEnvironmentRenderingProfile(scene, activeEnvironmentProfile);
+  applyActiveEnvironmentProfile(activeEnvironmentProfile);
+  if (savedSettings.windowTintColor !== undefined || savedSettings.windowGlow !== undefined) {
+    applyWindowEmissiveOverride();
+  }
   effect(() => {
     scene.fogDensity = atmosphere.fogDensity.value;
   });
@@ -763,7 +797,10 @@ async function main() {
           atmosphere={atmosphere}
           onWaterColorCommit={(value) => water.setColor(Color3.FromHexString(value))}
           onTerrainColorCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
-          onWindowTintCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
+          onWindowTintCommit={() => {
+            applyWindowEmissiveOverride();
+            rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value);
+          }}
         />
       )}
     </Section>,
@@ -782,11 +819,9 @@ async function main() {
     atmosphere.fogDensity.value = profile.atmosphere.fogDensity;
     atmosphere.fogColor.value = profile.atmosphere.fogColor;
     const windows = profile.emissive?.windows;
-    if (windows) {
-      atmosphere.windowTintColor.value = windows.color;
-      atmosphere.windowGlow.value = windows.intensity;
-    }
-    applyEnvironmentRenderingProfile(scene, profile, renderingPipeline);
+    atmosphere.windowTintColor.value = windows?.color ?? '#ffffff';
+    atmosphere.windowGlow.value = windows?.intensity ?? 0;
+    applyActiveEnvironmentProfile(profile);
     saveSettings(levelKey, { ...loadSavedSettings(levelKey), environmentProfileId: profile.id });
   };
 
@@ -892,6 +927,17 @@ async function main() {
     orbitCamera.panningSensibility = 50;
     orbitCamera.maxZ = level.farClip;
     scene.activeCamera = orbitCamera;
+    renderingPipeline = new DefaultRenderingPipeline(
+      'bloomPipeline',
+      true,
+      scene,
+      [orbitCamera],
+    );
+    applyActiveEnvironmentProfile(activeEnvironmentProfile, renderingPipeline);
+    // Persisted atmosphere fields remain explicit overrides of the named
+    // profile in orbit mode, matching the player-mode pipeline setup below.
+    scene.fogDensity = atmosphere.fogDensity.value;
+    scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
 
     render(
       <>
@@ -1059,7 +1105,7 @@ async function main() {
   // needed. Every other pipeline feature (FXAA, grain, DoF, vignette,
   // chromatic aberration) stays off; this is scoped to bloom alone.
   renderingPipeline = new DefaultRenderingPipeline('bloomPipeline', true, scene, scene.cameras);
-  applyEnvironmentRenderingProfile(scene, activeEnvironmentProfile, renderingPipeline);
+  applyActiveEnvironmentProfile(activeEnvironmentProfile, renderingPipeline);
   // The named profile is the inherited source; persisted fog values are
   // explicit runtime overrides and must win after post-processing setup.
   scene.fogDensity = atmosphere.fogDensity.value;

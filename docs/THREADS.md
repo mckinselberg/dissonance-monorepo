@@ -1,6 +1,6 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.56
+**Version:** 9.57
 **Date:** 2026-07-31
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
 
@@ -143,6 +143,16 @@ Sound as a first-class simulated world phenomenon whose audible, biological, beh
 
 ### T1/T2 — Environment profiles / Dev HUD
 `EnvironmentProfile` data type; `applyProfile()` as the sole engine code path. Dev HUD with live parameter tuning + export-to-JSON authoring loop.
+- **Environment presentation runtime landed (2026-07-31):** the reusable
+  haze/fog/grade/bloom/emissive recipe is an `EnvironmentRenderingProfile`,
+  not a saved view. `urban-edge-dusk` and `open-hardscape-fog` now drive the
+  existing EXP2/ColorCurves/bloom path plus a shared fixed-four material haze
+  consumer and app-local live window/street-lamp adapters. Copy/Load View may
+  carry `environmentProfileId` with its camera/session snapshot; it does not
+  own or inline the recipe. Exact-four/profile-adapter tests and the production
+  World build pass. Live depth-ramp/reference tuning remains a clearly marked
+  follow-up; automatic region × clock × detection composition stays gated in
+  T23/T25/T27.
 - **HUD feature candidate (from Godot PoC):** agent route/waypoint visualization as a toggleable overlay — generalize the PoC's patrol-route toggle for any agent (drone patrols, DTA pursuer).
 - **Status:** established pattern; extend, don't fork
 
@@ -306,6 +316,12 @@ emissive material for machine-readout surfaces.
   emissive planes scrolling, no shader errors, 60fps — the
   `CUSTOM_FRAGMENT_UPDATE_ALBEDO` injection point was unverified guesswork
   going in, confirmed working now.
+- **Environment-presentation extension (2026-07-31):**
+  `HazeBandFogMaterialPlugin` and its scene controller now live in the same
+  package. The loop-free fixed-four pass attaches to current/future
+  PBR/Standard materials, follows live EXP2 density, remains thin-instance
+  compatible, and also consumes the profile's red-channel gain. World-specific
+  material naming stays app-local; no DTA path or new render package was added.
 - **Package home resolved (was open decision #1 in the handoff doc):** Dan
   called `packages/materials` over app-scoped, since the instance-builder
   consumers (`ForestGenerator`, `apps/world`'s `CompositeLocations`/
@@ -591,6 +607,7 @@ The former v9.7 “this week” list is removed because its T3 assumptions were 
 
 | Version | Date | Change |
 |---|---|---|
+| 9.57 | 2026-07-31 | Completed the manually selectable environment-presentation runtime behind T1/T2's existing profile/apply seam: shared fixed-four haze + red gain in `@dissonance/materials`, app-local live window/lamp emissive adapters, exact-four validation, late-material/baseline/flicker tests, and grade/bloom parity in orbit mode. Classified the recipe as an environment profile; saved views only reference `environmentProfileId`. Type checks, focused tests and the World production build pass. Live depth-ramp/reference tuning remains outstanding; T6/T23/T25/T27 gates are unchanged. |
 | 9.56 | 2026-07-31 | Closed T29's offline-v1 runtime gate after user validation of the Boulevard terminal's dock, fixture-message, and undock flow. The T11 networking, persistence/progression, T31 control, and underground-placement exclusions remain unchanged. |
 | 9.55 | 2026-07-31 | Landed the independent offline T29 v1 implementation at Boulevard fixture `public-sanitation-terminal-01`: explicit five-state docking, clean input-focus transfer, and a read-only in-process Scrambler fixture. All 22 World tests and the production build pass; browser validation remains pending. Clarified that O17 gates only the later T31 addressing/control use; networking/T11, persistence, progression, T31 control, and workshop/Rey placement remain deferred or gated. |
 | 9.54 | 2026-07-31 | T35 inventory-as-room presentation landed: persistent empty workshop cradles and independently save-driven recovered chassis/emitter displays update immediately on recovery and restore on reload. The exterior source hides durably to prevent duplication, and both locations share the established procedural drone silhouette. No construction/control mechanics were added. World build passed; live visual review and the broader T31/T35 tuning pass remain explicitly deferred. The lane now stops at the T29/T31 v2 and T36 gates. |
