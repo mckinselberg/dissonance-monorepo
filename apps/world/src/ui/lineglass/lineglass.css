@@ -84,6 +84,42 @@
   border: 1px solid var(--lineglass-border); background: #071519; font: inherit;
 }
 
+.atmosphere-panel { padding-top: 5px; }
+.atmosphere-profile-row {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.atmosphere-profile-row select { min-width: 0; width: 100%; }
+.atmosphere-controls { display: grid; gap: 9px; margin-top: 9px; }
+.atmosphere-control-group {
+  display: grid;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(141, 194, 204, 0.16);
+}
+.atmosphere-control-group__label {
+  color: #8dc2cc;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.atmosphere-color-row {
+  display: grid;
+  grid-template-columns: 88px 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  margin: 0 !important;
+}
+.atmosphere-color-row output {
+  color: var(--lineglass-text-muted);
+  font-size: 10px;
+  letter-spacing: .03em;
+}
+
 .lineglass__legend { display: flex; gap: 18px; padding: 10px 14px; border-top: 1px solid var(--lineglass-border); }
 .lineglass-source { color: var(--lineglass-text-muted); text-transform: uppercase; }
 .lineglass-source::before { content: "■"; margin-right: 6px; color: var(--lineglass-accent); }

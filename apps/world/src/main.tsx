@@ -508,10 +508,6 @@ async function main() {
       id: 'sky', label: 'Sky', icon: '☁', modes: ['tune'], priority: 20,
       capabilities: ['edit-world'],
       source: 'profile',
-      overrideCount: [
-        savedSettings.environmentProfileId, savedSettings.timeOfDay, savedSettings.fogDensity, savedSettings.overcast,
-        savedSettings.starCount, savedSettings.cloudCount, savedSettings.cloudOpacity,
-      ].filter((value) => value !== undefined).length,
       summary: () => ({
         primary: findEnvironmentProfile(environmentProfiles, environmentProfileId.value).label,
         secondary: `Fog ${atmosphere.fogDensity.value.toFixed(4)}`,
@@ -826,7 +822,7 @@ async function main() {
   };
 
   render(
-    <Section title='Sky'>
+    <div class='atmosphere-panel'>
       <EnvironmentProfileRow
         profiles={environmentProfiles}
         activeProfileId={environmentProfileId}
@@ -839,7 +835,7 @@ async function main() {
         onCloudColorCommit={() => backdrop.rebuildClouds()}
         onCloudOpacityCommit={() => backdrop.rebuildClouds()}
       />
-    </Section>,
+    </div>,
     document.getElementById('atmosphere-root') as HTMLDivElement,
   );
 
