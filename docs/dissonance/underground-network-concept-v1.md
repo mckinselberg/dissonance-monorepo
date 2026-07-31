@@ -177,9 +177,12 @@ The T32 Dev HUD reports topology validity, segment/collider counts, and reverse
 validity. A debug-only unlock opens the workshop gate so the corridor can be
 walked in both directions without making it canonical progression.
 
-Production build validation is complete. Manual full-speed checks remain
-required for wall seams, the small elevation step, camera collision, and
-returning through the unlocked portal on the slow authoring machine.
+**Draft 1 accepted.** Production build validation and the first visual
+walkthrough are complete. Detailed validation is deferred to a later
+underground tuning/QA pass rather than blocking the next authored slice. That
+pass must cover wall seams, collision traps, the small elevation step,
+bidirectional portal traversal, flashlight readability, and the
+surface-to-underground acoustic transition.
 
 The corridor visibility gate reuses `@dissonance/player`'s extracted
 camera-carried flashlight. Milo's persisted flashlight state follows the
