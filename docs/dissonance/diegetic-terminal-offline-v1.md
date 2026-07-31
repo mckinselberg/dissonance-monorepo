@@ -1,6 +1,6 @@
 # Diegetic terminal offline v1 (T29)
 
-**Status:** implementation landed; browser validation pending.
+**Status:** offline v1 validated.
 **Runtime owner:** `apps/world`.
 **Fixture:** `public-sanitation-terminal-01`, Dissonance Boulevard.
 
@@ -37,12 +37,13 @@ workshop/Rey Caverns placement is implied.
 - Passed: all 22 World tests, including 15 focused docking, dialogue,
   placement-scale, and compound-grade tests.
 - Passed: strict TypeScript and the production World build.
-- Pending: a browser walkthrough of proximity availability, all five
-  transitions, keyboard/pointer focus isolation, readable fixture content, and
-  a clean return to movement after undocking. The World Dev HUD includes a T29
-  state readout and a `Go to public sanitation terminal` test shortcut.
+- Passed: user-confirmed World walkthrough of terminal availability, docking,
+  readable authorized fixture content, undocking, and return to gameplay. The
+  World Dev HUD retains its T29 state readout and
+  `Go to public sanitation terminal` test shortcut for later tuning.
 
-Runtime completion is not claimed until that walkthrough passes.
+The offline-v1 runtime gate is closed. The deferred boundaries below remain in
+force.
 
 ## Explicitly deferred
 

@@ -1,6 +1,6 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.55
+**Version:** 9.56
 **Date:** 2026-07-31
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
 
@@ -41,7 +41,7 @@
 | T26 | Identified-overlay landmark layer (stable per-instance identity) | new 2026-07-27 — salvaged from parked instance-placement-prompt-v1.md, scoped down |
 | T27 | Zone-field atmosphere blending | new 2026-07-27 — salvaged from parked instance-placement-prompt-v1.md, scoped down |
 | T28 | Rural infrastructure backlog (silos, windmills, water towers, self-storage, airport, highway, compass) | new 2026-07-27 — backlog only; power lines already shipped, see T21 |
-| T29 | Diegetic communications / terminal layer | offline v1 implementation landed; browser validation pending; networking remains T11 |
+| T29 | Diegetic communications / terminal layer | offline v1 validated; networking remains T11 |
 | T30 | Instanced material pipeline (scatter-prop variation + emissive data patterns) | first pass landed 2026-07-29 — see entry for what's deferred |
 | T31 | Emitter / captured patrol drone (interference verb) | acquisition v1 complete; interference/control v2 gated; live QA follow-up deferred |
 | T32 | Repair-pipeline hack (ride-the-mend) | experimental; downstream of T31 |
@@ -278,9 +278,9 @@ Compact index of `dta-session-notes.md` §1–4 (all PROVISIONAL; the notes doc 
 - **Owning doc:** none yet.
 
 ### T29 — Diegetic communications / terminal layer 🆕
-- **Status:** offline v1 implementation landing independently; runtime validation pending. Networking remains parked under T11.
+- **Status:** offline v1 validated independently. Networking remains parked under T11.
 - **Scope:** a portable green-screen terminal rendered in Preact above Babylon, mechanically docked to T26-identified world features. First implementation is local fixture data plus an explicit `far → available → docking → docked → undocking` state machine and clean input-focus handoff. Runtime dialogue follows Simulation → Context → Provider → Validation → Authorized Dialogue; providers never own world state.
-- **Offline v1 implementation (2026-07-31; browser validation pending):** `public-sanitation-terminal-01` is a stable Dissonance Boulevard fixture. It proves the five-state docking lifecycle, a Preact/Signals terminal surface, gameplay-to-terminal focus transfer, and a deterministic read-only in-process Scrambler fixture. All 22 World tests and the production build pass; the live dock/undock walkthrough remains open. The terminal may expose validated local public-sanitation messages, but it does not write simulation state, send player-authored messages, establish credentials, or imply network authority.
+- **Offline v1 implementation (2026-07-31; validated):** `public-sanitation-terminal-01` is a stable Dissonance Boulevard fixture. It proves the five-state docking lifecycle, a Preact/Signals terminal surface, gameplay-to-terminal focus transfer, and a deterministic read-only in-process Scrambler fixture. All 22 World tests and the production build pass; the live dock, fixture-message, and undock flow was user-validated in World. The terminal may expose validated local public-sanitation messages, but it does not write simulation state, send player-authored messages, establish credentials, or imply network authority.
 - **Independent gate:** this public, read-only T29 proof does **not** depend on O17's future T31 authorization decision. O17 begins when a terminal becomes the captured-drone addressing/control surface. Persistence, progression and awards, T31 drone/receiver/control behavior, and any workshop or Rey Caverns terminal placement remain deferred or gated.
 - **Authority split:** T29 owns the client interaction, docking, terminal presentation, context adapters, and the Synod Scrambler contract. T11 owns network transport, sessions, replication, factions, provenance, and server authority. WebSockets precede WebRTC, matching the older monorepo plan; media transport is not part of the first slice.
 - **Infrastructure resonance:** terminal docks can later act as acoustic injection points; fiction belongs to T10, acoustic behavior to T20, and physical landmark variants to T28.
@@ -499,7 +499,7 @@ T35 shelter/workshop/save/corridor Draft 1 ✓
   → deferred T31/T35 tuning validation LATER (per Dan)
   → T31 v2 interference/control GATED
   → T36 inhabited Rey Caverns GATED
-T29 offline terminal v1 IMPLEMENTATION LANDED (browser validation pending; independent of O17)
+T29 offline terminal v1 VALIDATED (independent of O17)
   → Boulevard `public-sanitation-terminal-01` + five-state docking + clean input focus
   → networking/T11, persistence/progression, T31 control, and underground placement DEFERRED/GATED
 ```
@@ -591,6 +591,7 @@ The former v9.7 “this week” list is removed because its T3 assumptions were 
 
 | Version | Date | Change |
 |---|---|---|
+| 9.56 | 2026-07-31 | Closed T29's offline-v1 runtime gate after user validation of the Boulevard terminal's dock, fixture-message, and undock flow. The T11 networking, persistence/progression, T31 control, and underground-placement exclusions remain unchanged. |
 | 9.55 | 2026-07-31 | Landed the independent offline T29 v1 implementation at Boulevard fixture `public-sanitation-terminal-01`: explicit five-state docking, clean input-focus transfer, and a read-only in-process Scrambler fixture. All 22 World tests and the production build pass; browser validation remains pending. Clarified that O17 gates only the later T31 addressing/control use; networking/T11, persistence, progression, T31 control, and workshop/Rey placement remain deferred or gated. |
 | 9.54 | 2026-07-31 | T35 inventory-as-room presentation landed: persistent empty workshop cradles and independently save-driven recovered chassis/emitter displays update immediately on recovery and restore on reload. The exterior source hides durably to prevent duplication, and both locations share the established procedural drone silhouette. No construction/control mechanics were added. World build passed; live visual review and the broader T31/T35 tuning pass remain explicitly deferred. The lane now stops at the T29/T31 v2 and T36 gates. |
 | 9.53 | 2026-07-31 | Folded the underground/interference delta into the stable registry without overwriting IDs assigned by v9.51: incoming T31 detail merged into canonical T31, the underground network/workshop became T35, and Rey Caverns became T36; canonical T32 repair-pipeline, T33 corridor, and T34 acoustic-disable threads remain intact. T25 precipitation/storm, T31 acquisition, T35's shelter/workshop/save/corridor foundation, and T36's boundary lurker are landed. Inventory-as-room is next. T31 v2, inhabited Rey space, trust progression, and tonal language remain gated; stronger-machine live QA and detailed underground tuning remain explicitly deferred. The superseded workshop prerequisite was not restored. |
