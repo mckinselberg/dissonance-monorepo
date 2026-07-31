@@ -12,8 +12,8 @@ export function EnvironmentProfileRow({
   onSelect: (profile: EnvironmentRenderingProfile) => void;
 }) {
   return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
-      Environment profile{' '}
+    <label class="atmosphere-profile-row">
+      <span>Environment profile</span>
       <select
         value={activeProfileId.value}
         onChange={(event: JSX.TargetedEvent<HTMLSelectElement>) => {

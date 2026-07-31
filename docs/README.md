@@ -68,6 +68,12 @@ table before using one.
   T35 topology, authored-node, corridor, and validation contract.
 - **[dissonance/rey-caverns-concept-v1.md](dissonance/rey-caverns-concept-v1.md)** —
   T36's gated concept and implemented boundary-lurker scope.
+- **[dissonance/diegetic-terminal-offline-v1.md](dissonance/diegetic-terminal-offline-v1.md)** —
+  T29's independent offline Boulevard terminal slice, its input/Scrambler
+  boundary, validation gate, and explicit networking/progression/T31 exclusions.
+- **[dissonance/haze-fog-emissive-schema.md](dissonance/haze-fog-emissive-schema.md)** —
+  environment-presentation profile ownership, live haze/emissive application
+  seams, and the remaining visual-tuning gate.
 - See also **[plans/dissonance-trail-data-poc-prompt.md](plans/dissonance-trail-data-poc-prompt.md)**
   under "Design & handoff prompts" below — the original prompt that kicked
   off the World terrain POC.
@@ -123,6 +129,10 @@ describe work that has since shipped.
 - **[plans/t13-boulevard-extraction-v1.md](plans/t13-boulevard-extraction-v1.md)**
   — analysis pass over the Godot Surveillance Boulevard PoC (reference only,
   no code ports). See THREADS.md T13.
+- **[plans/haze-fog-emissive-prompt-v1.md](plans/haze-fog-emissive-prompt-v1.md)**
+  — the audited fixed-four haze and emissive-presentation implementation brief;
+  runtime landed, live depth-ramp/reference tuning remains. See THREADS.md T1/T2
+  and T30.
 - **[plans/photogrammetry_archaeological_loot_room_ai_prompt.md](plans/photogrammetry_archaeological_loot_room_ai_prompt.md)**,
   **[plans/photogrammetry-archaeological-loot-room-execution-plan-v1.md](plans/photogrammetry-archaeological-loot-room-execution-plan-v1.md)**,
   **[plans/photogrammetry-archaeological-loot-room-execution-plan-v2.md](plans/photogrammetry-archaeological-loot-room-execution-plan-v2.md)**

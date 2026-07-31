@@ -10,6 +10,7 @@ import {
 } from '@babylonjs/core';
 import type { ShadowGenerator } from '@babylonjs/core';
 import type { Collider } from '@dissonance/world';
+import { texturedMaterial, CITY_KIT_TEXTURE_BASE, TEXTURES_BASE } from './texturedMaterial';
 
 export type LocationEntry = {
   // Stable authored identity. Names are labels and may change; array order is
@@ -87,6 +88,14 @@ export type LocationEntry = {
   shelterEntrance?: {
     local: [number, number];
     headingDegrees: number;
+  };
+  // Stable, offline terminal fixture metadata. The owning location supplies
+  // identity/name/latLong; this field owns only the physical presentation and
+  // proximity boundary. Dialogue, progression, control, and networking live
+  // outside the world-feature manifest.
+  terminal?: {
+    headingDegrees: number;
+    interactionRadiusMeters: number;
   };
 };
 
@@ -176,7 +185,18 @@ function buildSimpleTree(scene: Scene): Mesh {
 // assets — a lamp row down the sidewalk, not just the one jittered instance
 // scatterLocationProps gives every plain prop type.
 export function buildStreetLamp(scene: Scene): Mesh {
-  const poleMat = pbr(scene, 'locProp_lampPoleMat', new Color3(0.05, 0.05, 0.06), 0.5, 0.7);
+  const poleMat = texturedMaterial(
+    scene,
+    'locProp_lampPoleMat',
+    {
+      albedo: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_BaseColor.png`,
+      normal: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_Normal.png`,
+      orm: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_ORM.png`,
+    },
+    1,
+  );
+  poleMat.albedoColor = new Color3(0.09, 0.09, 0.1);
+  poleMat.metallic = 0.7;
   const globeMat = new PBRMaterial('locProp_lampGlobeMat', scene);
   globeMat.albedoColor = new Color3(0.9, 0.7, 0.3);
   globeMat.emissiveColor = new Color3(0.9, 0.6, 0.15); // warm amber, T22's palette note: warm reserved for carry light/interactables
@@ -229,7 +249,16 @@ export function buildUtilityPole(scene: Scene): Mesh {
 }
 
 function buildRocks(scene: Scene): Mesh {
-  const mat = pbr(scene, 'locProp_rocksMat', new Color3(0.42, 0.4, 0.38), 0.95);
+  const mat = texturedMaterial(
+    scene,
+    'locProp_rocksMat',
+    {
+      albedo: `${TEXTURES_BASE}rocky-terrain-02/rocky_terrain_02_diff_512.jpg`,
+      normal: `${TEXTURES_BASE}rocky-terrain-02/rocky_terrain_02_nor_gl_512.png`,
+      roughness: `${TEXTURES_BASE}rocky-terrain-02/rocky_terrain_02_rough_512.png`,
+    },
+    1.5,
+  );
   const parts: Mesh[] = [];
   for (let i = 0; i < 4; i++) {
     const size = 0.5 + Math.random() * 1.1;
@@ -243,7 +272,15 @@ function buildRocks(scene: Scene): Mesh {
 }
 
 function buildStoneSteps(scene: Scene): Mesh {
-  const mat = pbr(scene, 'locProp_stepsMat', new Color3(0.5, 0.48, 0.44));
+  const mat = texturedMaterial(
+    scene,
+    'locProp_stepsMat',
+    {
+      albedo: `${TEXTURES_BASE}marble-cliff-03/marble_cliff_03_diff_512.jpg`,
+      normal: `${TEXTURES_BASE}marble-cliff-03/marble_cliff_03_nor_gl_512.png`,
+    },
+    1.2,
+  );
   const parts: Mesh[] = [];
   for (let i = 0; i < 4; i++) {
     const step = MeshBuilder.CreateBox(`step_${i}`, { width: 1.4, height: 0.25, depth: 0.6 }, scene);
@@ -275,7 +312,18 @@ function buildPicnicTable(scene: Scene): Mesh {
 }
 
 function buildTrashBarrel(scene: Scene): Mesh {
-  const mat = pbr(scene, 'locProp_barrelMat', new Color3(0.15, 0.15, 0.16), 0.6, 0.6);
+  const mat = texturedMaterial(
+    scene,
+    'locProp_barrelMat',
+    {
+      albedo: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_BaseColor.png`,
+      normal: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_Normal.png`,
+      orm: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_ORM.png`,
+    },
+    1.5,
+  );
+  mat.albedoColor = new Color3(0.2, 0.2, 0.22);
+  mat.metallic = 0.6;
   const barrel = MeshBuilder.CreateCylinder('locProp_trashBarrel', {
     height: 0.9, diameterTop: 0.55, diameterBottom: 0.5, tessellation: 12,
   }, scene);
@@ -285,7 +333,18 @@ function buildTrashBarrel(scene: Scene): Mesh {
 }
 
 function buildPostGrill(scene: Scene): Mesh {
-  const mat = pbr(scene, 'locProp_grillMat', new Color3(0.12, 0.12, 0.13), 0.5, 0.7);
+  const mat = texturedMaterial(
+    scene,
+    'locProp_grillMat',
+    {
+      albedo: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_BaseColor.png`,
+      normal: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_Normal.png`,
+      orm: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_ORM.png`,
+    },
+    1,
+  );
+  mat.albedoColor = new Color3(0.16, 0.16, 0.17);
+  mat.metallic = 0.7;
   const parts: Mesh[] = [];
   const post = MeshBuilder.CreateCylinder('grillPost', { height: 0.9, diameter: 0.08, tessellation: 8 }, scene);
   post.position.y = 0.45;
@@ -337,7 +396,15 @@ function buildMossyLog(scene: Scene): Mesh {
 }
 
 function buildDeadFountain(scene: Scene): Mesh {
-  const mat = pbr(scene, 'locProp_fountainMat', new Color3(0.5, 0.49, 0.46), 0.85);
+  const mat = texturedMaterial(
+    scene,
+    'locProp_fountainMat',
+    {
+      albedo: `${TEXTURES_BASE}marble-cliff-03/marble_cliff_03_diff_512.jpg`,
+      normal: `${TEXTURES_BASE}marble-cliff-03/marble_cliff_03_nor_gl_512.png`,
+    },
+    1,
+  );
   const parts: Mesh[] = [];
   const basin = MeshBuilder.CreateCylinder('fountainBasin', {
     height: 0.6, diameterTop: 0.9, diameterBottom: 0.7, tessellation: 10,
@@ -351,7 +418,17 @@ function buildDeadFountain(scene: Scene): Mesh {
 }
 
 function buildShedShell(scene: Scene): Mesh {
-  const mat = pbr(scene, 'locProp_shedMat', new Color3(0.32, 0.3, 0.27), 0.9);
+  const mat = texturedMaterial(
+    scene,
+    'locProp_shedMat',
+    {
+      albedo: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_BaseColor.png`,
+      normal: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_Normal.png`,
+      orm: `${CITY_KIT_TEXTURE_BASE}T_MetalConcrete_ORM.png`,
+    },
+    2,
+  );
+  mat.albedoColor = new Color3(0.34, 0.33, 0.3);
   const parts: Mesh[] = [];
   const walls = MeshBuilder.CreateBox('shedWalls', { width: 3, height: 2.2, depth: 3 }, scene);
   walls.position.y = 1.1;
@@ -450,6 +527,12 @@ export function scatterLocationProps(
 
   return {
     colliders,
-    dispose: () => templates.forEach((t) => t.dispose()),
+    // false/true: recurse (none of these templates parent children, but
+    // matches CompositeLocations' own convention), disposeMaterialAndTextures
+    // true — several builders above (buildRocks, buildStoneSteps,
+    // buildTrashBarrel, buildPostGrill, buildDeadFountain, buildShedShell,
+    // buildStreetLamp) now own real texture files via texturedMaterial(),
+    // which would leak GPU texture memory on every dev-HUD rebuild otherwise.
+    dispose: () => templates.forEach((t) => t.dispose(false, true)),
   };
 }

@@ -3,7 +3,6 @@ import {
   MeshBuilder,
   PBRMaterial,
   StandardMaterial,
-  Texture,
   TransformNode,
   Vector3,
   type AbstractMesh,
@@ -13,6 +12,7 @@ import {
 import type { Collider } from '@dissonance/world';
 import type { LocationEntry } from './LocationProps';
 import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './HeroTreeInstances';
+import { texturedMaterial } from './texturedMaterial';
 
 const SHELTER_WIDTH = 13;
 const SHELTER_DEPTH = 8;
@@ -44,47 +44,6 @@ function material(
   result.albedoColor = color;
   result.roughness = roughness;
   result.metallic = metallic;
-  return result;
-}
-
-function texturedMaterial(
-  scene: Scene,
-  name: string,
-  paths: { albedo: string; normal?: string; roughness?: string; orm?: string },
-  textureScale: number,
-): PBRMaterial {
-  const result = new PBRMaterial(name, scene);
-  const albedo = new Texture(paths.albedo, scene);
-  albedo.uScale = textureScale;
-  albedo.vScale = textureScale;
-  result.albedoTexture = albedo;
-  if (paths.normal) {
-    const normal = new Texture(paths.normal, scene);
-    normal.uScale = textureScale;
-    normal.vScale = textureScale;
-    result.bumpTexture = normal;
-  }
-  if (paths.roughness) {
-    const roughness = new Texture(paths.roughness, scene);
-    roughness.uScale = textureScale;
-    roughness.vScale = textureScale;
-    result.metallicTexture = roughness;
-    result.useRoughnessFromMetallicTextureGreen = true;
-    result.useMetallnessFromMetallicTextureBlue = false;
-    result.useRoughnessFromMetallicTextureAlpha = false;
-  } else if (paths.orm) {
-    const orm = new Texture(paths.orm, scene);
-    orm.uScale = textureScale;
-    orm.vScale = textureScale;
-    result.metallicTexture = orm;
-    result.useRoughnessFromMetallicTextureGreen = true;
-    result.useMetallnessFromMetallicTextureBlue = true;
-    result.useRoughnessFromMetallicTextureAlpha = false;
-    result.ambientTexture = orm;
-    result.useAmbientOcclusionFromMetallicTextureRed = true;
-  }
-  result.metallic = 0;
-  result.roughness = 1;
   return result;
 }
 

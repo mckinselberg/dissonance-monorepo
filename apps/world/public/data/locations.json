@@ -15,6 +15,15 @@
     "latLong": [40.73890866931937, -74.27526758544376]
   },
   {
+    "id": "public-sanitation-terminal-01",
+    "name": "public sanitation terminal",
+    "latLong": [40.738745076341225, -74.27503841066849],
+    "terminal": {
+      "headingDegrees": 90,
+      "interactionRadiusMeters": 2.4
+    }
+  },
+  {
     "id": "dissonance-boulevard",
     "name": "dissonance boulevard",
     "latLong": [40.728908, -74.275161],

@@ -7,6 +7,7 @@ import {
   DefaultRenderingPipeline,
 } from '@babylonjs/core';
 import { GameLoop } from '@dissonance/engine';
+import { HazeBandFogSceneController } from '@dissonance/materials';
 import {
   WaterPlane,
   defaultWaterLevel,
@@ -47,6 +48,7 @@ import {
   loadReplayRoutes,
   loadStoryManifest,
   loadStrikeProfile,
+  loadTerminalFixture,
 } from './data/loaders';
 import { hideLoadingOverlay } from './utils';
 import { createAtmosphereSignals } from './state/atmosphere';
@@ -64,9 +66,11 @@ import { createAudioSignals } from './state/audio';
 import { createLineglassSignals, unlockedLineglassLayers, LINEGLASS_TIERS } from './state/lineglass';
 import type { EnvironmentRenderingProfile } from './state/environmentRenderingProfile';
 import { applyEnvironmentRenderingProfile } from './state/applyEnvironmentRenderingProfile';
+import { EnvironmentEmissiveController } from './state/EnvironmentEmissiveController';
 import { createEnvironmentProfileRegistry, findEnvironmentProfile } from './state/environmentProfiles';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
 import { EnvironmentProfileRow } from './ui/EnvironmentProfileRow';
+import { WeatherRow } from './ui/WeatherRow';
 import { StrikeTuningRow } from './ui/StrikeTuningRow';
 import { VisibilityToggles, ToggleLabel } from './ui/VisibilityToggles';
 import { MovementRow } from './ui/MovementRow';
@@ -87,6 +91,15 @@ import { InteriorDebugRow } from './ui/InteriorDebugRow';
 import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
 import { createStoryState } from './state/story';
 import { WorldSaveStore, type WorldRouteId } from './state/worldSave';
+import {
+  InProcessTerminalScrambler,
+  TerminalDockingSystem,
+  fixtureMessageProvider,
+  runOfflineTerminalDialogue,
+  type AuthorizedTerminalDialogue,
+  type TerminalDockingSnapshot,
+} from './terminal';
+import { TerminalOverlay } from './ui/terminal';
 
 // Underwater look — WaterPlane's own "murky underside" mesh already gives a
 // plausible ceiling when you dip below the surface (Fly/Drive have no
@@ -169,9 +182,23 @@ async function main() {
     environmentProfiles,
     savedSettings.environmentProfileId,
   );
+  const initialWindowPresentation = initialEnvironmentProfile.emissive?.windows;
   const environmentProfileId = signal(initialEnvironmentProfile.id);
   let activeEnvironmentProfile = initialEnvironmentProfile;
   let renderingPipeline: DefaultRenderingPipeline | undefined;
+  const environmentPresentationConsumers = {
+    haze: new HazeBandFogSceneController(scene),
+    emissive: new EnvironmentEmissiveController(scene),
+  };
+  const applyActiveEnvironmentProfile = (
+    profile: EnvironmentRenderingProfile,
+    pipeline = renderingPipeline,
+  ) => applyEnvironmentRenderingProfile(
+    scene,
+    profile,
+    pipeline,
+    environmentPresentationConsumers,
+  );
 
   // Persisted via SavedSettings/persistSettings and both buildSnapshot()
   // export paths — grid/gpx/osm are handled separately below since they're
@@ -226,9 +253,24 @@ async function main() {
     terrainLowColor: savedSettings.terrainLowColor ?? '#241c12',
     terrainHighColor: savedSettings.terrainHighColor ?? '#8c8c85',
     sunTint: savedSettings.sunTint ?? '#ffffff',
-    windowTintColor: savedSettings.windowTintColor ?? '#ffffff',
-    windowGlow: savedSettings.windowGlow ?? 0,
+    windowTintColor: savedSettings.windowTintColor ?? initialWindowPresentation?.color ?? '#ffffff',
+    windowGlow: savedSettings.windowGlow ?? initialWindowPresentation?.intensity ?? 0,
   });
+  const applyWindowEmissiveOverride = () => {
+    const inherited = activeEnvironmentProfile.emissive?.windows;
+    environmentPresentationConsumers.emissive.setProfile({
+      ...(activeEnvironmentProfile.emissive ?? {}),
+      windows: {
+        color: atmosphere.windowTintColor.value,
+        intensity: atmosphere.windowGlow.value,
+        bloomThreshold: inherited?.bloomThreshold
+          ?? activeEnvironmentProfile.bloom?.threshold
+          ?? 0.65,
+        flicker: inherited?.flicker ?? { amp: 0, hz: 0, seed: 0 },
+        occupancyMask: inherited?.occupancyMask ?? null,
+      },
+    });
+  };
 
   // Ported from dont-turn-around (@dissonance/audio) — AmbientAudio and
   // HeartbeatAudio are already fully generic (no ExperienceProfile/DTA
@@ -256,7 +298,10 @@ async function main() {
   trailPlayerAudio.setBreathMuted(audio.breathMuted.value);
   let audioStarted = false;
 
-  applyEnvironmentRenderingProfile(scene, activeEnvironmentProfile);
+  applyActiveEnvironmentProfile(activeEnvironmentProfile);
+  if (savedSettings.windowTintColor !== undefined || savedSettings.windowGlow !== undefined) {
+    applyWindowEmissiveOverride();
+  }
   effect(() => {
     scene.fogDensity = atmosphere.fogDensity.value;
   });
@@ -396,13 +441,22 @@ async function main() {
     scene, sampler, contract, scaleTuning, backdrop.getShadowGenerator(), visualWindSource, savedSettings,
   );
 
-  const [trails, gpxTrack, savedViews, worldFeatures, replayRoutes, strikeProfile] = await Promise.all([
+  const [
+    trails,
+    gpxTrack,
+    savedViews,
+    worldFeatures,
+    replayRoutes,
+    strikeProfile,
+    terminalSimulation,
+  ] = await Promise.all([
     loadTrails(),
     loadGpxTrack(),
     loadSavedViews(),
     loadLocations(),
     loadReplayRoutes(),
     loadStrikeProfile(),
+    loadTerminalFixture(),
   ]);
   const storyManifest = await loadStoryManifest(worldFeatures);
   const story = createStoryState(storyManifest, {
@@ -449,24 +503,37 @@ async function main() {
         primary: 'Forest',
         secondary: `${bulkForest.bulkForestPlacedCount.value.toFixed(0)} placed · R ${bulkForest.bulkForestRadius.value.toFixed(0)} m`,
       }),
-      rootIds: ['toggles-root', 'world-root'],
+      rootIds: ['world-root'],
     },
     {
-      id: 'sky', label: 'Sky', icon: '☁', modes: ['tune'], priority: 20,
+      id: 'sky', label: 'Environment', icon: '☼', modes: ['tune'], priority: 20,
       capabilities: ['edit-world'],
       source: 'profile',
-      overrideCount: [
-        savedSettings.environmentProfileId, savedSettings.timeOfDay, savedSettings.fogDensity, savedSettings.overcast,
-        savedSettings.starCount, savedSettings.cloudCount, savedSettings.cloudOpacity,
-      ].filter((value) => value !== undefined).length,
       summary: () => ({
         primary: findEnvironmentProfile(environmentProfiles, environmentProfileId.value).label,
-        secondary: `Fog ${atmosphere.fogDensity.value.toFixed(4)}`,
+        secondary: `${atmosphere.timeOfDay.value.toFixed(1)} h · fog ${atmosphere.fogDensity.value.toFixed(4)}`,
       }),
       rootIds: ['atmosphere-root'],
     },
     {
-      id: 'audio', label: 'Audio', icon: '≋', modes: ['inspect', 'tune'], priority: 30,
+      id: 'weather', label: 'Weather', icon: '☂', modes: ['tune'], priority: 30,
+      capabilities: ['edit-world'],
+      source: 'live',
+      summary: () => ({
+        primary: precipitationMode.value === 'none' ? weatherMode.value : precipitationMode.value,
+        secondary: atmosphere.overcast.value ? 'overcast' : `${atmosphere.cloudCount.value.toFixed(0)} clouds`,
+      }),
+      rootIds: ['weather-root'],
+    },
+    {
+      id: 'layers', label: 'Layers', icon: '▱', modes: ['tune'], priority: 40,
+      capabilities: ['edit-world'],
+      source: 'live',
+      summary: () => ({ primary: 'Terrain · water · references', secondary: 'visibility' }),
+      rootIds: ['layers-root'],
+    },
+    {
+      id: 'audio', label: 'Audio', icon: '≋', modes: ['inspect', 'tune'], priority: 50,
       capabilities: ['inspect-world'],
       source: 'live',
       overrideCount: [
@@ -480,7 +547,7 @@ async function main() {
       rootIds: ['audio-root'],
     },
     ...(level.cameraMode === 'orbit' ? [] : [{
-      id: 'movement', label: 'Movement', icon: '↟', modes: ['inspect', 'tune'], priority: 40,
+      id: 'movement', label: 'Movement', icon: '↟', modes: ['inspect', 'tune'], priority: 60,
       capabilities: ['inspect-world'],
       source: 'live',
       summary: () => ({
@@ -488,6 +555,16 @@ async function main() {
         secondary: `${(savedSettings.cameraHeightOffset ?? 0).toFixed(1)} m camera`,
       }),
       rootIds: ['movement-root'],
+    } satisfies LineglassModuleDefinition]),
+    ...(level.cameraMode === 'orbit' ? [] : [{
+      id: 'companion', label: 'Companion', icon: '♙', modes: ['inspect', 'tune'], priority: 70,
+      capabilities: ['inspect-world'],
+      source: 'live',
+      summary: () => ({
+        primary: visibility.mechDog.value ? 'Mech dog visible' : 'Mech dog hidden',
+        secondary: mechDogSkin.value === 'default' ? 'mech skin' : 'black pet-friend skin',
+      }),
+      rootIds: ['companion-root'],
     } satisfies LineglassModuleDefinition]),
     {
       id: 'navigation', label: 'Navigation', icon: '⌖', modes: ['inspect', 'author'], priority: 20,
@@ -542,114 +619,83 @@ async function main() {
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
   levelLabel.textContent = level.label;
 
-  // All toggle checkboxes in one place — visibility (7) + Overcast (was in
-  // AtmosphereRow) + Bounded world (was in MovementRow, player-mode only).
-  // Grid instead of one-per-line: that stacked layout was the whole reason
-  // this pass started (see THREADS.md). VisibilityToggles returns a
-  // Fragment, so its <label> children land as direct grid-item siblings of
-  // the Overcast/Bounded-world labels below — one flat grid, not nested.
   render(
-    <Section title='Toggles'>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', columnGap: '10px' }}>
-        <VisibilityToggles
-          signals={visibility}
-          onTerrainCommit={(checked) => terrain.setTerrainVisible(checked)}
-          onOsmCommit={(checked) => terrain.setOsmVisible(checked)}
-          onGpxCommit={(checked) => terrain.setGpxVisible(checked)}
-          onWaterCommit={(checked) => water.setVisible(checked)}
-          onCloudsCommit={(checked) => backdrop.setCloudsVisible(checked)}
-          onGridCommit={(checked) => terrain.setGridVisible(checked)}
-          onMountainsCommit={(checked) => backdrop.setMountainsVisible(checked)}
-          lineglassCollectedPartIds={lineglass.collectedPartIds}
+    <div class='lineglass-control-grid'>
+      <VisibilityToggles
+        signals={visibility}
+        onTerrainCommit={(checked) => terrain.setTerrainVisible(checked)}
+        onOsmCommit={(checked) => terrain.setOsmVisible(checked)}
+        onGpxCommit={(checked) => terrain.setGpxVisible(checked)}
+        onWaterCommit={(checked) => water.setVisible(checked)}
+        onGridCommit={(checked) => terrain.setGridVisible(checked)}
+        onMountainsCommit={(checked) => backdrop.setMountainsVisible(checked)}
+        lineglassCollectedPartIds={lineglass.collectedPartIds}
+      />
+      {level.cameraMode !== 'orbit' && (
+        <ToggleLabel
+          label='Power lines'
+          signal={visibility.powerLines}
+          onCommit={(checked) => locationFeatures.setPowerLinesVisible(checked)}
         />
-        <ToggleLabel label='Overcast' signal={atmosphere.overcast} onCommit={() => backdrop.rebuildClouds()} />
-        {/* Not a ToggleLabel — weatherMode is 'clear'|'windy', not a plain
-            boolean signal, so it needs its own checked/onChange conversion
-            rather than ToggleLabel's Signal<boolean> contract. */}
-        <label>
-          <input
-            type='checkbox'
-            checked={weatherMode.value === 'windy'}
-            onChange={(e: JSX.TargetedEvent<HTMLInputElement>) => {
-              weatherMode.value = e.currentTarget.checked ? 'windy' : 'clear';
-              weatherSystem.setMode(weatherMode.value);
-              backdrop.rebuildClouds();
-            }}
-          />{' '}
-          Windy
-        </label>
-        <label>
-          Precipitation{' '}
+      )}
+    </div>,
+    document.getElementById('layers-root') as HTMLDivElement,
+  );
+
+  render(
+    <WeatherRow
+      atmosphere={atmosphere}
+      weatherMode={weatherMode}
+      precipitationMode={precipitationMode}
+      cloudsVisible={visibility.clouds}
+      onOvercastCommit={() => backdrop.rebuildClouds()}
+      onWeatherModeCommit={(mode) => {
+        weatherSystem.setMode(mode);
+        backdrop.rebuildClouds();
+      }}
+      onPrecipitationCommit={(mode) => {
+        weatherSystem.requestPrecipitation(mode, mode === 'none' ? 0 : 1);
+      }}
+      onCloudsVisibleCommit={(visible) => backdrop.setCloudsVisible(visible)}
+      onCloudCountCommit={() => backdrop.rebuildClouds()}
+      onCloudColorCommit={() => backdrop.rebuildClouds()}
+      onCloudOpacityCommit={() => backdrop.rebuildClouds()}
+    />,
+    document.getElementById('weather-root') as HTMLDivElement,
+  );
+
+  if (level.cameraMode !== 'orbit') {
+    render(
+      <div class='companion-controls'>
+        <ToggleLabel
+          label='Mech dog visible'
+          signal={visibility.mechDog}
+          onCommit={(checked) => mechDog.setVisible(checked)}
+        />
+        <label class='weather-select-row'>
+          <span>Skin</span>
           <select
-            value={precipitationMode.value}
-            onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
-              precipitationMode.value = e.currentTarget.value as PrecipitationMode;
-              weatherSystem.requestPrecipitation(
-                precipitationMode.value,
-                precipitationMode.value === 'none' ? 0 : 1,
-              );
+            value={mechDogSkin.value}
+            onChange={(event: JSX.TargetedEvent<HTMLSelectElement>) => {
+              mechDog.setSkin(event.currentTarget.value as MechDogSkin);
             }}
           >
-            <option value='none'>None</option>
-            <option value='rain'>Rain</option>
-            <option value='snow'>Snow</option>
-            <option value='storm'>Storm</option>
+            <option value='default'>Mech (default)</option>
+            <option value='black'>Black (pet-friend)</option>
           </select>
         </label>
-        {level.cameraMode !== 'orbit' && (
-          <ToggleLabel label='Bounded world' signal={worldBounded} onCommit={() => {}} />
-        )}
-        {/* utilityCorridors (boulevard power line) only loads in the
-            non-orbit path, same as compositeLocations' buildings — gated
-            here rather than through VisibilityToggles' shared, orbit-safe
-            prop contract. */}
-        {level.cameraMode !== 'orbit' && (
-          <ToggleLabel
-            label='Power lines'
-            signal={visibility.powerLines}
-            onCommit={(checked) => locationFeatures.setPowerLinesVisible(checked)}
-          />
-        )}
-        {level.cameraMode !== 'orbit' && (
-          <ToggleLabel
-            label='Mech dog'
-            signal={visibility.mechDog}
-            onCommit={(checked) => mechDog.setVisible(checked)}
-          />
-        )}
-        {/* Same rig/animations underneath either way — this just swaps
-            which glTF reskins it, from the menacing mech-dog default
-            toward a plainer pet-dog look. Not a ToggleLabel: more than two
-            skins may land later (see MechDogSkin), so this is a <select>
-            rather than a boolean checkbox. */}
-        {level.cameraMode !== 'orbit' && (
-          <label>
-            Dog skin{' '}
-            <select
-              value={mechDogSkin.value}
-              onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
-                mechDog.setSkin(e.currentTarget.value as MechDogSkin);
-              }}
-            >
-              <option value='default'>Mech (default)</option>
-              <option value='black'>Black (pet-friend)</option>
-            </select>
-          </label>
-        )}
-      </div>
-    </Section>,
-    document.getElementById('toggles-root') as HTMLDivElement,
-  );
+      </div>,
+      document.getElementById('companion-root') as HTMLDivElement,
+    );
+  }
 
   // World — level-1-only scale-tuning (H-scale/V-exagg/water-level) plus
   // tree count, which (unlike H/V/water) applies on every level, so it
   // mounts unconditionally while ScaleTuningRow stays gated beneath it.
-  // Mounted into its own root (right after Toggles in index.html's DOM
-  // order) so "what the terrain looks like" controls read as one group,
-  // even though the underlying signals (created earlier) and the rebuild
-  // logic they trigger stay exactly where they were.
+  // Mounted into the World module so geometry and vegetation tuning remain
+  // separate from Layers visibility and Weather state.
   render(
-    <Section title='World'>
+    <div class='world-tuning-controls'>
       <div style={{ marginTop: '6px', color: '#9cf', fontWeight: 700 }}>Trailside trees (full-detail GLBs)</div>
       <SliderRow
         label='Trailside H-scale'
@@ -744,16 +790,18 @@ async function main() {
           atmosphere={atmosphere}
           onWaterColorCommit={(value) => water.setColor(Color3.FromHexString(value))}
           onTerrainColorCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
-          onWindowTintCommit={() => rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value)}
+          onWindowTintCommit={() => {
+            applyWindowEmissiveOverride();
+            rebuildWorld(scaleTuning.hScale.value, scaleTuning.vExag.value);
+          }}
         />
       )}
-    </Section>,
+    </div>,
     document.getElementById('world-root') as HTMLDivElement,
   );
 
-  // Sky controls — mounted here (before the orbit early-return below)
-  // rather than alongside movement-mode/camera-height, since time-of-day/
-  // fog/stars/clouds all render in orbit mode (level 3) too, unlike
+  // Environment controls — mounted here (before the orbit early-return
+  // below) because profile/time/fog/stars render in orbit mode too, unlike
   // Walk/Fly/Drive which orbit has no equivalent of. Preact-rendered pilot
   // (see docs/THREADS.md); commit handlers below mirror the dispose/
   // recreate bodies the old change-listeners used 1:1.
@@ -763,16 +811,14 @@ async function main() {
     atmosphere.fogDensity.value = profile.atmosphere.fogDensity;
     atmosphere.fogColor.value = profile.atmosphere.fogColor;
     const windows = profile.emissive?.windows;
-    if (windows) {
-      atmosphere.windowTintColor.value = windows.color;
-      atmosphere.windowGlow.value = windows.intensity;
-    }
-    applyEnvironmentRenderingProfile(scene, profile, renderingPipeline);
+    atmosphere.windowTintColor.value = windows?.color ?? '#ffffff';
+    atmosphere.windowGlow.value = windows?.intensity ?? 0;
+    applyActiveEnvironmentProfile(profile);
     saveSettings(levelKey, { ...loadSavedSettings(levelKey), environmentProfileId: profile.id });
   };
 
   render(
-    <Section title='Sky'>
+    <div class='atmosphere-panel'>
       <EnvironmentProfileRow
         profiles={environmentProfiles}
         activeProfileId={environmentProfileId}
@@ -781,16 +827,13 @@ async function main() {
       <AtmosphereRow
         signals={atmosphere}
         onStarCountCommit={() => backdrop.rebuildStars()}
-        onCloudCountCommit={() => backdrop.rebuildClouds()}
-        onCloudColorCommit={() => backdrop.rebuildClouds()}
-        onCloudOpacityCommit={() => backdrop.rebuildClouds()}
       />
-    </Section>,
+    </div>,
     document.getElementById('atmosphere-root') as HTMLDivElement,
   );
 
   render(
-    <Section title='Audio'>
+    <div>
       <AudioRow
         signals={audio}
         showPlayerControls={level.cameraMode !== 'orbit'}
@@ -799,7 +842,7 @@ async function main() {
         onFootstepMutedCommit={(muted) => trailPlayerAudio.setFootstepMuted(muted)}
         onBreathMutedCommit={(muted) => trailPlayerAudio.setBreathMuted(muted)}
       />
-    </Section>,
+    </div>,
     document.getElementById('audio-root') as HTMLDivElement,
   );
 
@@ -873,6 +916,17 @@ async function main() {
     orbitCamera.panningSensibility = 50;
     orbitCamera.maxZ = level.farClip;
     scene.activeCamera = orbitCamera;
+    renderingPipeline = new DefaultRenderingPipeline(
+      'bloomPipeline',
+      true,
+      scene,
+      [orbitCamera],
+    );
+    applyActiveEnvironmentProfile(activeEnvironmentProfile, renderingPipeline);
+    // Persisted atmosphere fields remain explicit overrides of the named
+    // profile in orbit mode, matching the player-mode pipeline setup below.
+    scene.fogDensity = atmosphere.fogDensity.value;
+    scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
 
     render(
       <>
@@ -1040,7 +1094,7 @@ async function main() {
   // needed. Every other pipeline feature (FXAA, grain, DoF, vignette,
   // chromatic aberration) stays off; this is scoped to bloom alone.
   renderingPipeline = new DefaultRenderingPipeline('bloomPipeline', true, scene, scene.cameras);
-  applyEnvironmentRenderingProfile(scene, activeEnvironmentProfile, renderingPipeline);
+  applyActiveEnvironmentProfile(activeEnvironmentProfile, renderingPipeline);
   // The named profile is the inherited source; persisted fog values are
   // explicit runtime overrides and must win after post-processing setup.
   scene.fogDensity = atmosphere.fogDensity.value;
@@ -1086,6 +1140,16 @@ async function main() {
     scene, locations, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines, lineglass,
     realWidth, realDepth, backdrop.getShadowGenerator(), player,
   );
+  const resolveTerminalFixture = () => {
+    const fixture = locationFeatures.getTerminal(terminalSimulation.terminalId);
+    if (!fixture) {
+      throw new Error(
+        `[T29] Terminal fixture "${terminalSimulation.terminalId}" has no matching stable world feature.`,
+      );
+    }
+    return fixture;
+  };
+  let terminalFixture = resolveTerminalFixture();
   const strikeAcquisition = new StrikeAcquisitionSystem(
     scene,
     locations,
@@ -1222,9 +1286,112 @@ async function main() {
     },
   });
   const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
+  const createTerminalDocking = () => new TerminalDockingSystem({
+    availableDistance: terminalFixture.interactionRadius,
+    dockingDurationSeconds: 0.55,
+    undockingDurationSeconds: 0.35,
+  });
+  let terminalDocking = createTerminalDocking();
+  const terminalDockingState = signal<TerminalDockingSnapshot>(terminalDocking.snapshot());
+  const terminalMessages = signal<readonly AuthorizedTerminalDialogue[]>([]);
+  const terminalScrambler = new InProcessTerminalScrambler(
+    `${runSeed}:t29:${terminalSimulation.terminalId}`,
+  );
+  let restorePointerLockAfterUndock = false;
+
+  const publishTerminalSnapshot = (next: TerminalDockingSnapshot): void => {
+    const current = terminalDockingState.value;
+    if (
+      current.state === next.state &&
+      current.transitionProgress === next.transitionProgress &&
+      current.blocksWorldInput === next.blocksWorldInput
+    ) return;
+    terminalDockingState.value = next;
+    if (current.blocksWorldInput && !next.blocksWorldInput) {
+      restorePointerLockAfterUndock = false;
+      controllers[movement.activeMode.value].clearLookDelta();
+      queueMicrotask(() => canvas.focus({ preventScroll: true }));
+    }
+  };
+  const authorizeTerminalFixtureMessages = (): void => {
+    if (terminalMessages.value.length > 0) return;
+    terminalMessages.value = Object.keys(terminalSimulation.fixtureMessages).map(
+      (fixtureMessageKey) => runOfflineTerminalDialogue({
+        simulation: terminalSimulation,
+        request: { fixtureMessageKey },
+        provider: fixtureMessageProvider,
+        scrambler: terminalScrambler,
+      }),
+    );
+  };
+  const requestTerminalDock = (): boolean => {
+    if (!terminalDocking.requestDock()) return false;
+    authorizeTerminalFixtureMessages();
+    controllers[movement.activeMode.value].clearLookDelta();
+    restorePointerLockAfterUndock = document.pointerLockElement === canvas;
+    if (document.pointerLockElement) document.exitPointerLock();
+    publishTerminalSnapshot(terminalDocking.snapshot());
+    return true;
+  };
+  const requestTerminalUndock = (): boolean => {
+    if (!terminalDocking.requestUndock()) return false;
+    publishTerminalSnapshot(terminalDocking.snapshot());
+    if (restorePointerLockAfterUndock) {
+      restorePointerLockAfterUndock = false;
+      try {
+        const pendingRequest: unknown = canvas.requestPointerLock();
+        if (pendingRequest instanceof Promise) void pendingRequest.catch(() => undefined);
+      } catch {
+        // Canvas focus still returns when undocking finishes; a click can
+        // reacquire pointer lock if the browser rejects this user gesture.
+      }
+    }
+    return true;
+  };
+
+  render(
+    <TerminalOverlay
+      state={terminalDockingState}
+      messages={terminalMessages}
+      terminalId={terminalFixture.id}
+      terminalName={terminalFixture.name}
+      onUndock={() => { requestTerminalUndock(); }}
+    />,
+    document.getElementById('terminal-root') as HTMLDivElement,
+  );
+
+  // Controllers and world actions listen globally. Capture only keydown while
+  // a terminal owns focus, but allow keyup through so any held movement clears.
+  window.addEventListener('keydown', (event) => {
+    if (!terminalDocking.blocksWorldInput) return;
+    const target = event.target;
+    const focusedUndockActivation =
+      (event.code === 'Enter' || event.code === 'Space') &&
+      target instanceof Element &&
+      target.closest('#terminal-root button') !== null;
+    if (
+      !event.repeat &&
+      (event.code === 'Escape' || event.code === 'KeyE' || focusedUndockActivation)
+    ) {
+      requestTerminalUndock();
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, { capture: true });
+
   const corridorDiagnostics = workshop.corridorDiagnostics();
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyE' || event.repeat || !worldSession.isExterior()) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || target.closest('input, select, textarea, button, [contenteditable]'))
+    ) return;
+    if (requestTerminalDock()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     if (workshop.isInterior()) {
       if (workshop.isNearExit()) workshop.exit();
     } else if (workshop.isNearEntrance()) {
@@ -1252,6 +1419,24 @@ async function main() {
 
   render(
     <>
+      <Section title='T29 Offline Terminal'>
+        <div id='t29-terminal-status'>Loading terminal state…</div>
+        <button
+          type='button'
+          onClick={() => {
+            if (!isExteriorGameplay() || terminalDocking.blocksWorldInput) return;
+            const controller = controllers[movement.activeMode.value];
+            controller.setPosition(new Vector3(
+              terminalFixture.position.x - terminalFixture.interactionRadius * 0.75,
+              terminalFixture.position.y,
+              terminalFixture.position.z,
+            ));
+            canvas.focus({ preventScroll: true });
+          }}
+        >
+          Go to public sanitation terminal
+        </button>
+      </Section>
       <Section title='T31 Strike Acquisition'>
         <div id='t31-strike-status'>Loading strike state…</div>
         <StrikeTuningRow profile={strikeProfile} />
@@ -1392,6 +1577,9 @@ async function main() {
     water.addToRenderList(terrain.getMesh());
     trailsideForest.rebuild();
     locationFeatures.rebuild();
+    terminalFixture = resolveTerminalFixture();
+    terminalDocking = createTerminalDocking();
+    publishTerminalSnapshot(terminalDocking.snapshot());
 
     backdrop.rebuildClouds();
     backdrop.rebuildMountains();
@@ -1425,6 +1613,7 @@ async function main() {
   render(
     <MovementRow
           signals={movement}
+          worldBounded={worldBounded}
           onModeChange={(mode) => {
             if (!isExteriorGameplay()) return;
             switchMode(mode);
@@ -1593,13 +1782,24 @@ async function main() {
   window.addEventListener('pagehide', persistSettings);
 
   const gameLoop = new GameLoop(engine, (dt) => {
+    const activeTraversalController = controllers[movement.activeMode.value];
+    const positionBeforeTraversal = activeTraversalController.getPosition();
+    let terminalDistance = Math.hypot(
+      positionBeforeTraversal.x - terminalFixture.position.x,
+      positionBeforeTraversal.z - terminalFixture.position.z,
+    );
+    let terminalSnapshot = terminalDocking.update(dt, {
+      activeWorld: isExteriorGameplay(),
+      distanceToDock: terminalDistance,
+    });
+    publishTerminalSnapshot(terminalSnapshot);
     player.setFlashlightEnabled(
       flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
     );
     workshop.setFlashlightEnabled(flashlightEnabled.value && workshop.isInterior());
-    if (isExteriorGameplay()) {
-      controllers[movement.activeMode.value].update(dt);
-      clampToWorldBounds(controllers[movement.activeMode.value]);
+    if (isExteriorGameplay() && !terminalSnapshot.blocksWorldInput) {
+      activeTraversalController.update(dt);
+      clampToWorldBounds(activeTraversalController);
     }
     backdrop.update(dt);
     weatherSystem.update(dt, (windIntensity) => {
@@ -1632,7 +1832,11 @@ async function main() {
     // with no breath/adrenaline (see their own file comments) — so this
     // only runs while walking, and stops footsteps immediately otherwise.
     const breathReadout = document.getElementById('breath-load-value');
-    if (isExteriorGameplay() && movement.activeMode.value === 'walk') {
+    if (
+      isExteriorGameplay() &&
+      !terminalSnapshot.blocksWorldInput &&
+      movement.activeMode.value === 'walk'
+    ) {
       const breathLoad = player.breath.getLoad();
       trailPlayerAudio.updateBreath(breathLoad);
       trailPlayerAudio.updateFootsteps(player.getSpeed());
@@ -1642,7 +1846,21 @@ async function main() {
       if (breathReadout) breathReadout.textContent = '—';
     }
 
-    const pos = controllers[movement.activeMode.value].getPosition();
+    const pos = activeTraversalController.getPosition();
+    terminalDistance = Math.hypot(
+      pos.x - terminalFixture.position.x,
+      pos.z - terminalFixture.position.z,
+    );
+    terminalSnapshot = terminalDocking.update(0, {
+      activeWorld: isExteriorGameplay(),
+      distanceToDock: terminalDistance,
+    });
+    publishTerminalSnapshot(terminalSnapshot);
+    const terminalStatus = document.getElementById('t29-terminal-status');
+    if (terminalStatus) {
+      terminalStatus.textContent =
+        `${terminalSnapshot.state} · ${terminalFixture.id} · ${terminalDistance.toFixed(1)}m`;
+    }
     if (isExteriorGameplay()) strikeAcquisition.update(dt, pos);
     workshop.update(dt);
     const lurkerStatus = document.getElementById('t36-lurker-status');
@@ -1732,7 +1950,9 @@ async function main() {
     const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
     const latLon = worldToLatLon(real, origin);
     const controlsHint =
-      workshop.isInterior()
+      terminalSnapshot.blocksWorldInput
+        ? 'public sanitation terminal — E or Escape to undock'
+        : workshop.isInterior()
         ? 'underground workshop — click to look, WASD to move, L flashlight, return to the threshold to exit'
         : worldSession.transition.value === 'interior'
         ? 'surveillance interior placeholder — press E to exit'
@@ -1751,6 +1971,7 @@ async function main() {
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `lat/lon: ${latLon.lat.toFixed(6)}, ${latLon.lon.toFixed(6)}\n` +
       `ground below: ${groundY.toFixed(1)}m\n` +
+      `T29 terminal: ${terminalSnapshot.state} · ${terminalFixture.id} · ${terminalDistance.toFixed(1)}m\n` +
       `mech dog: ${mechDogModel.distance.toFixed(1)}m (${mechDogModel.state})\n` +
       `T31: ${strikeSnapshot.state} · ${strikeSnapshot.anchorId} · windup ${Math.round(strikeSnapshot.windupProgress * 100)}%` +
         `${strikeSnapshot.flags.chassisRecovered ? ' · recovered' : ''}\n` +
@@ -1759,7 +1980,9 @@ async function main() {
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
 
-    if (workshop.isInterior()) {
+    if (terminalSnapshot.blocksWorldInput) {
+      interactionPrompt.style.display = 'none';
+    } else if (workshop.isInterior()) {
       if (workshop.isNearExit()) {
         interactionPrompt.textContent = 'E — Return through the shelter door';
         interactionPrompt.style.display = 'block';
@@ -1767,7 +1990,10 @@ async function main() {
         interactionPrompt.style.display = 'none';
       }
     } else if (worldSession.isExterior()) {
-      if (workshop.isNearEntrance()) {
+      if (terminalSnapshot.state === 'available') {
+        interactionPrompt.textContent = 'E — Dock public sanitation terminal';
+        interactionPrompt.style.display = 'block';
+      } else if (workshop.isNearEntrance()) {
         interactionPrompt.textContent = 'E — Enter the fallout shelter';
         interactionPrompt.style.display = 'block';
       } else if (strikeSnapshot.recoveryAvailable) {

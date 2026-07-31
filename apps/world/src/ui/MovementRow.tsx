@@ -1,5 +1,7 @@
 import type { JSX } from 'preact';
 import type { ActiveMode, MovementSignals } from '../state/movement';
+import type { Signal } from '@preact/signals';
+import { ToggleLabel } from './VisibilityToggles';
 
 const rowStyle: JSX.CSSProperties = { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' };
 
@@ -7,14 +9,13 @@ export type MovementRowProps = {
   signals: MovementSignals;
   onModeChange: (mode: ActiveMode) => void;
   onCameraHeightInput: (value: number) => void;
+  worldBounded: Signal<boolean>;
 };
 
-// Player-mode only (levels 1/2) — orbit (level 3) has no equivalent of any
-// of these, see main.tsx's cameraMode branch. Bounded-world moved to the
-// shared "Toggles" section (main.tsx) — it's a toggle, not a movement
-// control per se, same reasoning as Overcast leaving AtmosphereRow.
+// Player-mode only (levels 1/2) — orbit (level 3) has no equivalent of these.
+// World bounds live here because they constrain traversal, not presentation.
 export function MovementRow({
-  signals, onModeChange, onCameraHeightInput,
+  signals, onModeChange, onCameraHeightInput, worldBounded,
 }: MovementRowProps) {
   return (
     <div style={{ marginTop: '4px' }}>
@@ -55,6 +56,7 @@ export function MovementRow({
         />{' '}
         <span>{signals.cameraHeightOffset.value.toFixed(1)}</span>m
       </label>
+      <ToggleLabel label="Bounded world" signal={worldBounded} onCommit={() => {}} />
     </div>
   );
 }

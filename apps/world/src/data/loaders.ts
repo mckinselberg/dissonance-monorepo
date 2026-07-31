@@ -10,6 +10,10 @@ import { WorldFeatureRegistry } from '../world/WorldFeatureRegistry';
 import type { LocationEntry } from '../world/LocationProps';
 import { parseStoryManifest, type StoryManifest } from '../state/story';
 import { parseStrikeProfile, type StrikeProfile } from '../systems/strike/strikeProfile';
+import {
+  parseTerminalSimulationSnapshot,
+  type TerminalSimulationSnapshot,
+} from '../terminal';
 
 export async function loadHeightmap(): Promise<{ contract: HeightmapContract; pngBytes: Uint8Array }> {
   const [contract, pngResponse] = await Promise.all([
@@ -66,6 +70,12 @@ export async function loadStrikeProfile(): Promise<StrikeProfile> {
   const response = await fetch(`${import.meta.env.BASE_URL}data/strike-profile.json`);
   if (!response.ok) throw new Error(`Could not load strike profile (${response.status}).`);
   return parseStrikeProfile(await response.json() as unknown);
+}
+
+export async function loadTerminalFixture(): Promise<TerminalSimulationSnapshot> {
+  const response = await fetch(`${import.meta.env.BASE_URL}data/terminal-fixture.json`);
+  if (!response.ok) throw new Error(`Could not load terminal fixture (${response.status}).`);
+  return parseTerminalSimulationSnapshot(await response.json() as unknown);
 }
 
 type RouteManifestEntry = { name: string; file: string };

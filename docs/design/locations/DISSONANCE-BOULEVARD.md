@@ -15,13 +15,13 @@
 
 The axial boulevard and much of its physical world have landed: buildings,
 collision, crosswalks, lamps, utility corridor, Milo's building shell/interior,
-window treatment, patrol-drone foundation, Lineglass parts, and captured-drone
-acquisition. These shipped runtime/data-hybrid systems govern over the legacy
-prompt's stricter data-only assumptions.
+window treatment, patrol-drone foundation, Lineglass parts, captured-drone
+acquisition, and the validated offline public-sanitation terminal. These shipped
+runtime/data-hybrid systems govern over the legacy prompt's stricter data-only
+assumptions.
 
 Still outstanding are the coherent narrative slice: coverage/exposure geography,
 quiet-window encounter, edited-record terminal, preserved commercial interior,
 Milo fragment/reveal sequence, and an uninterrupted composition pass. These must
 be decomposed into scoped engineering prompts after their profile, persistence,
 terminal, and camera gates are resolved.
-

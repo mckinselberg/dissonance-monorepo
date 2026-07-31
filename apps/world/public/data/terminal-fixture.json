@@ -1,0 +1,9 @@
+{
+  "terminalId": "public-sanitation-terminal-01",
+  "revision": 1,
+  "fixtureMessages": {
+    "local-status": "PUBLIC SANITATION NODE // LOCAL CACHE READY",
+    "service-window": "BOULEVARD SWEEP 04 // ROUTE RECORD AVAILABLE",
+    "uplink-status": "UPLINK UNAVAILABLE // READ-ONLY FIXTURE MODE"
+  }
+}

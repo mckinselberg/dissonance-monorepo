@@ -21,6 +21,7 @@ import { buildStreetLamp } from './LocationProps';
 import type { DoorController, LocalFurniturePlacement } from './MilosInterior';
 import { COUCH_SCALE, createDoorController, createMilosInteriorGeometry } from './MilosInterior';
 import { ensureGltfLoader } from './gltfLoader';
+import { texturedMaterial } from './texturedMaterial';
 
 export interface CompositeLocationsHandle {
   // One collider per solid (non-Milo's-building) building instance — see
@@ -316,6 +317,31 @@ function planeHeightAt(plane: GradingPlane, x: number, z: number): number {
   return plane.h0 + plane.gx * (x - plane.anchorX) + plane.gz * (z - plane.anchorZ);
 }
 
+function gradingSurfaceFor(
+  positioned: PositionedPlacement[],
+  anchor: { x: number; z: number },
+  horizontalScale: number,
+  getHeightAt: (x: number, z: number) => number,
+): { bounds: Bounds; plane: GradingPlane } | null {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+  for (const placement of positioned) {
+    if (!isKnownAsset(placement.asset)) continue;
+    minX = Math.min(minX, placement.x);
+    maxX = Math.max(maxX, placement.x);
+    minZ = Math.min(minZ, placement.z);
+    maxZ = Math.max(maxZ, placement.z);
+  }
+  if (!Number.isFinite(minX)) return null;
+  const bounds: Bounds = { minX, maxX, minZ, maxZ };
+  return {
+    bounds,
+    plane: computeGradingPlane(anchor.x, anchor.z, bounds, horizontalScale, getHeightAt),
+  };
+}
+
 // Margin beyond the compound's own placement bounds the grade pad extends
 // before dropping to its buried base — wide enough that a module's own
 // footprint (sidewalk curb, building footing) never pokes past the pad's
@@ -332,10 +358,64 @@ const GRADE_PAD_DEPTH = 30;
 // risk. Nudging the rendered top down by a hair makes the real terrain
 // reliably win the depth test there instead of flickering against it.
 const GRADE_PAD_TOP_INSET = 0.15;
-// Packed-earth/cut-lot tone — reads as a graded pad, not a floating slab.
-// Placeholder color like every other LocationProps prop; swap for a real
-// texture later without touching the pad-building logic itself.
-const GRADE_PAD_COLOR = new Color3(0.3, 0.26, 0.2);
+// Real-world tile size (meters) for the pad's planar-projected UVs below —
+// same "world position / tile size" convention HeightmapTerrain uses for its
+// slope textures, just isotropic instead of width/depth-derived since a pad
+// has no fixed grid resolution to divide by.
+const GRADE_PAD_TEXTURE_TILE_METERS = 4;
+
+/** Returns the same fitted compound surface used by visible grade pads. */
+export function compositeGradeHeightAt(
+  locations: LocationEntry[],
+  toRenderXZ: (lat: number, lon: number) => { x: number; z: number },
+  horizontalScale: number,
+  getHeightAt: (x: number, z: number) => number,
+  x: number,
+  z: number,
+): number | null {
+  const margin = GRADE_PAD_MARGIN_METERS * horizontalScale;
+  for (const location of locations) {
+    if (!location.compound) continue;
+    const anchor = toRenderXZ(location.latLong[0], location.latLong[1]);
+    const positioned = expandCompoundPositions(location, anchor, horizontalScale, 1);
+    const surface = gradingSurfaceFor(positioned, anchor, horizontalScale, getHeightAt);
+    if (!surface) continue;
+    const { bounds, plane } = surface;
+    if (
+      x >= bounds.minX - margin && x <= bounds.maxX + margin &&
+      z >= bounds.minZ - margin && z <= bounds.maxZ + margin
+    ) {
+      return planeHeightAt(plane, x, z);
+    }
+  }
+  return null;
+}
+
+/** Signed distance from a point to the nearest authored compound obstacle. */
+export function compositeObstacleClearanceAt(
+  locations: LocationEntry[],
+  toRenderXZ: (lat: number, lon: number) => { x: number; z: number },
+  horizontalScale: number,
+  x: number,
+  z: number,
+): number {
+  let clearance = Number.POSITIVE_INFINITY;
+  for (const location of locations) {
+    if (!location.compound) continue;
+    const anchor = toRenderXZ(location.latLong[0], location.latLong[1]);
+    const positioned = expandCompoundPositions(location, anchor, horizontalScale, 1);
+    for (const placement of positioned) {
+      if (placement.id === MILOS_BUILDING_ID) continue;
+      const radiusMeters = OBSTACLE_COLLISION_RADII[placement.asset];
+      if (radiusMeters === undefined) continue;
+      clearance = Math.min(
+        clearance,
+        Math.hypot(x - placement.x, z - placement.z) - radiusMeters * horizontalScale,
+      );
+    }
+  }
+  return clearance;
+}
 
 // One flat (but tilted-with-the-plane) pad per compound, sized to its
 // placement bounds + margin, extruded down to a buried base. Visually
@@ -366,9 +446,17 @@ function buildGradePad(
 
   const positions: number[] = [];
   const indices: number[] = [];
+  const uvs: number[] = [];
+  // Planar-projected off world X/Z for every face, top/bottom/sides alike —
+  // exact and continuous on the top (what the player actually sees); the
+  // buried sides get a sheared, imperfect tile as a result, but they sit
+  // under GRADE_PAD_DEPTH of buried base and are never visible in play.
   const pushQuad = (a: Vector3, b: Vector3, c: Vector3, d: Vector3) => {
     const base = positions.length / 3;
-    [a, b, c, d].forEach((v) => positions.push(v.x, v.y, v.z));
+    [a, b, c, d].forEach((v) => {
+      positions.push(v.x, v.y, v.z);
+      uvs.push(v.x / GRADE_PAD_TEXTURE_TILE_METERS, v.z / GRADE_PAD_TEXTURE_TILE_METERS);
+    });
     indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
 
@@ -385,14 +473,20 @@ function buildGradePad(
   vertexData.positions = positions;
   vertexData.indices = indices;
   vertexData.normals = normals;
+  vertexData.uvs = uvs;
 
   const mesh = new Mesh('compoundGradePad', scene);
   vertexData.applyToMesh(mesh, true);
 
-  const mat = new PBRMaterial('compoundGradePadMat', scene);
-  mat.albedoColor = GRADE_PAD_COLOR;
+  const mat = texturedMaterial(
+    scene,
+    'compoundGradePadMat',
+    {
+      albedo: `${CITY_ASSET_BASE}T_Concrete_Asphalt_BaseColor.png`,
+    },
+    1,
+  );
   mat.roughness = 0.95;
-  mat.metallic = 0;
   mesh.material = mat;
   mesh.receiveShadows = true;
 
@@ -713,21 +807,9 @@ export async function loadCompositeLocations(
     const anchor = toRenderXZ(lat, lon);
     const positioned = expandCompoundPositions(location, anchor, horizontalScale, verticalExaggeration);
 
-    let minX = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let minZ = Number.POSITIVE_INFINITY;
-    let maxZ = Number.NEGATIVE_INFINITY;
-    for (const placement of positioned) {
-      if (!isKnownAsset(placement.asset)) continue;
-      minX = Math.min(minX, placement.x);
-      maxX = Math.max(maxX, placement.x);
-      minZ = Math.min(minZ, placement.z);
-      maxZ = Math.max(maxZ, placement.z);
-    }
-    if (!Number.isFinite(minX)) continue;
-
-    const bounds: Bounds = { minX, maxX, minZ, maxZ };
-    const plane = computeGradingPlane(anchor.x, anchor.z, bounds, horizontalScale, getHeightAt);
+    const surface = gradingSurfaceFor(positioned, anchor, horizontalScale, getHeightAt);
+    if (!surface) continue;
+    const { bounds, plane } = surface;
     gradePads.push(buildGradePad(scene, plane, bounds, horizontalScale));
 
     for (const placement of positioned) {

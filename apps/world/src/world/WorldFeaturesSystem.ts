@@ -6,7 +6,13 @@ import type { ScaleTuningSignals } from '../state/scaleTuning';
 import type { AtmosphereSignals } from '../state/atmosphere';
 import type { LineglassSignals } from '../state/lineglass';
 import { scatterLocationProps, type LocationEntry, type LocationPropsHandle } from './LocationProps';
-import { loadCompositeLocations, type CompositeLocationsHandle, type SurveilledLocationEntrance } from './CompositeLocations';
+import {
+  compositeGradeHeightAt,
+  compositeObstacleClearanceAt,
+  loadCompositeLocations,
+  type CompositeLocationsHandle,
+  type SurveilledLocationEntrance,
+} from './CompositeLocations';
 import { loadUtilityCorridors, type UtilityCorridorsHandle } from './UtilityCorridors';
 import { loadLineglassParts, type LineglassPartsHandle } from './LineglassParts';
 import {
@@ -18,6 +24,11 @@ import {
   loadFalloutShelterEntrance,
   type FalloutShelterEntranceHandle,
 } from './FalloutShelterEntrance';
+import {
+  loadWorldTerminals,
+  type WorldTerminalFixture,
+  type WorldTerminalsHandle,
+} from './WorldTerminals';
 
 function worldBounds(realWidth: number, realDepth: number, scaleTuning: ScaleTuningSignals) {
   return {
@@ -26,6 +37,28 @@ function worldBounds(realWidth: number, realDepth: number, scaleTuning: ScaleTun
     minZ: -(realDepth / 2) * scaleTuning.hScale.value,
     maxZ: (realDepth / 2) * scaleTuning.hScale.value,
   };
+}
+
+function validateTerminalClearance(
+  worldTerminals: WorldTerminalsHandle,
+  locations: LocationEntry[],
+  toRenderXZ: (lat: number, lon: number) => { x: number; z: number },
+  horizontalScale: number,
+): void {
+  for (const terminal of worldTerminals.terminals) {
+    const clearance = compositeObstacleClearanceAt(
+      locations,
+      toRenderXZ,
+      horizontalScale,
+      terminal.position.x,
+      terminal.position.z,
+    );
+    if (clearance < terminal.colliderRadius) {
+      throw new Error(
+        `[WorldFeaturesSystem] terminal "${terminal.id}" overlaps a compound obstacle.`,
+      );
+    }
+  }
 }
 
 // Owns the four location-manifest-driven feature loaders (crude prop
@@ -63,6 +96,7 @@ export class WorldFeaturesSystem {
     private lineglassParts: LineglassPartsHandle,
     private patrolDrones: BoulevardPatrolDronesHandle,
     private shelterEntrance: FalloutShelterEntranceHandle,
+    private worldTerminals: WorldTerminalsHandle,
   ) {
     this.applyPlayerColliders();
   }
@@ -104,11 +138,24 @@ export class WorldFeaturesSystem {
     const shelterEntrance = loadFalloutShelterEntrance(
       scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
     );
+    const worldTerminals = loadWorldTerminals(
+      scene,
+      locations,
+      toRenderXZ,
+      scaleTuning.hScale.value,
+      (x, z) => compositeGradeHeightAt(
+        locations, toRenderXZ, scaleTuning.hScale.value, heightAt, x, z,
+      ) ?? heightAt(x, z),
+      shadowGenerator,
+    );
+    validateTerminalClearance(
+      worldTerminals, locations, toRenderXZ, scaleTuning.hScale.value,
+    );
 
     return new WorldFeaturesSystem(
       scene, locations, toRenderXZ, scaleTuning, terrain, atmosphere, powerLinesVisible, lineglass, realWidth, realDepth,
       shadowGenerator, player, locationProps, compositeLocations, utilityCorridors, lineglassParts, patrolDrones,
-      shelterEntrance,
+      shelterEntrance, worldTerminals,
     );
   }
 
@@ -127,6 +174,23 @@ export class WorldFeaturesSystem {
       position: position.clone(),
       interactionRadius: this.shelterEntrance.interactionRadius,
     };
+  }
+
+  getTerminal(id: string): WorldTerminalFixture | null {
+    const terminal = this.worldTerminals.get(id);
+    if (!terminal) return null;
+    return { ...terminal, position: terminal.position.clone() };
+  }
+
+  private terminalHeightAt(x: number, z: number): number {
+    return compositeGradeHeightAt(
+      this.locations,
+      this.toRenderXZ,
+      this.scaleTuning.hScale.value,
+      this.heightAt,
+      x,
+      z,
+    ) ?? this.heightAt(x, z);
   }
 
   setPowerLinesVisible(visible: boolean): void {
@@ -177,6 +241,7 @@ export class WorldFeaturesSystem {
       ...this.compositeLocations.colliders,
       ...this.compositeLocations.doorBlockerColliders(),
       ...this.shelterEntrance.colliders,
+      ...this.worldTerminals.colliders,
     ];
     this.player.setColliders(colliders);
     // Milo's stairwell steps + second-floor slab (2026-07-27) — the only
@@ -243,6 +308,18 @@ export class WorldFeaturesSystem {
     this.shelterEntrance.dispose();
     this.shelterEntrance = loadFalloutShelterEntrance(
       this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
+    );
+    this.worldTerminals.dispose();
+    this.worldTerminals = loadWorldTerminals(
+      this.scene,
+      this.locations,
+      this.toRenderXZ,
+      this.scaleTuning.hScale.value,
+      (x, z) => this.terminalHeightAt(x, z),
+      this.shadowGenerator,
+    );
+    validateTerminalClearance(
+      this.worldTerminals, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value,
     );
     this.applyPlayerColliders();
   }

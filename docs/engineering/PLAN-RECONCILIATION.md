@@ -19,7 +19,7 @@ the authoritative disposition until the physical archive/move pass is completed.
 
 | Legacy artifact | Thread | Classification | Authority / disposition | Outstanding boundary |
 |---|---|---|---|---|
-| `addendum-reconciliation-implementation-v1.md` | T24/T26/T27/T29/T11 | engineering handoff | migrate into scoped prompts after canonical designs exist | identified features, chunking, zones, offline terminal, later networking |
+| `addendum-reconciliation-implementation-v1.md` | T24/T26/T27/T29/T11 | partially executed engineering handoff | migrate remaining scope into scoped prompts after canonical designs exist | identified features, chunking, zones, later networking; offline T29 terminal is complete |
 | `boulevard-build-prompt-v1.md` | T21/T23/T10 | mixed design + prompt | non-canonical source for `design/locations/DISSONANCE-BOULEVARD.md`; rewrite before execution | narrative encounters and continuous composition pass |
 | `creature-silhouette-direction-v1.md` + `animals.webp` | T4/T17 | design source + reference | folded into `design/creatures/CREATURE-DIRECTION.md`; retain image as design reference | O20/O21 and authored creatures |
 | `DISSONANCE_DEV_LINEGLASS_ENGINEERING_PROMPT.md` | T1/T2 | engineering prompt | migrate to `engineering/prompts/` after O23; design authority is `design/tooling/DEV-LINEGLASS.md` | full HUD redesign |
@@ -29,7 +29,7 @@ the authoritative disposition until the physical archive/move pass is completed.
 | `dta-environment-port-prompt-v1.md` | T23 | completed audit | migrate to `engineering/reviews/`; canonical design is `design/world/DTA-ENVIRONMENT-MIGRATION.md` | O22 and migration phases |
 | `emitter-drone-prompt-v1.md` | T31 | completed prompt | archive; canonical status remains in T31/system registry | stronger-hardware live QA only |
 | `geo-grid-engineering-prompt.md` | T21 | completed prompt | archive; runtime docs under `dissonance/world/` govern | none |
-| `haze-fog-emissive-prompt-v1.md` | T25/T30 | stale engineering prompt | superseded by `dissonance/haze-fog-emissive-schema.md` plus T25/T30 | grading/compose seam and deferred shader work |
+| `haze-fog-emissive-prompt-v1.md` | T1/T2/T25/T30 | completed implementation prompt | archive after its accepted runtime rules are reflected in the environment/atmosphere canonical design | live depth-ramp/reference tuning; broader region/clock/detection compose seam remains separate |
 | `instance-placement-prompt-v1.md` | T7/T23 | superseded prompt | archive under D41 | only separately registered T26/T27 work survives |
 | `scatter-placement-prompt-v1.md` | T7/T23 | superseded prompt | archive under D41 | only T24/T26/T27 slices survive |
 | `milos-apartment-blender-handoff.md` | T37 | human production handoff | migrate to `engineering/handoffs/`; governed by `design/locations/MILOS-APARTMENT.md` | manual cleanup/export |
@@ -47,4 +47,3 @@ Until the physical migration is complete, contributors may read a legacy file fo
 provenance but must begin from its linked canonical design, decisions, questions,
 and current `THREADS.md` status. A legacy prompt must receive a fresh Phase 0 audit
 and header conforming to the documentation system before it can authorize work.
-

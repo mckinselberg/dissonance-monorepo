@@ -116,6 +116,9 @@ export function validateEnvironmentRenderingProfile(
 
   const haze = atmosphere.hazeBands;
   if (haze) {
+    if (!Array.isArray(haze.bands) || haze.bands.length !== 4) {
+      throw new Error('[EnvironmentRenderingProfile] hazeBands must contain exactly four bands');
+    }
     requireUnit('atmosphere.hazeBands.bandSoftness', haze.bandSoftness);
     requireUnit('atmosphere.hazeBands.heightFalloff', haze.heightFalloff);
     let previousDepth = -1;

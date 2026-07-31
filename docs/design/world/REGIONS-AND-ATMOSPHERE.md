@@ -1,6 +1,6 @@
 # Regions and Atmosphere Composition
 
-**Status:** provisional  
+**Status:** active/provisional  
 **Owning thread:** T23 / T25 / T27  
 **Canonical scope:** Region selection, clock interpolation, detection overlay, and spatial atmosphere zones  
 **Does not own:** Scatter placement or authoritative spatial deformation  
@@ -13,8 +13,14 @@
 **Open questions:** O9, O12  
 **Last reviewed:** 2026-07-31
 
-One composition seam must serve region, clock, detection, and spatial zone inputs.
-The current proposal is region-selected profile family, clock-interpolated base,
-then detection overlay with named weights. Spatial zones initially alter perceptual
-atmosphere only. O9 and O12 must be resolved before the seam becomes canonical API.
+The manually selectable environment-presentation runtime is landed: fixed-four
+haze and red gain live in `@dissonance/materials`; World owns live window/lamp
+emissive adapters, validation, grade/bloom parity, and profile selection. Saved
+views reference `environmentProfileId` rather than copying the recipe. Live
+depth-ramp/reference tuning remains outstanding.
 
+The larger composition problem remains provisional. One seam must serve region,
+clock, detection, and spatial-zone inputs. The current proposal is a
+region-selected profile family, clock-interpolated base, then detection overlay
+with named weights. Spatial zones initially alter perceptual atmosphere only. O9
+and O12 must be resolved before that seam becomes canonical API.
