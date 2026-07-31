@@ -21,6 +21,7 @@ import { buildStreetLamp } from './LocationProps';
 import type { DoorController, LocalFurniturePlacement } from './MilosInterior';
 import { COUCH_SCALE, createDoorController, createMilosInteriorGeometry } from './MilosInterior';
 import { ensureGltfLoader } from './gltfLoader';
+import { texturedMaterial } from './texturedMaterial';
 
 export interface CompositeLocationsHandle {
   // One collider per solid (non-Milo's-building) building instance — see
@@ -357,10 +358,11 @@ const GRADE_PAD_DEPTH = 30;
 // risk. Nudging the rendered top down by a hair makes the real terrain
 // reliably win the depth test there instead of flickering against it.
 const GRADE_PAD_TOP_INSET = 0.15;
-// Packed-earth/cut-lot tone — reads as a graded pad, not a floating slab.
-// Placeholder color like every other LocationProps prop; swap for a real
-// texture later without touching the pad-building logic itself.
-const GRADE_PAD_COLOR = new Color3(0.3, 0.26, 0.2);
+// Real-world tile size (meters) for the pad's planar-projected UVs below —
+// same "world position / tile size" convention HeightmapTerrain uses for its
+// slope textures, just isotropic instead of width/depth-derived since a pad
+// has no fixed grid resolution to divide by.
+const GRADE_PAD_TEXTURE_TILE_METERS = 4;
 
 /** Returns the same fitted compound surface used by visible grade pads. */
 export function compositeGradeHeightAt(
@@ -444,9 +446,17 @@ function buildGradePad(
 
   const positions: number[] = [];
   const indices: number[] = [];
+  const uvs: number[] = [];
+  // Planar-projected off world X/Z for every face, top/bottom/sides alike —
+  // exact and continuous on the top (what the player actually sees); the
+  // buried sides get a sheared, imperfect tile as a result, but they sit
+  // under GRADE_PAD_DEPTH of buried base and are never visible in play.
   const pushQuad = (a: Vector3, b: Vector3, c: Vector3, d: Vector3) => {
     const base = positions.length / 3;
-    [a, b, c, d].forEach((v) => positions.push(v.x, v.y, v.z));
+    [a, b, c, d].forEach((v) => {
+      positions.push(v.x, v.y, v.z);
+      uvs.push(v.x / GRADE_PAD_TEXTURE_TILE_METERS, v.z / GRADE_PAD_TEXTURE_TILE_METERS);
+    });
     indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
   };
 
@@ -463,14 +473,20 @@ function buildGradePad(
   vertexData.positions = positions;
   vertexData.indices = indices;
   vertexData.normals = normals;
+  vertexData.uvs = uvs;
 
   const mesh = new Mesh('compoundGradePad', scene);
   vertexData.applyToMesh(mesh, true);
 
-  const mat = new PBRMaterial('compoundGradePadMat', scene);
-  mat.albedoColor = GRADE_PAD_COLOR;
+  const mat = texturedMaterial(
+    scene,
+    'compoundGradePadMat',
+    {
+      albedo: `${CITY_ASSET_BASE}T_Concrete_Asphalt_BaseColor.png`,
+    },
+    1,
+  );
   mat.roughness = 0.95;
-  mat.metallic = 0;
   mesh.material = mat;
   mesh.receiveShadows = true;
 
