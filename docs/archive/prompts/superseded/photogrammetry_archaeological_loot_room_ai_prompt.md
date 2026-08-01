@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** D45, the canonical Milo apartment design, and execution plan v2 supersede this standalone-app prompt. Not current implementation guidance.
+
 # AI Coding Assistant Prompt: Photogrammetry-Based Isometric Archaeological Loot Room
 
 You are a senior TypeScript and Babylon.js engineer working inside the existing **Dissonance** repository.

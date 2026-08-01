@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** Execution plan v2 and D45 supersede this separate-app direction. Retained as provenance, not current implementation guidance.
+
 # Photogrammetry Archaeological Loot Room — Execution Plan v1
 
 **Date:** 2026-07-28

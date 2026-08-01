@@ -96,7 +96,7 @@ for the current file content before running it.
 
 - Do not perform the manual segmentation, debris cleanup, wall/window cutting,
   cassette-anchor repositioning, or final rotation/scale/export described in
-  docs/plans/milos-apartment-blender-handoff.md — that's a human art-direction
+  docs/engineering/handoffs/milos-apartment-blender-handoff.md — that's a human art-direction
   pass against an approved reference image, done later in the Blender GUI.
 - Do not copy outputs into the repo's `working/`/`runtime/` directories or make
   any git commits. Just tell me the local output paths and your findings so I

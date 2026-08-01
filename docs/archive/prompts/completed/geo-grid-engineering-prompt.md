@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** The T21 grid shipped; `docs/dissonance/world/` now governs it. Retained as provenance, not current implementation guidance.
+
 # Engineering Prompt: Lat/Long Grid System (trail-viewer)
 
 ## Context

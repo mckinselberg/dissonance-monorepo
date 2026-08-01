@@ -1,16 +1,22 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.58
-**Date:** 2026-07-31
+**Version:** 9.59
+**Date:** 2026-08-01
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
 
 > **Documentation-system reconciliation (v9.58):** `DISSONANCE-DOCSYSTEM.md` now
 > governs document authority. `SYSTEMS.md`, `DECISIONS.md`, and
-> `OPEN-QUESTIONS.md` are canonical registries. Files under the legacy `plans/`
-> folder are classified by `engineering/PLAN-RECONCILIATION.md` and are not
-> canonical merely because they exist. New canonical design summaries live under
+> `OPEN-QUESTIONS.md` are canonical registries. Former `plans/` artifacts have
+> been migrated and are classified by `engineering/PLAN-RECONCILIATION.md`; their
+> location does not make them canonical. New canonical design summaries live under
 > `design/`. Historical prose below remains useful audit history but must be read
 > through those registries.
+>
+> **Physical migration (v9.59):** active prompts now live under
+> `engineering/prompts/`, audits under `engineering/reviews/`, production handoffs
+> under `engineering/handoffs/`, historical prompts under `archive/prompts/`, and
+> reference assets beside their design domains. `docs/plans/` is retired. The
+> separate untracked `docs/intake/` inbox was deliberately untouched.
 
 > **North star:** Audio is the key element of this game. Sound and music are not a subsystem — they are a first-class simulated world force woven through every system: ecology, bodies, behavior, institutions, identity, navigation, threat, and play. Every thread below either produces sound, consumes it, or is shaped by it. When in doubt, decide in favor of the dream: a world you learn by listening.
 
@@ -63,7 +69,7 @@
 
 ## Doc inventory (verified 2026-07-22; paths refreshed 2026-07-28 — see the folder reorg note below)
 
-**Later addition (2026-07-24):** `plans/dissonance-lineglass-engineering-review-prompt.md` is present and is summarized under T21; it is a prospective Lineglass implementation/review artifact, not an existing runtime system.
+**Later addition (2026-07-24):** `engineering/reviews/dissonance-lineglass-engineering-review-prompt.md` is summarized under T21; it is a prospective Lineglass implementation/review artifact, not an existing runtime system.
 
 **Underground/interference fold-in (2026-07-31):** the tracked owning set now includes `dissonance/story-manifest.md`, `dissonance/world-save-contract.md`, `dissonance/underground-network-concept-v1.md`, `dissonance/rey-caverns-concept-v1.md`, and `todo/emitter-drone-prompt-v1.md` (executed acquisition scaffold, retained for live QA follow-up and v2 scope). The source delta and its obsolete cluster handoff now live under `archive/` as v9.53 provenance rather than competing executable trackers. The archived handoff's proposed sonic-semantics T34 was not registered because stable T34 is Acoustic mech disable. Tonal-language work remains parked on the unadapted Dissonance Audio HUD repo; no replacement thread is opened here.
 
@@ -73,7 +79,7 @@ This file frequently names a handoff/owning doc as though it's a committed file.
 
 **Present in `docs/`** (paths relative to `docs/`): `THREADS.md`, `archive/THREADS-fold-in.260721.md` (content already landed, see T22 — kept because `HeroTreeInstances.ts` cites it by name in a source comment), `NOTES.md`, `README.md`, `monorepo/generation-systems-audit.md`, `dissonance/dissonance-forest-graphics-prompt.md`, `dissonance/game-story-and-trails-plan.md`, `dta/notes for don't turn around.md`, `monorepo/260615 Monorepo Prompt.md`, `monorepo/pursuer-extraction-prompt.md`, `monorepo/pursuer-extraction-continuation.md`, `dissonance/world/{README,architecture,data-pipeline,park-map-overlay,scale-tuning}.md`, `plans/dissonance-trail-data-poc-prompt.md`, `plans/creature-silhouette-direction-v1.md`, `plans/geo-grid-engineering-prompt.md`, `plans/instance-placement-prompt-v1.md`, `plans/scatter-placement-prompt-v1.md`, `plans/sound-as-control-prompt-v1.md`, `plans/t13-boulevard-extraction-v1.md` (an accidental byte-identical duplicate, `t13-boulevard-extraction-v1 (1).md`, was found alongside it and deleted this pass), `plans/animals.webp` (crystal-construct mech-animal reference sheet — pairs with `creature-silhouette-direction-v1.md`), `plans/smr-shed.webp` (on-trail photo of a fenced stone building with a chimney — filename confirms it as SMR shed reference material, i.e. T22's "Shed / comfort station" feature, though the pictured building has an intact shingled roof and chain-link fence rather than photo 10's described corrugated roof and undergrowth-swallowed state — possibly a different angle or a second shed on the property; not fully reconciled with T22's existing photo-10 description).
 
-**Addendum reconciliation (v9.43):** `THREADS-v9.20-addendum.md` was written against v9.19 and cannot be merged literally: its proposed T26/T27 IDs are now occupied. Its streaming/LOD content belongs to T24 (with chunk-region metadata in T23 and stable feature identity in current T26); communications becomes T29; multiplayer/server authority expands reserved T11; spatial distortion extends current T27's zone sampler and the shared T23/T25/T5 compose seam. The addendum remains as provenance, while `plans/addendum-reconciliation-implementation-v1.md` is the executable handoff.
+**Addendum reconciliation (v9.43):** `THREADS-v9.20-addendum.md` was written against v9.19 and cannot be merged literally: its proposed T26/T27 IDs are now occupied. Its streaming/LOD content belongs to T24 (with chunk-region metadata in T23 and stable feature identity in current T26); communications becomes T29; multiplayer/server authority expands reserved T11; spatial distortion extends current T27's zone sampler and the shared T23/T25/T5 compose seam. The addendum remains as provenance, while `engineering/prompts/addendum-reconciliation-implementation-v1.md` is the executable handoff.
 
 **Referenced by this file as an owning/handoff doc, confirmed missing from the repo (checked 2026-07-22):** `pursuer-extraction-prompt-v3.md` (T3, already flagged), `pursuer-embodiment-prompt-v1.md` (T4), `dissonance-throw-distraction-prompt.md` (T18), `wildlife-expansion-prompt-v1.md` (T19), `acoustic-world-systems-prompt-v1.md` (T20 — its own text says "this session; save under this name," which apparently never happened), `mobile-control-prompt-v1.md` (T12 — this file already says "none yet"), `region-system-prompt-v1.md` (T23 — already says "none yet"), `forest-performance-prompt-v1.md` (T24 — this file names it as if it exists), `dta-session-notes.md` (T22 §1–4, T10, T15/T16 — "the notes doc is the owning artifact," and it doesn't exist), `hero-tree-poc-prompt-v1.md` (T22 — moot now, see below: the work it would have specified shipped anyway), `rigging-track-notes.md` (T17 — already says "none yet").
 
@@ -306,7 +312,7 @@ Compact index of `dta-session-notes.md` §1–4 (all PROVISIONAL; the notes doc 
 - **MCP horizon:** `getNpcContext`, `inspectSignalRoute`, `requestMessageSend`, and `getFactionMemory` are authoring/inspection tools only. Requests still cross the same authority/validation boundary as a game client.
 - **Presentation framework resolved (2026-07-31):** Preact + Signals, SVG-forward, composited over Babylon. Terminals observe game state through a thin signal bridge and submit intent through commands; they never reach into engine internals.
 - **T31 control extension (gated):** the portable terminal is the future addressing/control and recorded-feed review surface—not a handheld flight stick. Current lean is misuse of Milo's legitimate authorization, still awaiting narrative sign-off. Live Lineglass sight additionally requires the scarce receiver camera. Repair-queue addressing, viewpoint-binding/piloting, and disabled-drone-as-suppressed-transmission all remain design-only; none are prerequisites for the landed acquisition v1.
-- **Owning docs:** `plans/addendum-reconciliation-implementation-v1.md` and `dissonance/diegetic-terminal-offline-v1.md`.
+- **Owning docs:** `engineering/prompts/addendum-reconciliation-implementation-v1.md` and `dissonance/diegetic-terminal-offline-v1.md`.
 - **Ties:** T10 (lore/factions), T11 (network authority), T20 (acoustic infrastructure), T26 (stable dock identity), T28 (physical infrastructure).
 
 ### T30 — Instanced material pipeline 🆕
@@ -630,6 +636,7 @@ The former v9.7 “this week” list is removed because its T3 assumptions were 
 
 | Version | Date | Change |
 |---|---|---|
+| 9.59 | 2026-08-01 | Completed the physical legacy-plan migration defined by v9.58: active candidates moved to `engineering/prompts/`, audits to `engineering/reviews/`, the Blender handoff to `engineering/handoffs/`, completed/superseded artifacts to `archive/prompts/`, and reference assets beside their canonical design domains. Updated live links and source comments; `docs/plans/` is retired. The separate untracked `docs/intake/` inbox was deliberately untouched. |
 | 9.58 | 2026-07-31 | Reconciled the legacy `docs/plans/` inventory against `DISSONANCE-DOCSYSTEM.md`: established the missing SYSTEMS/DECISIONS/OPEN-QUESTIONS registries, classified every plan in `engineering/PLAN-RECONCILIATION.md`, created scoped canonical design homes, and registered T37 for Milo's apartment without renumbering existing threads. Physical plan moves are deliberately a later mechanical pass; legacy paths remain readable but are non-canonical. |
 | 9.57 | 2026-07-31 | Completed the manually selectable environment-presentation runtime behind T1/T2's existing profile/apply seam: shared fixed-four haze + red gain in `@dissonance/materials`, app-local live window/lamp emissive adapters, exact-four validation, late-material/baseline/flicker tests, and grade/bloom parity in orbit mode. Classified the recipe as an environment profile; saved views only reference `environmentProfileId`. Type checks, focused tests and the World production build pass. Live depth-ramp/reference tuning remains outstanding; T6/T23/T25/T27 gates are unchanged. |
 | 9.56 | 2026-07-31 | Closed T29's offline-v1 runtime gate after user validation of the Boulevard terminal's dock, fixture-message, and undock flow. The T11 networking, persistence/progression, T31 control, and underground-placement exclusions remain unchanged. |

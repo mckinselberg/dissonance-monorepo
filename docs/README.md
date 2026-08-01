@@ -14,9 +14,8 @@ across these registries and document layers:
   [legacy-plan reconciliation](engineering/PLAN-RECONCILIATION.md).
 - [`archive/`](archive/) — superseded and historical provenance.
 
-`plans/` is a legacy intake directory pending physical migration. Its files are
-not canonical implementation guidance by location; consult the reconciliation
-table before using one.
+The former `plans/` directory has been retired. Consult the reconciliation table
+to locate each migrated artifact and understand its authority.
 
 ## Living tracker
 
@@ -74,9 +73,8 @@ table before using one.
 - **[dissonance/haze-fog-emissive-schema.md](dissonance/haze-fog-emissive-schema.md)** —
   environment-presentation profile ownership, live haze/emissive application
   seams, and the remaining visual-tuning gate.
-- See also **[plans/dissonance-trail-data-poc-prompt.md](plans/dissonance-trail-data-poc-prompt.md)**
-  under "Design & handoff prompts" below — the original prompt that kicked
-  off the World terrain POC.
+- See also the archived
+  **[World terrain POC prompt](archive/prompts/completed/dissonance-trail-data-poc-prompt.md)**.
 
 ## `dta/` — Don't Turn Around
 
@@ -86,70 +84,27 @@ table before using one.
   audio tuning, a measuring-tape/coordinate tool idea, etc.) — informal,
   not a polished plan.
 
-## Design & handoff prompts (`plans/`)
+## Engineering and historical artifacts
 
-Session handoff docs, one per topic, spanning both games plus some shared
-substrate design — left as one flat folder rather than split by game,
-since THREADS.md cross-references these by path from dozens of places.
-THREADS.md is the index of record for which of these are still open vs.
-already landed in code — check there first; several of the docs below
-describe work that has since shipped.
+- [`engineering/prompts/`](engineering/prompts/) contains active or
+  implementation-candidate prompts. A Phase 0 refresh is still required before
+  executing a legacy prompt.
+- [`engineering/reviews/`](engineering/reviews/) contains audits and engineering
+  reviews, including the Lineglass, DTA migration, and T13 Boulevard reviews.
+- [`engineering/handoffs/`](engineering/handoffs/) contains human production
+  handoffs such as the Milo apartment Blender cleanup.
+- [`archive/prompts/completed/`](archive/prompts/completed/) contains prompts whose
+  defined implementation scope landed.
+- [`archive/prompts/superseded/`](archive/prompts/superseded/) contains prompts
+  replaced by later decisions or plans.
+- [`archive/design-sources/`](archive/design-sources/) retains source material
+  already folded into canonical design documents.
+- [PLAN-RECONCILIATION.md](engineering/PLAN-RECONCILIATION.md) records the exact
+  destination and authority of every artifact formerly under `plans/`.
 
-- **[plans/geo-grid-engineering-prompt.md](plans/geo-grid-engineering-prompt.md)**
-  — lat/long grid system for World. **Shipped** (`packages/geo/src/graticule.ts`
-  + a HUD toggle) — see THREADS.md T21.
-- **[plans/dissonance-lineglass-engineering-review-prompt.md](plans/dissonance-lineglass-engineering-review-prompt.md)**
-  — 21-section engineering brief for a diegetic diagnostic-vision device.
-  Only a small slice shipped (§7.6 geo-reference layer + §6 progressive
-  unlock) — see THREADS.md T21.
-- **[plans/instance-placement-prompt-v1.md](plans/instance-placement-prompt-v1.md)**
-  and **[plans/scatter-placement-prompt-v1.md](plans/scatter-placement-prompt-v1.md)**
-  — two related, ambitious designs for a manifest-driven placement/zone-field
-  substrate (anonymous + identified instance layers, cell LOD, QGIS-authored
-  zones). **Not built** — the code that shipped instead is simpler runtime
-  procedural scatter. See THREADS.md T23 for the surfaced design/implementation
-  gap between these docs and what actually exists.
-- **[plans/dissonance-camera-aware-foliage-prompt.md](plans/dissonance-camera-aware-foliage-prompt.md)**
-  — large foliage-interaction engineering prompt; scoped down to wind sway
-  only (shipped) — see THREADS.md T21/T22.
-- **[plans/boulevard-build-prompt-v1.md](plans/boulevard-build-prompt-v1.md)**
-  — Dissonance Boulevard city-kit build method.
-- **[plans/dta-environment-port-prompt-v1.md](plans/dta-environment-port-prompt-v1.md)**
-  — audit-only scoping doc for porting the first DTA level environment onto
-  World's DEM/atmosphere systems. No code changed — five open questions
-  gate any implementation session. See THREADS.md T21/T23.
-- **[plans/creature-silhouette-direction-v1.md](plans/creature-silhouette-direction-v1.md)**
-  — low-poly faceted-silhouette creature design direction (crystal material
-  rejected, language kept); paired reference sheet
-  **[plans/animals.webp](plans/animals.webp)**. See THREADS.md T4/T17.
-- **[plans/sound-as-control-prompt-v1.md](plans/sound-as-control-prompt-v1.md)**
-  — T9's actual handoff prompt (packages/sound-control, oscilloscope/vocoder
-  prototype), supersedes the old Godot `Oscilloscope_prompt` reference. Not
-  yet implemented — see THREADS.md T9 for its (narrower than "T3 lands") gate.
-- **[plans/t13-boulevard-extraction-v1.md](plans/t13-boulevard-extraction-v1.md)**
-  — analysis pass over the Godot Surveillance Boulevard PoC (reference only,
-  no code ports). See THREADS.md T13.
-- **[plans/haze-fog-emissive-prompt-v1.md](plans/haze-fog-emissive-prompt-v1.md)**
-  — the audited fixed-four haze and emissive-presentation implementation brief;
-  runtime landed, live depth-ramp/reference tuning remains. See THREADS.md T1/T2
-  and T30.
-- **[plans/photogrammetry_archaeological_loot_room_ai_prompt.md](plans/photogrammetry_archaeological_loot_room_ai_prompt.md)**,
-  **[plans/photogrammetry-archaeological-loot-room-execution-plan-v1.md](plans/photogrammetry-archaeological-loot-room-execution-plan-v1.md)**,
-  **[plans/photogrammetry-archaeological-loot-room-execution-plan-v2.md](plans/photogrammetry-archaeological-loot-room-execution-plan-v2.md)**
-  — a photogrammetry-sourced loot-room feature: original prompt plus two
-  execution-plan iterations.
-- **[plans/addendum-reconciliation-implementation-v1.md](plans/addendum-reconciliation-implementation-v1.md)**
-  — executable handoff reconciling `archive/THREADS-v9.20-addendum.md`'s
-  proposals against the current thread registry.
-- **plans/smr-shed.webp** — an on-trail photo of a fenced stone building
-  with a chimney; filename confirms it's SMR shed reference material for
-  T22's "Shed / comfort station" feature, though it doesn't fully match
-  photo 10's described corrugated roof/undergrowth state — see THREADS.md's
-  Doc inventory note.
-
-See also **[plans/dissonance-trail-data-poc-prompt.md](plans/dissonance-trail-data-poc-prompt.md)**
-under "dissonance/" above — the original prompt that kicked off the World
-terrain POC.
+Reference images now live with their domains:
+[creature silhouettes](design/creatures/references/animals.webp) and
+[SMR shed](design/locations/references/smr-shed.webp).
 
 ## Instanced material pipeline
 
@@ -187,7 +142,7 @@ terrain POC.
   comment.
 - **[archive/THREADS-v9.20-addendum.md](archive/THREADS-v9.20-addendum.md)**
   — a THREADS.md addendum written against an older version, superseded by
-  the current thread registry; see `plans/addendum-reconciliation-implementation-v1.md`
+  the current thread registry; see `engineering/prompts/addendum-reconciliation-implementation-v1.md`
   for what was actually reconciled from it.
 - **[archive/THREADS-delta-underground-and-interference.md](archive/THREADS-delta-underground-and-interference.md)**
   — source delta folded into canonical THREADS.md v9.53; provenance only,

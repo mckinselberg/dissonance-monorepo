@@ -1,7 +1,7 @@
 import proj4 from 'proj4';
 
 // NAD83 / UTM zone 18N — matches the projection the DEM/trail data was
-// exported in (see docs/plans/dissonance-trail-data-poc-prompt.md). WGS84
+// exported in (see docs/archive/prompts/completed/dissonance-trail-data-poc-prompt.md). WGS84
 // vs NAD83 differ by ~1-2m in this region, negligible next to the ~5-15m
 // GPS noise this pipeline already tolerates.
 proj4.defs('EPSG:26918', '+proj=utm +zone=18 +datum=NAD83 +units=m +no_defs');

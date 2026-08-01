@@ -4,7 +4,7 @@ import { worldToUtm } from './projection';
 
 export type HeightmapBoundingBox = { minX: number; minZ: number; maxX: number; maxZ: number };
 
-// Mirrors the shape of smr-heightmap.json (docs/plans/dissonance-trail-data-poc-prompt.md) —
+// Mirrors the shape of smr-heightmap.json (docs/archive/prompts/completed/dissonance-trail-data-poc-prompt.md) —
 // the "projection contract" recorded when the DEM was exported from QGIS.
 export type HeightmapContract = {
   crs: string;

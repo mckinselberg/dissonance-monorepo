@@ -4,7 +4,7 @@
 Reservation, NJ) with the **real OSM trail network** draped onto it, plus a
 personally recorded GPX track as a visual validation overlay, and a
 first-person player that can walk on it. It started as the data-pipeline POC
-described in `docs/plans/dissonance-trail-data-poc-prompt.md` and grew into a
+described in `docs/archive/prompts/completed/dissonance-trail-data-poc-prompt.md` and grew into a
 small playable proof-of-concept afterward.
 
 This folder documents how it was built, so the same pipeline can be repeated

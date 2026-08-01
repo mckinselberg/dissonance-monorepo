@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** D43 supersedes this combined prompt. Wind sway landed; remaining ideas are aspirational in the canonical foliage design. Not current implementation guidance.
+
 # Dissonance Engineering Prompt: Camera-Aware Foliage Occlusion and Interaction
 
 You are an expert TypeScript and Babylon.js graphics engineer working inside the existing **Dissonance / DTA monorepo**.

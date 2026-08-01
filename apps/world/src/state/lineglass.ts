@@ -1,6 +1,6 @@
 import { signal, type Signal } from '@preact/signals';
 
-// A small, deliberately scoped slice of docs/plans/dissonance-lineglass-
+// A small, deliberately scoped slice of docs/engineering/reviews/dissonance-lineglass-
 // engineering-review-prompt.md's much larger device (6 render layers,
 // package split, custom shaders, anomaly system...) — just its §7.6
 // "Geospatial Reference Layer" idea plus §6's "capable of progressively

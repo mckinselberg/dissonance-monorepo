@@ -10,7 +10,7 @@ import type { ScrollingTextureHandle } from '@dissonance/materials';
 import type { LocationEntry } from './LocationProps';
 
 // The diegetic collectible half of state/lineglass.ts's tiered unlock —
-// see that module's own comment for scope (one small slice of docs/plans/
+// see that module's own comment for scope (one small slice of docs/engineering/reviews/
 // dissonance-lineglass-engineering-review-prompt.md, not the full device).
 // Deliberately NOT thin-instanced like everything else in this file's
 // neighborhood (CompositeLocations/UtilityCorridors): there are only ever

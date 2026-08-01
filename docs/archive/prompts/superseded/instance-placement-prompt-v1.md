@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** D41 supersedes the offline-manifest premise. T26/T27 retain selected ideas. Not current implementation guidance.
+
 # instance-placement-prompt-v1.md
 
 **Thread:** T7 substrate (new — placement/instancing/field layer beneath World Population)

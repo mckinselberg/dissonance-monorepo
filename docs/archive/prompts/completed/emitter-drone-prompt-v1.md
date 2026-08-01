@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** T31 acquisition v1 is complete. `docs/THREADS.md` governs remaining work. Retained as provenance, not current implementation guidance.
+
 # emitter-drone-prompt-v1.md
 
 **Thread:** T31 (the emitter / captured drone) — **acquisition only**

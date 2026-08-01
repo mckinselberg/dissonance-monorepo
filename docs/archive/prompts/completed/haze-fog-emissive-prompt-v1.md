@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** Its scope landed. `docs/dissonance/haze-fog-emissive-schema.md` and the canonical atmosphere design supersede it. Not current implementation guidance.
+
 # haze-band-fog + emissive-dot machinery — implementation prompt v1
 
 **Status (2026-07-31):** runtime implementation landed as environment-profile

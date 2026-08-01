@@ -1,7 +1,7 @@
 # Environment presentation profile runtime
 
 This document records the tree-native resolution of
-`plans/haze-fog-emissive-prompt-v1.md`.
+`archive/prompts/completed/haze-fog-emissive-prompt-v1.md`.
 
 ## Confirmed architecture
 

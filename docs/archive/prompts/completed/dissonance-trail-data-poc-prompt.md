@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** Completed T21 prompt; runtime documentation under `docs/dissonance/world/` supersedes it. Retained as provenance, not current implementation guidance.
+
 # Dissonance Monorepo — Real-World Trail Data POC Prompt (`apps/trail-viewer`)
 
 Use this with your local Claude instance with access to the Dissonance Monorepo. All prior work is on `main`.

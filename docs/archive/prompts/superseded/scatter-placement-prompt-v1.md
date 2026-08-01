@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** D41 supersedes the offline-manifest premise. T24/T26/T27 retain selected ideas. Not current implementation guidance.
+
 # Handoff Prompt — Scatter Placement Manifest (Trees, Rocks, Trail Cutting, Power Lines)
 `scatter-placement-prompt-v1.md`
 

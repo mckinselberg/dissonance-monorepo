@@ -1,3 +1,5 @@
+> **Archived 2026-08-01.** `docs/design/creatures/CREATURE-DIRECTION.md` supersedes this source as design authority. O20/O21 remain in `docs/OPEN-QUESTIONS.md`.
+
 # Creature Silhouette Direction — v1 (engineering notes)
 
 Feeds: **T8** (asset pipeline — primary), **T4** (embodiment/motion), **T7** (ambient life).

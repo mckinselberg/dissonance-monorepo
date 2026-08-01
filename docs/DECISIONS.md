@@ -43,7 +43,7 @@ historical identifiers.
 - **Rationale:** This preserves stable identity without discarding the shipped live-authoring workflow.
 - **Applies to:** T7, T23, T24, T26, T27.
 - **Consequences:** The offline-manifest core of the instance/scatter prompts is superseded. Cell LOD remains T24; zone blending remains T27.
-- **Supersedes:** `docs/plans/instance-placement-prompt-v1.md`, `docs/plans/scatter-placement-prompt-v1.md` as executable briefs.
+- **Supersedes:** `docs/archive/prompts/superseded/instance-placement-prompt-v1.md`, `docs/archive/prompts/superseded/scatter-placement-prompt-v1.md` as executable briefs.
 
 ### D42 — DTA is preserved; World is the successor foundation
 
