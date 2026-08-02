@@ -133,7 +133,7 @@ function bindPauseControl(
   const button = document.getElementById('toggle-pause-button') as HTMLButtonElement;
   const overlay = document.getElementById('pause-overlay') as HTMLDivElement;
 
-  button.addEventListener('click', () => {
+  const togglePaused = (): void => {
     if (gameLoop.isPaused()) {
       gameLoop.resume();
       onResume();
@@ -150,7 +150,21 @@ function bindPauseControl(
     button.textContent = 'Resume';
     button.setAttribute('aria-pressed', 'true');
     overlay.hidden = false;
-  });
+  };
+
+  button.addEventListener('click', togglePaused);
+
+  document.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyP' || !event.shiftKey || event.repeat) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || target.closest('input, select, textarea, [contenteditable]'))
+    ) return;
+    togglePaused();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, { capture: true });
 
   document.addEventListener('keydown', (event) => {
     if (!gameLoop.isPaused() || event.target === button) return;
@@ -196,6 +210,9 @@ async function main() {
   const restoredHere = restoredExterior?.levelKey === levelKey ? restoredExterior : null;
   const flashlightEnabled = signal(worldSave.snapshot().equipment.flashlightEnabled);
   const keymapOverlayOpen = signal(false);
+  // Dev/perf control, not authored environment state — deliberately not
+  // part of SharedSettingsSnapshot/Copy-Load View, resets to uncapped on reload.
+  const targetFps = signal<number | null>(null);
   if (worldSave.snapshot().activeRoute !== 'exterior') {
     // Interior cameras/geometry are runtime resources, not safe reload
     // targets. A reload resumes from the last committed exterior transform.
@@ -626,11 +643,22 @@ async function main() {
       rootIds: ['replay-root'],
     },
     {
-      id: 'diagnostics', label: 'Diagnostics', icon: '⌁', modes: ['system'], priority: 10,
+      id: 'diagnostics', label: 'Diagnostics', icon: '⚙', modes: ['system'], priority: 10,
       capabilities: ['view-diagnostics'],
       source: 'derived',
       summary: () => ({ primary: level.label, secondary: 'live engineering state' }),
-      rootIds: ['level-links', 'level-label', 'readout'],
+      rootIds: ['level-links', 'level-label', 'readout', 'performance-root'],
+    },
+    {
+      // Per-ticket debug scratch panels (T29/T31/T35/T36) — instrumentation
+      // and cheat controls for features under active development, not
+      // authored content. Kept out of 'context'/Interior, which they'd
+      // previously accreted into despite having nothing to do with it.
+      id: 'debug', label: 'Debug', icon: '⚑', modes: ['system'], priority: 20,
+      capabilities: ['view-diagnostics'],
+      source: 'derived',
+      summary: () => ({ primary: 'Per-feature panels', secondary: 'T29 · T31 · T35 · T36' }),
+      rootIds: ['debug-root'],
     },
   ];
   render(
@@ -652,6 +680,25 @@ async function main() {
   readout.textContent = 'loading...';
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
   levelLabel.textContent = level.label;
+
+  render(
+    <label class='weather-select-row'>
+      Target FPS
+      <select
+        value={targetFps.value === null ? 'uncapped' : String(targetFps.value)}
+        onChange={(event: JSX.TargetedEvent<HTMLSelectElement>) => {
+          const value = event.currentTarget.value;
+          targetFps.value = value === 'uncapped' ? null : Number(value);
+        }}
+      >
+        <option value='uncapped'>Uncapped</option>
+        <option value='30'>30</option>
+        <option value='60'>60</option>
+        <option value='120'>120</option>
+      </select>
+    </label>,
+    document.getElementById('performance-root') as HTMLDivElement,
+  );
 
   render(
     <div class='lineglass-control-grid'>
@@ -1087,6 +1134,7 @@ async function main() {
         `left-drag to orbit, scroll to zoom, right-drag to pan`;
       scene.render();
     });
+    effect(() => { gameLoop.setTargetFps(targetFps.value); });
     bindPauseControl(
       gameLoop,
       canvas,
@@ -1261,7 +1309,7 @@ async function main() {
     }
     const melodyDigit = /^Digit([1-9])$/.exec(e.code);
     if (melodyDigit) playerWhistle.selectMelody(Number(melodyDigit[1]) - 1);
-    if (e.code === 'KeyP') mechDog.tryPet();
+    if (e.code === 'KeyP' && !e.shiftKey) mechDog.tryPet();
   });
 
   // Walk/Fly/Drive mode-switching — see TraversalRig's own comment.
@@ -1427,6 +1475,8 @@ async function main() {
   // a terminal owns focus, but allow keyup through so any held movement clears.
   window.addEventListener('keydown', (event) => {
     if (!terminalDocking.blocksWorldInput) return;
+    // The system-level pause shortcut remains available while docked.
+    if (event.code === 'KeyP' && event.shiftKey && !event.repeat) return;
     const target = event.target;
     const focusedUndockActivation =
       (event.code === 'Enter' || event.code === 'Space') &&
@@ -1492,24 +1542,28 @@ async function main() {
   });
 
   render(
+    <Section title='Surveillance Interior'>
+      <InteriorDebugRow
+        route={worldSession.route}
+        transition={worldSession.transition}
+        exteriorSnapshot={worldSession.exteriorSnapshot}
+        onEnter={() => { void surveillance.enterInterior('debug'); }}
+        onExit={surveillance.requestExit}
+      />
+    </Section>,
+    document.getElementById('interior-debug-root') as HTMLDivElement,
+  );
+
+  // T29/T31/T35/T36 — per-ticket debug scratch panels, see the 'debug'
+  // Lineglass module above. Go-to-terminal and go-to-shelter buttons that
+  // used to live here were removed as duplicates of the Navigation module's
+  // Locations dropdown ('public-sanitation-terminal-01' / 'mountain-crater'
+  // in locations.json); the flashlight checkbox that used to live in T35
+  // was removed as a duplicate of the L keybinding.
+  render(
     <>
       <Section title='T29 Offline Terminal'>
         <div id='t29-terminal-status'>Loading terminal state…</div>
-        <button
-          type='button'
-          onClick={() => {
-            if (!isExteriorGameplay() || terminalDocking.blocksWorldInput) return;
-            const controller = controllers[movement.activeMode.value];
-            controller.setPosition(new Vector3(
-              terminalFixture.position.x - terminalFixture.interactionRadius * 0.75,
-              terminalFixture.position.y,
-              terminalFixture.position.z,
-            ));
-            canvas.focus({ preventScroll: true });
-          }}
-        >
-          Go to public sanitation terminal
-        </button>
       </Section>
       <Section title='T31 Strike Acquisition'>
         <div id='t31-strike-status'>Loading strike state…</div>
@@ -1539,18 +1593,6 @@ async function main() {
         </button>
       </Section>
       <Section title='T35 Shelter Entrance'>
-        <button
-          type='button'
-          onClick={() => {
-            const entrance = locationFeatures.falloutShelterPosition;
-            if (!entrance) return;
-            controllers[movement.activeMode.value].setPosition(
-              new Vector3(entrance.x, entrance.y, entrance.z - 15),
-            );
-          }}
-        >
-          Go to crater shelter
-        </button>
         <div>
           Corridor: {corridorDiagnostics.valid ? 'valid' : 'invalid'} ·{' '}
           {corridorDiagnostics.segmentCount} segments ·{' '}
@@ -1567,19 +1609,6 @@ async function main() {
           />{' '}
           Unlock workshop test corridor (debug only)
         </label>
-        <br />
-        <label>
-          <input
-            type='checkbox'
-            checked={flashlightEnabled.value}
-            onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
-              flashlightEnabled.value = event.currentTarget.checked;
-              worldSave.setFlashlightEnabled(flashlightEnabled.value);
-              workshop.setFlashlightEnabled(flashlightEnabled.value);
-            }}
-          />{' '}
-          Milo flashlight (L)
-        </label>
       </Section>
       <Section title='T36 Rey Caverns Boundary'>
         <div id='t36-lurker-status'>Lurker: loading…</div>
@@ -1593,17 +1622,8 @@ async function main() {
           Reset hallway lurker (debug only)
         </button>
       </Section>
-      <Section title='Surveillance Interior'>
-        <InteriorDebugRow
-          route={worldSession.route}
-          transition={worldSession.transition}
-          exteriorSnapshot={worldSession.exteriorSnapshot}
-          onEnter={() => { void surveillance.enterInterior('debug'); }}
-          onExit={surveillance.requestExit}
-        />
-      </Section>
     </>,
-    document.getElementById('interior-debug-root') as HTMLDivElement,
+    document.getElementById('debug-root') as HTMLDivElement,
   );
 
   if (worldSession.route.value.kind === 'surveillance') {
@@ -2088,6 +2108,7 @@ async function main() {
       persistSettings();
     }
   });
+  effect(() => { gameLoop.setTargetFps(targetFps.value); });
   bindPauseControl(
     gameLoop,
     canvas,

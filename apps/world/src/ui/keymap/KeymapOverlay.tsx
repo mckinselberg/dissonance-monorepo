@@ -40,7 +40,10 @@ const KEYMAP_GROUPS: KeymapGroup[] = [
   },
   {
     label: 'Interface',
-    entries: [{ keys: ['I'], action: 'Toggle this panel' }],
+    entries: [
+      { keys: ['Shift', 'P'], action: 'Pause / resume' },
+      { keys: ['I'], action: 'Toggle this panel' },
+    ],
   },
 ];
 
