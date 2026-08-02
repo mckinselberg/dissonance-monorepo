@@ -57,10 +57,23 @@ docs/
 ├── SYSTEMS.md
 ├── DECISIONS.md
 ├── OPEN-QUESTIONS.md
+├── intake/
 ├── design/
 ├── engineering/
 └── archive/
 ```
+
+### Intake — `docs/intake/`
+
+`docs/intake/` is the non-canonical inbox for new ideas, references, prompts, and
+possible changes in direction. It exists before the six authority layers: intake
+material has no design, decision, workstream, or implementation authority until it
+is reconciled.
+
+Intake material must be checked against the registries, canonical design, and
+current implementation. Accepted material is folded into one canonical home;
+prompts are created or revised under `docs/engineering/`; source artifacts move to
+the appropriate archive or design-reference directory after triage.
 
 ### Layer 1 — `THREADS.md`
 
@@ -973,6 +986,9 @@ Prompts must be stored as copyable Markdown under `docs/engineering/prompts/`.
 ## 18. Change-management workflow
 
 When adding or changing a system:
+
+New, unreviewed material may first land in `docs/intake/`. Do not implement it or
+treat it as canon until Step 1 begins and the intake triage is recorded.
 
 ### Step 1 — Identify ownership
 

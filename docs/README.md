@@ -13,6 +13,8 @@ across these registries and document layers:
 - [`engineering/`](engineering/) — implementation plans, prompts, audits, and the
   [legacy-plan reconciliation](engineering/PLAN-RECONCILIATION.md).
 - [`archive/`](archive/) — superseded and historical provenance.
+- [`intake/`](intake/) — non-canonical inbox for new ideas, references, prompts,
+  and possible changes in direction awaiting reconciliation.
 
 The former `plans/` directory has been retired. Consult the reconciliation table
 to locate each migrated artifact and understand its authority.
