@@ -6,6 +6,17 @@ export class GameLoop {
   private updateFn: UpdateFn;
   private engine: Engine;
   private running = false;
+  private paused = false;
+
+  private readonly renderFrame = (): void => {
+    const dt = this.engine.getDeltaTime() / 1000;
+    const clampedDt = Math.min(dt, 0.1);
+    this.updateFn(clampedDt);
+  };
+
+  private readonly resize = (): void => {
+    this.engine.resize();
+  };
 
   constructor(engine: Engine, updateFn: UpdateFn) {
     this.engine = engine;
@@ -15,19 +26,33 @@ export class GameLoop {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.paused = false;
 
-    this.engine.runRenderLoop(() => {
-      if (!this.running) return;
-      const dt = this.engine.getDeltaTime() / 1000;
-      const clampedDt = Math.min(dt, 0.1);
-      this.updateFn(clampedDt);
-    });
+    this.engine.runRenderLoop(this.renderFrame);
+    window.addEventListener('resize', this.resize);
+  }
 
-    window.addEventListener('resize', () => this.engine.resize());
+  pause(): void {
+    if (!this.running || this.paused) return;
+    this.paused = true;
+    this.engine.stopRenderLoop(this.renderFrame);
+  }
+
+  resume(): void {
+    if (!this.running || !this.paused) return;
+    this.paused = false;
+    this.engine.runRenderLoop(this.renderFrame);
+  }
+
+  isPaused(): boolean {
+    return this.paused;
   }
 
   stop(): void {
+    if (!this.running) return;
     this.running = false;
-    this.engine.stopRenderLoop();
+    this.paused = false;
+    this.engine.stopRenderLoop(this.renderFrame);
+    window.removeEventListener('resize', this.resize);
   }
 }

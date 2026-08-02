@@ -94,6 +94,7 @@ import {
   type TerminalDockingSnapshot,
 } from './terminal';
 import { TerminalOverlay } from './ui/terminal';
+import { KeymapOverlay } from './ui/keymap';
 
 // Underwater look — WaterPlane's own "murky underside" mesh already gives a
 // plausible ceiling when you dip below the surface (Fly/Drive have no
@@ -121,6 +122,41 @@ function getOrCreateRunSeed(): number {
   const seed = values[0];
   sessionStorage.setItem(RUN_SEED_SESSION_KEY, String(seed));
   return seed;
+}
+
+function bindPauseControl(
+  gameLoop: GameLoop,
+  canvas: HTMLCanvasElement,
+  onPause: () => void,
+  onResume: () => void,
+): void {
+  const button = document.getElementById('toggle-pause-button') as HTMLButtonElement;
+  const overlay = document.getElementById('pause-overlay') as HTMLDivElement;
+
+  button.addEventListener('click', () => {
+    if (gameLoop.isPaused()) {
+      gameLoop.resume();
+      onResume();
+      button.textContent = 'Pause';
+      button.setAttribute('aria-pressed', 'false');
+      overlay.hidden = true;
+      canvas.focus({ preventScroll: true });
+      return;
+    }
+
+    gameLoop.pause();
+    onPause();
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    button.textContent = 'Resume';
+    button.setAttribute('aria-pressed', 'true');
+    overlay.hidden = false;
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (!gameLoop.isPaused() || event.target === button) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true });
 }
 
 // Fly and Drive are unconditionally available in this POC — no unlock gate
@@ -159,6 +195,7 @@ async function main() {
   const restoredExterior = worldSave.snapshot().lastExterior;
   const restoredHere = restoredExterior?.levelKey === levelKey ? restoredExterior : null;
   const flashlightEnabled = signal(worldSave.snapshot().equipment.flashlightEnabled);
+  const keymapOverlayOpen = signal(false);
   if (worldSave.snapshot().activeRoute !== 'exterior') {
     // Interior cameras/geometry are runtime resources, not safe reload
     // targets. A reload resumes from the last committed exterior transform.
@@ -1050,6 +1087,12 @@ async function main() {
         `left-drag to orbit, scroll to zoom, right-drag to pan`;
       scene.render();
     });
+    bindPauseControl(
+      gameLoop,
+      canvas,
+      () => worldAudio.setMuted(true),
+      () => worldAudio.setMuted(audio.masterMuted.value),
+    );
     hideLoadingOverlay();
     gameLoop.start();
     return;
@@ -1372,6 +1415,14 @@ async function main() {
     document.getElementById('terminal-root') as HTMLDivElement,
   );
 
+  render(
+    <KeymapOverlay
+      open={keymapOverlayOpen}
+      onToggle={() => { keymapOverlayOpen.value = !keymapOverlayOpen.value; }}
+    />,
+    document.getElementById('keymap-overlay-root') as HTMLDivElement,
+  );
+
   // Controllers and world actions listen globally. Capture only keydown while
   // a terminal owns focus, but allow keyup through so any held movement clears.
   window.addEventListener('keydown', (event) => {
@@ -1427,6 +1478,17 @@ async function main() {
     player.setFlashlightEnabled(
       flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
     );
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyI' || event.repeat) return;
+    // Excludes text-entry controls only (not buttons) — clicking the ghost
+    // toggle leaves it focused, and 'I' must still close the panel from there.
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || target.closest('input, select, textarea, [contenteditable]'))
+    ) return;
+    keymapOverlayOpen.value = !keymapOverlayOpen.value;
   });
 
   render(
@@ -2026,6 +2088,12 @@ async function main() {
       persistSettings();
     }
   });
+  bindPauseControl(
+    gameLoop,
+    canvas,
+    () => worldAudio.setMuted(true),
+    () => worldAudio.setMuted(audio.masterMuted.value),
+  );
   hideLoadingOverlay();
   gameLoop.start();
 }
