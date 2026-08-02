@@ -37,7 +37,7 @@ import { render } from 'preact';
 import type { JSX } from 'preact';
 import { signal, effect } from '@preact/signals';
 import { LEVELS, currentLevelKey } from './state/levels';
-import { loadSavedSettings, saveSettings } from './state/settingsStorage';
+import { loadSavedSettings, saveSettings, seedSettingsFromView } from './state/settingsStorage';
 import { buildSharedSettingsSnapshot } from './state/snapshot';
 import {
   loadHeightmap,
@@ -68,6 +68,7 @@ import type { EnvironmentRenderingProfile } from './state/environmentRenderingPr
 import { applyEnvironmentRenderingProfile } from './state/applyEnvironmentRenderingProfile';
 import { EnvironmentEmissiveController } from './state/EnvironmentEmissiveController';
 import { createEnvironmentProfileRegistry, findEnvironmentProfile } from './state/environmentProfiles';
+import { createEnvironmentProfileController } from './state/environmentProfileController';
 import { AtmosphereRow, SliderRow } from './ui/AtmosphereRow';
 import { EnvironmentProfileRow } from './ui/EnvironmentProfileRow';
 import { WeatherRow } from './ui/WeatherRow';
@@ -147,6 +148,19 @@ async function main() {
 
   const levelKey = currentLevelKey();
   const level = LEVELS[levelKey];
+  const savedViews = await loadSavedViews();
+  const url = new URL(location.href);
+  const requestedSeedView = url.searchParams.get('seedView') ?? undefined;
+  const seeded = seedSettingsFromView({
+    levelKey,
+    views: savedViews,
+    viewName: requestedSeedView,
+    overwrite: requestedSeedView !== undefined,
+  });
+  if (seeded && requestedSeedView) {
+    url.searchParams.delete('seedView');
+    history.replaceState(null, '', url);
+  }
   const savedSettings = loadSavedSettings(levelKey);
   const sessionRunSeed = getOrCreateRunSeed();
   const worldSave = new WorldSaveStore({
@@ -444,7 +458,6 @@ async function main() {
   const [
     trails,
     gpxTrack,
-    savedViews,
     worldFeatures,
     replayRoutes,
     strikeProfile,
@@ -452,7 +465,6 @@ async function main() {
   ] = await Promise.all([
     loadTrails(),
     loadGpxTrack(),
-    loadSavedViews(),
     loadLocations(),
     loadReplayRoutes(),
     loadStrikeProfile(),
@@ -805,7 +817,7 @@ async function main() {
   // Walk/Fly/Drive which orbit has no equivalent of. Preact-rendered pilot
   // (see docs/THREADS.md); commit handlers below mirror the dispose/
   // recreate bodies the old change-listeners used 1:1.
-  const selectEnvironmentProfile = (profile: EnvironmentRenderingProfile) => {
+  const applyEnvironmentSelection = (profile: EnvironmentRenderingProfile) => {
     activeEnvironmentProfile = profile;
     environmentProfileId.value = profile.id;
     atmosphere.fogDensity.value = profile.atmosphere.fogDensity;
@@ -815,6 +827,19 @@ async function main() {
     atmosphere.windowGlow.value = windows?.intensity ?? 0;
     applyActiveEnvironmentProfile(profile);
     saveSettings(levelKey, { ...loadSavedSettings(levelKey), environmentProfileId: profile.id });
+  };
+  const environmentProfileController = createEnvironmentProfileController({
+    profiles: environmentProfiles,
+    initialProfileId: initialEnvironmentProfile.id,
+    initialSource: savedSettings.environmentProfileId ? 'session-seed' : 'default',
+    onChange: (_selection, profile) => applyEnvironmentSelection(profile),
+  });
+  const selectEnvironmentProfile = (profile: EnvironmentRenderingProfile) => {
+    environmentProfileController.request({
+      profileId: profile.id,
+      source: 'manual',
+      reason: 'Dev Lineglass selection',
+    });
   };
 
   render(

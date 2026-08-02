@@ -84,6 +84,33 @@ function settingsStorageKey(levelKey: string): string {
   return `trail-viewer:settings:${levelKey}`;
 }
 
+export const DEFAULT_SEED_VIEW_NAME = 'dissonance boulevard concept art 4 nighttime';
+export const ENVIRONMENT_SEED_SESSION_KEY = 'dissonance:environment-seed:v1';
+
+export function seedSettingsFromView(options: {
+  levelKey: string;
+  views: ReadonlyArray<SavedSettings & { level: string; name?: string }>;
+  viewName?: string;
+  overwrite?: boolean;
+  local?: Pick<Storage, 'getItem' | 'setItem'>;
+  session?: Pick<Storage, 'setItem'>;
+}): boolean {
+  const local = options.local ?? localStorage;
+  const key = settingsStorageKey(options.levelKey);
+  if (!options.overwrite && local.getItem(key) !== null) return false;
+  const viewName = options.viewName ?? DEFAULT_SEED_VIEW_NAME;
+  const view = options.views.find((candidate) => candidate.level === options.levelKey && candidate.name === viewName);
+  if (!view) return false;
+  const { level: _level, name: _name, ...settings } = view;
+  local.setItem(key, JSON.stringify(settings));
+  (options.session ?? sessionStorage).setItem(ENVIRONMENT_SEED_SESSION_KEY, JSON.stringify({
+    levelKey: options.levelKey,
+    viewName,
+    environmentProfileId: settings.environmentProfileId ?? null,
+  }));
+  return true;
+}
+
 export function loadSavedSettings(levelKey: string): SavedSettings {
   const raw = localStorage.getItem(settingsStorageKey(levelKey));
   if (!raw) return {};

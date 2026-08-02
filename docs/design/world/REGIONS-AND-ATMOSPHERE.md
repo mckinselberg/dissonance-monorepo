@@ -19,6 +19,15 @@ emissive adapters, validation, grade/bloom parity, and profile selection. Saved
 views reference `environmentProfileId` rather than copying the recipe. Live
 depth-ramp/reference tuning remains outstanding.
 
+Environment selection now passes through a source-aware controller. Sources are
+`default`, `session-seed`, `location`, `narrative`, and `manual`; explicit manual
+selection has highest precedence for authoring, while clearing it reveals the
+highest remaining automatic source. An empty level-1 settings slot seeds from the
+curated `dissonance boulevard concept art 4 nighttime` view and records provenance
+in session storage. Developers may intentionally reseed once with
+`?seedView=<committed view name>`; the query parameter removes itself after a
+successful seed. Existing local settings are otherwise never overwritten.
+
 The larger composition problem remains provisional. One seam must serve region,
 clock, detection, and spatial-zone inputs. The current proposal is a
 region-selected profile family, clock-interpolated base, then detection overlay

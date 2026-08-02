@@ -10,7 +10,7 @@ names marked `VERIFY` must be confirmed by a Phase 0 audit before implementation
 | System | Design owner | Runtime owner | State owner | Presentation owner | Status | Canonical doc |
 |---|---|---|---|---|---|---|
 | Geographic world and trail data | T21 | `packages/geo`, `apps/world` | world settings and authored geographic data | Babylon world + Dev Lineglass | active | `docs/dissonance/world/README.md` |
-| Region/profile composition | T23, T25, T27 | `apps/world` + `packages/materials` | environment/profile data | Babylon atmosphere + audio | manually selectable environment presentation landed; spatial composition provisional | `docs/design/world/REGIONS-AND-ATMOSPHERE.md` |
+| Region/profile composition | T23, T25, T27 | `apps/world` + `packages/materials` | environment/profile data + per-level settings/seed provenance | Babylon atmosphere + audio | source-aware profile selection and seeded view landed; location/narrative bindings ready, spatial composition provisional | `docs/design/world/REGIONS-AND-ATMOSPHERE.md` |
 | Identified world features | T26 | `apps/world/public/data/locations.json` + consumers `VERIFY` | stable feature IDs + World save references | world props, navigation, Lineglass | queued | `docs/design/world/IDENTIFIED-FEATURES.md` |
 | Lineglass player device | T21, T29 | `apps/world` `VERIFY` | Lineglass parts/unlocks in World save | Babylon object + Preact overlay | experimental; geo unlock landed | `docs/design/surveillance/LINEGLASS.md` |
 | Diegetic terminal | T29 | `apps/world/src/terminal`, `apps/world/src/ui/terminal`, `apps/world/src/world/WorldTerminals.ts` | none in offline v1 | Babylon fixture + Preact/Signals overlay | offline v1 validated | `docs/dissonance/diegetic-terminal-offline-v1.md` |
