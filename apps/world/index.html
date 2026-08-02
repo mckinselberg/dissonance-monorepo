@@ -48,32 +48,42 @@
         background: rgba(255, 255, 255, 0.3);
         border-radius: 4px;
       }
-      #toggle-hud-button {
+      /* Shares the --lineglass-* token set with lineglass.css/keymap.css
+         (loaded once the JS bundle mounts) so the always-on-screen chrome
+         reads as one system rather than two. Fallback literals match those
+         tokens' current values, for the brief window before that CSS loads. */
+      .toolbar-buttons {
         position: fixed;
         top: 8px;
         left: 12px;
         z-index: 11;
-        font: 12px monospace;
-        cursor: pointer;
-        padding: 3px 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
       }
-      #toggle-audio-button {
-        position: fixed;
-        top: 8px;
-        left: 78px;
-        z-index: 11;
-        font: 12px monospace;
+      .toolbar-buttons button {
+        padding: 5px 10px;
+        border: 1px solid var(--lineglass-border, #28565d);
+        border-radius: 6px;
+        background: var(--lineglass-surface, rgba(7, 27, 30, 0.88));
+        color: var(--lineglass-text-muted, #83a2a8);
+        font: 12px "Cascadia Mono", "Roboto Mono", Consolas, monospace;
+        letter-spacing: 0.04em;
         cursor: pointer;
-        padding: 3px 8px;
       }
-      #toggle-pause-button {
-        position: fixed;
-        top: 8px;
-        left: 210px;
-        z-index: 11;
-        font: 12px monospace;
-        cursor: pointer;
-        padding: 3px 8px;
+      .toolbar-buttons button:hover,
+      .toolbar-buttons button[aria-pressed="true"] {
+        border-color: var(--lineglass-border-active, #37c9e5);
+        color: var(--lineglass-accent, #20d7f4);
+        background: var(--lineglass-surface-raised, #0a2529);
+      }
+      .toolbar-buttons button:focus-visible {
+        outline: 2px solid var(--lineglass-focus, #d4f9ff);
+        outline-offset: 2px;
+      }
+      .toolbar-buttons button:disabled {
+        opacity: 0.5;
+        cursor: default;
       }
       #pause-overlay {
         position: fixed;
@@ -294,9 +304,11 @@
     <div id="loading-overlay" role="status" aria-live="polite">
       <span class="loading-terminal-text" data-text="Loading world data…">Loading world data…<span class="loading-terminal-cursor" aria-hidden="true"></span></span>
     </div>
-    <button id="toggle-hud-button" type="button">☰ HUD</button>
-    <button id="toggle-audio-button" type="button">🔊 Enable Audio</button>
-    <button id="toggle-pause-button" type="button" aria-pressed="false">Pause</button>
+    <div class="toolbar-buttons">
+      <button id="toggle-hud-button" type="button" aria-pressed="true">☰ HUD</button>
+      <button id="toggle-audio-button" type="button" aria-pressed="false">🔊 Enable Audio</button>
+      <button id="toggle-pause-button" type="button" aria-pressed="false">Pause</button>
+    </div>
     <div id="pause-overlay" role="status" aria-live="polite" hidden>PAUSED</div>
     <div id="interaction-prompt"></div>
     <div id="terminal-root"></div>

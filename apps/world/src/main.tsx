@@ -950,6 +950,7 @@ async function main() {
       if (level.cameraMode !== 'orbit') trailPlayerAudio.start();
       audioStarted = true;
       audioToggleButton.textContent = '🔊 Audio on';
+      audioToggleButton.setAttribute('aria-pressed', 'true');
     } catch (error: unknown) {
       audioToggleButton.disabled = false;
       console.error(`Unable to start the ${worldAudio.engineKind} audio runtime.`, error);
@@ -961,6 +962,7 @@ async function main() {
   let hudVisible = savedSettings.hudVisible ?? true;
   const applyHudVisible = () => {
     uiPanel.style.display = hudVisible ? 'block' : 'none';
+    hudToggleButton.setAttribute('aria-pressed', String(hudVisible));
   };
   applyHudVisible();
   hudToggleButton.addEventListener('click', () => {
