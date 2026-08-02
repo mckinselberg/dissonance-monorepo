@@ -8,7 +8,7 @@ import {
   type WaterPlane,
 } from '@dissonance/world';
 import type { HeightmapContract } from '@dissonance/geo';
-import type { AmbientAudio } from '@dissonance/audio';
+import type { WorldAmbientAudio } from '../audio/WorldAudioStack';
 import type { WeatherMode } from '@dissonance/shared-types';
 import { effect, type Signal } from '@preact/signals';
 import type { AtmosphereSignals } from '../state/atmosphere';
@@ -61,7 +61,7 @@ export class BackdropSystem {
     private readonly weatherMode: Signal<WeatherMode>,
     private readonly scaleTuning: ScaleTuningSignals,
     private readonly visibility: VisibilitySignals,
-    private readonly ambientAudio: AmbientAudio,
+    private readonly ambientAudio: WorldAmbientAudio,
   ) {
     this.light = new HemisphericLight('light', new Vector3(0.3, 1, 0.2), scene);
     this.sun = new Sun(scene, {

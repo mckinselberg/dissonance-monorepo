@@ -17,13 +17,6 @@ import {
   type FoliageSwaySource,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
-import {
-  AmbientAudio,
-  AudioEngine,
-  HeartbeatAudio,
-  ShelterAlarmAudio,
-  TrailPlayerAudio,
-} from '@dissonance/audio';
 import type { PrecipitationMode, WeatherMode } from '@dissonance/shared-types';
 import { preventAccidentalClose } from '@dissonance/utils';
 import {
@@ -84,7 +77,8 @@ import { LineglassShell, type LineglassModuleDefinition } from './ui/lineglass';
 import { AudioRow } from './ui/AudioRow';
 import type { MechDogSkin } from './pursuer/MechDogBody';
 import { MechDogController } from './pursuer/MechDogController';
-import { WHISTLE_MELODIES } from './state/whistle';
+import { PlayerWhistleController } from './player/PlayerWhistleController';
+import { createWorldAudioStack, resolveWorldAudioEngine } from './audio/WorldAudioStack';
 import { createSurveillanceSession } from './interiors/SurveillanceSession';
 import { createWorkshopSession } from './interiors/WorkshopSession';
 import { InteriorDebugRow } from './ui/InteriorDebugRow';
@@ -272,31 +266,34 @@ async function main() {
     });
   };
 
-  // Ported from dont-turn-around (@dissonance/audio) — AmbientAudio and
-  // HeartbeatAudio are already fully generic (no ExperienceProfile/DTA
-  // coupling), reused as-is. TrailPlayerAudio is a decoupled sibling of
-  // DTA's PlayerAudio: same breath-handling logic, but calls
-  // AudioEngine.playTrailStep() (open dirt/gravel) instead of
-  // playForestStep() for footsteps. All three construct with zero args
-  // (matches DTA's own Game.ts constructor pattern) — real playback only
-  // starts once the Enable Audio button fires a genuine user gesture
-  // (browsers require this for AudioContext unlock; World has no
-  // menu/start-screen gesture to piggyback on the way DTA's "Begin" button
-  // does, hence the dedicated button — see index.html).
+  // Production always selects Babylon. Dev may request the preserved Tone
+  // stack with ?audioEngine=tone; selection happens before construction so
+  // the two engines never coexist on one page.
   const audio = createAudioSignals({
     masterMuted: savedSettings.masterMuted ?? false,
     windVolume: savedSettings.windVolume ?? 0.7,
     footstepMuted: savedSettings.footstepMuted ?? false,
     breathMuted: savedSettings.breathMuted ?? false,
   });
-  const ambientAudio = new AmbientAudio();
-  const heartbeatAudio = new HeartbeatAudio();
-  const shelterAlarmAudio = new ShelterAlarmAudio();
-  const trailPlayerAudio = new TrailPlayerAudio();
-  AudioEngine.setMuted(audio.masterMuted.value);
+  const requestedAudioEngine = resolveWorldAudioEngine(window.location.search, import.meta.env.DEV);
+  const worldAudio = await createWorldAudioStack(scene, requestedAudioEngine);
+  const { ambientAudio, heartbeatAudio, shelterAlarmAudio, playerAudio: trailPlayerAudio } = worldAudio;
+  worldAudio.setMuted(audio.masterMuted.value);
   trailPlayerAudio.setFootstepMuted(audio.footstepMuted.value);
   trailPlayerAudio.setBreathMuted(audio.breathMuted.value);
   let audioStarted = false;
+  const playerWhistle = new PlayerWhistleController((notes) => {
+    if (audioStarted) worldAudio.playWhistle(notes);
+  });
+  let audioDisposed = false;
+  const disposeAudio = () => {
+    if (audioDisposed) return;
+    audioDisposed = true;
+    window.removeEventListener('pagehide', disposeAudio);
+    worldAudio.dispose();
+  };
+  window.addEventListener('pagehide', disposeAudio);
+  scene.onDisposeObservable.addOnce(disposeAudio);
 
   applyActiveEnvironmentProfile(activeEnvironmentProfile);
   if (savedSettings.windowTintColor !== undefined || savedSettings.windowGlow !== undefined) {
@@ -837,7 +834,14 @@ async function main() {
       <AudioRow
         signals={audio}
         showPlayerControls={level.cameraMode !== 'orbit'}
-        onMasterMutedCommit={(muted) => AudioEngine.setMuted(muted)}
+        engineKind={import.meta.env.DEV ? worldAudio.engineKind : undefined}
+        onEngineChange={import.meta.env.DEV ? (engineKind) => {
+          const url = new URL(window.location.href);
+          if (engineKind === 'tone') url.searchParams.set('audioEngine', 'tone');
+          else url.searchParams.delete('audioEngine');
+          window.location.href = url.toString();
+        } : undefined}
+        onMasterMutedCommit={(muted) => worldAudio.setMuted(muted)}
         onWindVolumeInput={() => {}}
         onFootstepMutedCommit={(muted) => trailPlayerAudio.setFootstepMuted(muted)}
         onBreathMutedCommit={(muted) => trailPlayerAudio.setBreathMuted(muted)}
@@ -854,13 +858,18 @@ async function main() {
   const audioToggleButton = document.getElementById('toggle-audio-button') as HTMLButtonElement;
   audioToggleButton.addEventListener('click', async () => {
     if (audioStarted) return;
-    audioStarted = true;
-    audioToggleButton.textContent = '🔊 Audio on';
     audioToggleButton.disabled = true;
-    await AudioEngine.start();
-    ambientAudio.start();
-    heartbeatAudio.start();
-    if (level.cameraMode !== 'orbit') trailPlayerAudio.start();
+    try {
+      await worldAudio.unlock();
+      ambientAudio.start();
+      heartbeatAudio.start();
+      if (level.cameraMode !== 'orbit') trailPlayerAudio.start();
+      audioStarted = true;
+      audioToggleButton.textContent = '🔊 Audio on';
+    } catch (error: unknown) {
+      audioToggleButton.disabled = false;
+      console.error(`Unable to start the ${worldAudio.engineKind} audio runtime.`, error);
+    }
   });
 
   const hudToggleButton = document.getElementById('toggle-hud-button') as HTMLButtonElement;
@@ -1203,9 +1212,12 @@ async function main() {
     // which one); 'P' pets the dog if it's close enough. `mechDog` is
     // declared further down but already constructed by the time any of
     // this can fire from a real keypress.
-    if (e.code === 'KeyM') mechDog.whistle();
+    if (e.code === 'KeyM') {
+      playerWhistle.whistle();
+      mechDog.hearWhistle();
+    }
     const melodyDigit = /^Digit([1-9])$/.exec(e.code);
-    if (melodyDigit) mechDog.selectMelody(Number(melodyDigit[1]) - 1);
+    if (melodyDigit) playerWhistle.selectMelody(Number(melodyDigit[1]) - 1);
     if (e.code === 'KeyP') mechDog.tryPet();
   });
 
@@ -1976,7 +1988,7 @@ async function main() {
       `T31: ${strikeSnapshot.state} · ${strikeSnapshot.anchorId} · windup ${Math.round(strikeSnapshot.windupProgress * 100)}%` +
         `${strikeSnapshot.flags.chassisRecovered ? ' · recovered' : ''}\n` +
       `T31 gate: LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · rain ${Math.round(strikeSnapshot.rainIntensity * 100)}%\n` +
-      `whistle [M]: "${WHISTLE_MELODIES[mechDog.whistleMelodyIndex.value].label}" (1-${WHISTLE_MELODIES.length} to pick) — pet [P]${mechDog.isPettable() ? '' : ' (get closer)'}\n` +
+      `whistle [M]: "${playerWhistle.selectedMelody.label}" (1-${playerWhistle.melodyCount} to pick) — pet [P]${mechDog.isPettable() ? '' : ' (get closer)'}\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
 

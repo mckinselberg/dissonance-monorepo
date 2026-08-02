@@ -1,4 +1,5 @@
 import type { JSX } from 'preact';
+import type { WorldAudioEngineKind } from '../audio/WorldAudioStack';
 import type { AudioSignals } from '../state/audio';
 
 const rowStyle: JSX.CSSProperties = { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' };
@@ -8,6 +9,8 @@ export type AudioRowProps = {
   // False in orbit mode — no player there, so footsteps/breath don't apply
   // (ambient wind/night/heartbeat still do, handled outside this row).
   showPlayerControls: boolean;
+  engineKind?: WorldAudioEngineKind;
+  onEngineChange?: (engineKind: WorldAudioEngineKind) => void;
   onMasterMutedCommit: (muted: boolean) => void;
   onWindVolumeInput: (value: number) => void;
   onFootstepMutedCommit: (muted: boolean) => void;
@@ -15,10 +18,25 @@ export type AudioRowProps = {
 };
 
 export function AudioRow({
-  signals, showPlayerControls, onMasterMutedCommit, onWindVolumeInput, onFootstepMutedCommit, onBreathMutedCommit,
+  signals, showPlayerControls, engineKind, onEngineChange,
+  onMasterMutedCommit, onWindVolumeInput, onFootstepMutedCommit, onBreathMutedCommit,
 }: AudioRowProps) {
   return (
     <div style={{ marginTop: '4px' }}>
+      {engineKind && onEngineChange && (
+        <label style={rowStyle}>
+          Audio engine{' '}
+          <select
+            value={engineKind}
+            onChange={(e: JSX.TargetedEvent<HTMLSelectElement>) => {
+              onEngineChange(e.currentTarget.value as WorldAudioEngineKind);
+            }}
+          >
+            <option value='babylon'>Babylon</option>
+            <option value='tone'>Tone (legacy)</option>
+          </select>
+        </label>
+      )}
       <label>
         <input
           type="checkbox"

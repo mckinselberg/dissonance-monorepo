@@ -1,4 +1,4 @@
-import type { WhistleNote } from '@dissonance/audio';
+import type { WhistleNote } from '@dissonance/audio/babylon';
 
 export type WhistleMelody = {
   label: string;
@@ -8,7 +8,7 @@ export type WhistleMelody = {
 // Number keys 1-9 pick which of these plays on the next 'M' press (see
 // main.tsx's keydown handler). A fixed, hand-picked list for now — the
 // longer-term idea is a diegetic, player-composable call (a small
-// MIDI-style step editor wired through AudioEngine.playWhistleMelody)
+// MIDI-style step editor wired through BabylonWhistleAudio.playMelody)
 // once there's more than one dog-like companion to call.
 export const WHISTLE_MELODIES: WhistleMelody[] = [
   {

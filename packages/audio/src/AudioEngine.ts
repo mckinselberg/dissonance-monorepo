@@ -1,10 +1,9 @@
 import * as Tone from 'tone';
+import type { WhistleNote } from './AudioTypes';
 
 // `time`/`duration` are seconds relative to when playWhistleMelody is
 // called, not Tone.Transport position — matching every other one-shot SFX
 // in this file, none of which use the transport.
-export type WhistleNote = { note: string; time: number; duration: number };
-
 export class AudioEngine {
   private static started = false;
 
