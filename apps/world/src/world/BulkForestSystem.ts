@@ -17,6 +17,15 @@ export const MAX_TREE_COUNT = 30000;
 const TREE_CANDIDATE_COUNT = 30000;
 const TREE_CLEARANCE_ABOVE_WATER = 20;
 
+// Thin instances render as ONE draw call per mesh — Babylon's frustum
+// culling only tests the aggregate bounding box across every instance, so a
+// map-spanning forest never gets culled no matter how far offscreen most of
+// it is. Distance-filtering the position array *before* thinInstanceAdd is
+// the only lever that actually works here (see docs/THREADS.md T24). Not
+// every frame — rebuilding the whole instance buffer costs real time at
+// thousands of instances, so this only re-filters on a throttle.
+const CULL_UPDATE_INTERVAL_SECONDS = 0.25;
+
 const BULK_FOREST_URL = `${import.meta.env.BASE_URL}models/tree-small-02-scatter/tree_small_02_scatter_preview.glb`;
 
 // Prototype: sparse understory variety mixed into the bulk tier, same
@@ -70,6 +79,14 @@ export class BulkForestSystem {
   private readonly forestWaterline: number;
   private readonly repositionDebouncedFn: () => void;
 
+  // Cached render-space positions from the last reposition() — the full
+  // candidate set before camera-distance culling. updateCulling() filters
+  // these rather than regenerating from the seeded RNG every throttle tick.
+  private bulkForestFullPositions: Vector3[] = [];
+  private lastCameraPosition: Vector3 | null = null;
+  private cullRadius = Number.POSITIVE_INFINITY;
+  private cullAccumulator = 0;
+
   private constructor(
     private readonly sampler: HeightmapSampler,
     contract: HeightmapContract,
@@ -77,7 +94,7 @@ export class BulkForestSystem {
     savedRadii: { treeRegionRadius?: number; bulkForestRadius?: number },
     bulkForestScaleDefaults: { hScale: number; vScale: number; count: number },
     private bulkForest: HeroTreeInstancesHandle | null,
-    private readonly bulkUnderstoryClusters: Array<{ label: string; fraction: number; handle: HeroTreeInstancesHandle }>,
+    private readonly bulkUnderstoryClusters: Array<{ label: string; fraction: number; handle: HeroTreeInstancesHandle; fullPositions: Vector3[] }>,
   ) {
     const realWidth = contract.bbox.maxX - contract.bbox.minX;
     const realDepth = contract.bbox.maxZ - contract.bbox.minZ;
@@ -131,6 +148,7 @@ export class BulkForestSystem {
 
     try {
       const positions = system.bulkForestPositions();
+      system.bulkForestFullPositions = positions;
       system.bulkForest = await loadHeroTreeInstances(
         scene,
         BULK_FOREST_URL,
@@ -162,7 +180,7 @@ export class BulkForestSystem {
             shadowGenerator,
             windSource,
           );
-          system.bulkUnderstoryClusters.push({ label, fraction, handle });
+          system.bulkUnderstoryClusters.push({ label, fraction, handle, fullPositions: positions });
           console.info(`[BulkForest] loaded ${positions.length} thin-instanced ${label}(s) as understory`);
         } catch (error) {
           console.error(`[BulkForest] failed to load ${label} understory cluster`, error);
@@ -253,25 +271,64 @@ export class BulkForestSystem {
   }
 
   reposition(): void {
-    const positions = this.bulkForestPositions();
+    this.bulkForestFullPositions = this.bulkForestPositions();
+    for (const cluster of this.bulkUnderstoryClusters) {
+      cluster.fullPositions = this.bulkUnderstoryPositions(cluster.label, cluster.fraction);
+    }
+    this.applyCulling();
+  }
+
+  repositionDebounced(): void {
+    this.repositionDebouncedFn();
+  }
+
+  // Re-filters the cached full position sets by camera distance and
+  // re-uploads via setPlacements. Shared by reposition() (slider changes —
+  // reapplies the last known camera/radius so a rebuilt forest doesn't
+  // flash back to fully unculled) and updateCulling() (camera movement).
+  private applyCulling(): void {
     const hScale = this.scaleTuning.hScale.value;
     const vExag = this.scaleTuning.vExag.value;
+    const camera = this.lastCameraPosition;
+    const radius = this.cullRadius;
+    const withinRadius = (positions: Vector3[]): Vector3[] => {
+      if (!camera || !Number.isFinite(radius)) return positions;
+      const radiusSq = radius * radius;
+      return positions.filter((p) => {
+        const dx = p.x - camera.x;
+        const dz = p.z - camera.z;
+        return dx * dx + dz * dz <= radiusSq;
+      });
+    };
+
     if (!this.bulkForest) {
       this.bulkForestPlacedCount.value = 0;
     } else {
-      this.bulkForestPlacedCount.value = positions.length;
-      this.bulkForest.setPlacements(positions, hScale * this.bulkForestScale.hScale.value, vExag * this.bulkForestScale.vScale.value);
+      const visible = withinRadius(this.bulkForestFullPositions);
+      this.bulkForestPlacedCount.value = visible.length;
+      this.bulkForest.setPlacements(visible, hScale * this.bulkForestScale.hScale.value, vExag * this.bulkForestScale.vScale.value);
     }
-    for (const { label, fraction, handle } of this.bulkUnderstoryClusters) {
-      handle.setPlacements(
-        this.bulkUnderstoryPositions(label, fraction),
+    for (const cluster of this.bulkUnderstoryClusters) {
+      cluster.handle.setPlacements(
+        withinRadius(cluster.fullPositions),
         hScale * this.bulkForestScale.hScale.value,
         vExag * this.bulkForestScale.vScale.value,
       );
     }
   }
 
-  repositionDebounced(): void {
-    this.repositionDebouncedFn();
+  // Distance-based instance culling — the T24 "cull" half of LOD/culling
+  // (see the CULL_UPDATE_INTERVAL_SECONDS comment above). cullRadius is the
+  // active EnvironmentRenderingProfile's foliage.impostorRadius: the point
+  // where a real impostor/billboard tier would take over once one exists
+  // (T24, still aspirational — see docs/intake/RENDER_PIPELINE_QUICKSTART.md).
+  // Until then, beyond it is a hard cull rather than a fade.
+  updateCulling(dt: number, cameraPosition: Vector3, cullRadius: number): void {
+    this.lastCameraPosition = cameraPosition;
+    this.cullRadius = cullRadius;
+    this.cullAccumulator += dt;
+    if (this.cullAccumulator < CULL_UPDATE_INTERVAL_SECONDS) return;
+    this.cullAccumulator = 0;
+    this.applyCulling();
   }
 }

@@ -1129,6 +1129,7 @@ async function main() {
           ))
         : baseAmbientColor;
       const pos = orbitCamera.position;
+      bulkForest.updateCulling(dt, pos, activeEnvironmentProfile.foliage.impostorRadius);
       const groundY = terrain.getHeightAt(pos.x, pos.z);
       readout.textContent =
         `camera: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
@@ -1952,6 +1953,8 @@ async function main() {
     }
 
     const pos = activeTraversalController.getPosition();
+    bulkForest.updateCulling(dt, pos, activeEnvironmentProfile.foliage.impostorRadius);
+    trailsideForest.updateCulling(dt, pos, activeEnvironmentProfile.foliage.impostorRadius);
     terminalDistance = Math.hypot(
       pos.x - terminalFixture.position.x,
       pos.z - terminalFixture.position.z,

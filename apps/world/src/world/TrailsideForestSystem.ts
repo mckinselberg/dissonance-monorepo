@@ -42,6 +42,12 @@ const HERO_WEIGHT_TOTAL = HERO_ASSETS.reduce((sum, asset) => sum + asset.count, 
 const TRAILSIDE_MIN_OFFSET = 3;
 const TRAILSIDE_MAX_OFFSET = 14;
 
+// See BulkForestSystem's identical constant for why: thin instances cull as
+// one aggregate bounding box per mesh, never per instance, so a trail-length
+// scatter renders in full no matter how far away the player currently is
+// unless the position array itself is distance-filtered before upload.
+const CULL_UPDATE_INTERVAL_SECONDS = 0.25;
+
 type TrailSegment = { ax: number; az: number; bx: number; bz: number; length: number; start: number };
 
 // Player-mode-only (see main.tsx — orbit mode never constructs this):
@@ -53,8 +59,11 @@ type TrailSegment = { ax: number; az: number; bx: number; bz: number; length: nu
 export class TrailsideForestSystem {
   private readonly trailSegments: TrailSegment[] = [];
   private trailTotalLength = 0;
-  private readonly clusters: Array<{ weight: number; handle: HeroTreeInstancesHandle }> = [];
+  private readonly clusters: Array<{ weight: number; handle: HeroTreeInstancesHandle; fullPositions: Vector3[] }> = [];
   private readonly rebuildDebouncedFn: () => void;
+  private lastCameraPosition: Vector3 | null = null;
+  private cullRadius = Number.POSITIVE_INFINITY;
+  private cullAccumulator = 0;
 
   private constructor(
     private readonly terrain: ITerrain,
@@ -107,16 +116,17 @@ export class TrailsideForestSystem {
     await Promise.all(
       HERO_ASSETS.map(async ({ label, url, count: weight }) => {
         try {
+          const positions = system.trailsidePositions(system.speciesCount(weight));
           const handle = await loadHeroTreeInstances(
             scene,
             url,
-            system.trailsidePositions(system.speciesCount(weight)),
+            positions,
             scaleTuning.hScale.value * trailsideScale.hScale.value,
             scaleTuning.hScale.value * trailsideScale.vScale.value,
             shadowGenerator,
             windSource,
           );
-          system.clusters.push({ weight, handle });
+          system.clusters.push({ weight, handle, fullPositions: positions });
           console.info(`[TrailsideScatter] loaded ${system.speciesCount(weight)} thin-instanced ${label}(s) along the trail`);
         } catch (error) {
           console.error(`[TrailsideScatter] failed to load ${label} along the trail`, error);
@@ -171,16 +181,43 @@ export class TrailsideForestSystem {
   }
 
   rebuild(): void {
-    for (const { weight, handle } of this.clusters) {
-      handle.setPlacements(
-        this.trailsidePositions(this.speciesCount(weight)),
-        this.scaleTuning.hScale.value * this.trailsideScale.hScale.value,
-        this.scaleTuning.hScale.value * this.trailsideScale.vScale.value,
-      );
+    for (const cluster of this.clusters) {
+      cluster.fullPositions = this.trailsidePositions(this.speciesCount(cluster.weight));
     }
+    this.applyCulling();
   }
 
   rebuildDebounced(): void {
     this.rebuildDebouncedFn();
+  }
+
+  // Mirrors BulkForestSystem's applyCulling/updateCulling pair — see its
+  // comments for why thin instances need this at all.
+  private applyCulling(): void {
+    const hScale = this.scaleTuning.hScale.value * this.trailsideScale.hScale.value;
+    const vScale = this.scaleTuning.hScale.value * this.trailsideScale.vScale.value;
+    const camera = this.lastCameraPosition;
+    const radius = this.cullRadius;
+    const withinRadius = (positions: Vector3[]): Vector3[] => {
+      if (!camera || !Number.isFinite(radius)) return positions;
+      const radiusSq = radius * radius;
+      return positions.filter((p) => {
+        const dx = p.x - camera.x;
+        const dz = p.z - camera.z;
+        return dx * dx + dz * dz <= radiusSq;
+      });
+    };
+    for (const cluster of this.clusters) {
+      cluster.handle.setPlacements(withinRadius(cluster.fullPositions), hScale, vScale);
+    }
+  }
+
+  updateCulling(dt: number, cameraPosition: Vector3, cullRadius: number): void {
+    this.lastCameraPosition = cameraPosition;
+    this.cullRadius = cullRadius;
+    this.cullAccumulator += dt;
+    if (this.cullAccumulator < CULL_UPDATE_INTERVAL_SECONDS) return;
+    this.cullAccumulator = 0;
+    this.applyCulling();
   }
 }
