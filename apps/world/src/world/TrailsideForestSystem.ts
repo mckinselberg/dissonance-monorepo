@@ -4,6 +4,7 @@ import { latLonToWorld, type GeoPolyline, type UtmCoordinate } from '@dissonance
 import type { ScaleTuningSignals } from '../state/scaleTuning';
 import type { TrailsideScatterSignals } from '../state/trailsideScatter';
 import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './HeroTreeInstances';
+import { CULL_UPDATE_INTERVAL_SECONDS, filterWithinRadius, sameVisibleSet } from './distanceCulling';
 import { debounce } from '../utils';
 
 // Counts are lower for the understory/deadfall props than the tree canopy
@@ -42,12 +43,6 @@ const HERO_WEIGHT_TOTAL = HERO_ASSETS.reduce((sum, asset) => sum + asset.count, 
 const TRAILSIDE_MIN_OFFSET = 3;
 const TRAILSIDE_MAX_OFFSET = 14;
 
-// See BulkForestSystem's identical constant for why: thin instances cull as
-// one aggregate bounding box per mesh, never per instance, so a trail-length
-// scatter renders in full no matter how far away the player currently is
-// unless the position array itself is distance-filtered before upload.
-const CULL_UPDATE_INTERVAL_SECONDS = 0.25;
-
 type TrailSegment = { ax: number; az: number; bx: number; bz: number; length: number; start: number };
 
 // Player-mode-only (see main.tsx — orbit mode never constructs this):
@@ -59,7 +54,12 @@ type TrailSegment = { ax: number; az: number; bx: number; bz: number; length: nu
 export class TrailsideForestSystem {
   private readonly trailSegments: TrailSegment[] = [];
   private trailTotalLength = 0;
-  private readonly clusters: Array<{ weight: number; handle: HeroTreeInstancesHandle; fullPositions: Vector3[] }> = [];
+  private readonly clusters: Array<{
+    weight: number;
+    handle: HeroTreeInstancesHandle;
+    fullPositions: Vector3[];
+    lastAppliedPositions: Vector3[] | null;
+  }> = [];
   private readonly rebuildDebouncedFn: () => void;
   private lastCameraPosition: Vector3 | null = null;
   private cullRadius = Number.POSITIVE_INFINITY;
@@ -126,7 +126,7 @@ export class TrailsideForestSystem {
             shadowGenerator,
             windSource,
           );
-          system.clusters.push({ weight, handle, fullPositions: positions });
+          system.clusters.push({ weight, handle, fullPositions: positions, lastAppliedPositions: null });
           console.info(`[TrailsideScatter] loaded ${system.speciesCount(weight)} thin-instanced ${label}(s) along the trail`);
         } catch (error) {
           console.error(`[TrailsideScatter] failed to load ${label} along the trail`, error);
@@ -192,23 +192,19 @@ export class TrailsideForestSystem {
   }
 
   // Mirrors BulkForestSystem's applyCulling/updateCulling pair — see its
-  // comments for why thin instances need this at all.
+  // comments for why thin instances need this at all, and why setPlacements
+  // is skipped when the filtered set didn't change.
   private applyCulling(): void {
     const hScale = this.scaleTuning.hScale.value * this.trailsideScale.hScale.value;
     const vScale = this.scaleTuning.hScale.value * this.trailsideScale.vScale.value;
     const camera = this.lastCameraPosition;
     const radius = this.cullRadius;
-    const withinRadius = (positions: Vector3[]): Vector3[] => {
-      if (!camera || !Number.isFinite(radius)) return positions;
-      const radiusSq = radius * radius;
-      return positions.filter((p) => {
-        const dx = p.x - camera.x;
-        const dz = p.z - camera.z;
-        return dx * dx + dz * dz <= radiusSq;
-      });
-    };
     for (const cluster of this.clusters) {
-      cluster.handle.setPlacements(withinRadius(cluster.fullPositions), hScale, vScale);
+      const visible = filterWithinRadius(cluster.fullPositions, camera, radius);
+      if (!cluster.lastAppliedPositions || !sameVisibleSet(cluster.lastAppliedPositions, visible)) {
+        cluster.handle.setPlacements(visible, hScale, vScale);
+        cluster.lastAppliedPositions = visible;
+      }
     }
   }
 

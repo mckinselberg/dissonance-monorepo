@@ -39,6 +39,7 @@ export type SharedSettingsSnapshot = Pick<
   | 'sunTint'
   | 'windowTintColor'
   | 'windowGlow'
+  | 'vegetationCullRadius'
   | 'treeRegionRadius'
   | 'trailsideHScale'
   | 'trailsideVScale'
@@ -110,6 +111,7 @@ export function buildSharedSettingsSnapshot(deps: {
     sunTint: atmosphere.sunTint.value,
     windowTintColor: atmosphere.windowTintColor.value,
     windowGlow: atmosphere.windowGlow.value,
+    vegetationCullRadius: atmosphere.vegetationCullRadius.value,
     treeRegionRadius: treeRegionRadius.value,
     trailsideHScale: trailsideScale.hScale.value,
     trailsideVScale: trailsideScale.vScale.value,

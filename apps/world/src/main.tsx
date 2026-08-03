@@ -304,6 +304,7 @@ async function main() {
     sunTint: savedSettings.sunTint ?? '#ffffff',
     windowTintColor: savedSettings.windowTintColor ?? initialWindowPresentation?.color ?? '#ffffff',
     windowGlow: savedSettings.windowGlow ?? initialWindowPresentation?.intensity ?? 0,
+    vegetationCullRadius: savedSettings.vegetationCullRadius ?? initialEnvironmentProfile.foliage.impostorRadius,
   });
   const applyWindowEmissiveOverride = () => {
     const inherited = activeEnvironmentProfile.emissive?.windows;
@@ -614,7 +615,7 @@ async function main() {
       source: 'live',
       summary: () => ({
         primary: visibility.mechDog.value ? 'Mech dog visible' : 'Mech dog hidden',
-        secondary: mechDogSkin.value === 'default' ? 'mech skin' : 'black pet-friend skin',
+        secondary: mechDogSkin.value === 'default' ? 'pet-friend skin' : 'black mech-dog skin',
       }),
       rootIds: ['companion-root'],
     } satisfies LineglassModuleDefinition]),
@@ -762,8 +763,8 @@ async function main() {
               mechDog.setSkin(event.currentTarget.value as MechDogSkin);
             }}
           >
-            <option value='default'>Mech (default)</option>
-            <option value='black'>Black (pet-friend)</option>
+            <option value='default'>Pet friend (real dog)</option>
+            <option value='black'>Mech dog (black)</option>
           </select>
         </label>
       </div>,
@@ -862,6 +863,17 @@ async function main() {
           bulkForest.repositionDebounced();
         }}
       />
+      <div style={{ marginTop: '10px', color: '#9cf', fontWeight: 700 }}>Vegetation culling</div>
+      <SliderRow
+        label='Cull radius'
+        signal={atmosphere.vegetationCullRadius}
+        min={25}
+        max={Math.max(2000, bulkForest.treeRegionRadiusMax)}
+        step={25}
+        suffix='m'
+        format={(v) => v.toFixed(0)}
+        commitOn='input'
+      />
       {levelKey === '1' && (
         <ScaleTuningRow
           signals={scaleTuning}
@@ -895,6 +907,7 @@ async function main() {
     const windows = profile.emissive?.windows;
     atmosphere.windowTintColor.value = windows?.color ?? '#ffffff';
     atmosphere.windowGlow.value = windows?.intensity ?? 0;
+    atmosphere.vegetationCullRadius.value = profile.foliage.impostorRadius;
     applyActiveEnvironmentProfile(profile);
     saveSettings(levelKey, { ...loadSavedSettings(levelKey), environmentProfileId: profile.id });
   };
@@ -1129,7 +1142,7 @@ async function main() {
           ))
         : baseAmbientColor;
       const pos = orbitCamera.position;
-      bulkForest.updateCulling(dt, pos, activeEnvironmentProfile.foliage.impostorRadius);
+      bulkForest.updateCulling(dt, pos, atmosphere.vegetationCullRadius.value);
       const groundY = terrain.getHeightAt(pos.x, pos.z);
       readout.textContent =
         `camera: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
@@ -1953,8 +1966,8 @@ async function main() {
     }
 
     const pos = activeTraversalController.getPosition();
-    bulkForest.updateCulling(dt, pos, activeEnvironmentProfile.foliage.impostorRadius);
-    trailsideForest.updateCulling(dt, pos, activeEnvironmentProfile.foliage.impostorRadius);
+    bulkForest.updateCulling(dt, pos, atmosphere.vegetationCullRadius.value);
+    trailsideForest.updateCulling(dt, pos, atmosphere.vegetationCullRadius.value);
     terminalDistance = Math.hypot(
       pos.x - terminalFixture.position.x,
       pos.z - terminalFixture.position.z,
