@@ -1,7 +1,7 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.59
-**Date:** 2026-08-01
+**Version:** 9.60
+**Date:** 2026-08-03
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
 
 > **Documentation-system reconciliation (v9.58):** `DISSONANCE-DOCSYSTEM.md` now
@@ -64,6 +64,7 @@
 | T35 | Underground network (parent; contains Milo's workshop) | first node/corridor + inventory-as-room presentation landed; live visual review pending and tuning deferred |
 | T36 | Rey Caverns + gatekeepers (inhabited pole) | boundary teaser landed; inhabited space and trust economy gated |
 | T37 | Milo's apartment archaeology room | queued; architecture approved, Blender pipeline and room implementation outstanding |
+| T38 | Category object scaling / real-meter calibration | specification ready; implementation queued |
 
 ---
 
@@ -432,6 +433,17 @@ emissive material for machine-readout surfaces.
 - **Implementation:** the existing procedural Milo building/interior and underground workshop are adjacent prior art; neither is the photogrammetry room. The Blender pipeline test, human cleanup, room integration, and live validation remain outstanding.
 - **Next gate:** validate the Blender preparation script without creative changes, then perform the separate human cleanup/export pass.
 
+### T38 — Category object scaling / real-meter calibration
+- **Status:** implementation-ready specification; runtime work not started.
+- **Purpose:** separate geographic terrain H/V transforms from the dimensions of structures, vegetation, props, and agents so World assets can be calibrated and tuned at believable scale without moving their authored coordinates.
+- **Canonical spec:** `design/world/CATEGORY-OBJECT-SCALING.md`.
+- **Runtime owner:** `apps/world`; keep the state and orchestration app-local until a second consumer exists.
+- **Scope:** four independently persisted H/V category controls; backward-compatible placement overrides; focused rescale/rebuild paths; aligned grounding, collision, floors, doors, pickups, docking, petting, and agent animation; Copy/Load View parity.
+- **Known migration seams:** compound buildings currently inherit terrain H/V as dimensions, terminals scale uniformly from terrain H, and forest initial-load/reposition paths do not apply their vertical multiplier consistently.
+- **Non-goals:** terrain/DEM math, geographic spacing, scatter density, routes/speeds, a general per-instance editor, or changes to the preserved museum exhibit.
+- **Depends on:** T21 World terrain/location substrate and T2's established Dev HUD authoring pattern.
+- **Next gate:** implement the pure scale resolver and persistence contract first, then migrate vegetation as the lowest-risk existing H/V consumer.
+
 ### T11 — Provenance / multiplayer
 - **Status:** parked architecture; no network implementation session until T29's offline terminal and in-process Scrambler contract prove the interaction boundary.
 - **Scope after v9.43 addendum reconciliation:** server-authoritative sessions, reconnect, terminal messages, player traces/presence, stable-feature replication, event ordering/provenance, and server-owned faction affiliation (Synod / Independents / Chorus / Null). Conflict remains infrastructure-centric and must conform to D2 nonviolence.
@@ -638,6 +650,7 @@ The former v9.7 “this week” list is removed because its T3 assumptions were 
 
 | Version | Date | Change |
 |---|---|---|
+| 9.60 | 2026-08-03 | Opened T38 and added the canonical category-object-scaling specification. The contract separates terrain/geographic H/V from object dimensions, defines structures/vegetation/props/agents ownership, persistence and snapshot parity, collision/interaction rules, migration seams, implementation order, and an explicit validation matrix. No runtime implementation landed in this revision. |
 | 9.59 | 2026-08-01 | Completed the physical legacy-plan migration defined by v9.58: active candidates moved to `engineering/prompts/`, audits to `engineering/reviews/`, the Blender handoff to `engineering/handoffs/`, completed/superseded artifacts to `archive/prompts/`, and reference assets beside their canonical design domains. Updated live links and source comments; `docs/plans/` is retired. The separate untracked `docs/intake/` inbox was deliberately untouched. |
 | 9.58 | 2026-07-31 | Reconciled the legacy `docs/plans/` inventory against `DISSONANCE-DOCSYSTEM.md`: established the missing SYSTEMS/DECISIONS/OPEN-QUESTIONS registries, classified every plan in `engineering/PLAN-RECONCILIATION.md`, created scoped canonical design homes, and registered T37 for Milo's apartment without renumbering existing threads. Physical plan moves are deliberately a later mechanical pass; legacy paths remain readable but are non-canonical. |
 | 9.57 | 2026-07-31 | Completed the manually selectable environment-presentation runtime behind T1/T2's existing profile/apply seam: shared fixed-four haze + red gain in `@dissonance/materials`, app-local live window/lamp emissive adapters, exact-four validation, late-material/baseline/flicker tests, and grade/bloom parity in orbit mode. Classified the recipe as an environment profile; saved views only reference `environmentProfileId`. Type checks, focused tests and the World production build pass. Live depth-ramp/reference tuning remains outstanding; T6/T23/T25/T27 gates are unchanged. |

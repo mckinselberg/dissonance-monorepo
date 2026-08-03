@@ -45,6 +45,9 @@ to locate each migrated artifact and understand its authority.
   - [scale-tuning.md](dissonance/world/scale-tuning.md) — why real terrain
     reads as flat at human scale, the three viewing levels
     (`?level=1|2|3`), the actual slope math, and known tradeoffs/bugs.
+  - [design/world/CATEGORY-OBJECT-SCALING.md](design/world/CATEGORY-OBJECT-SCALING.md)
+    — T38's canonical contract for separating terrain/geographic H/V from
+    independently persisted structures, vegetation, props, and agents scale.
   - [park-map-overlay.md](dissonance/world/park-map-overlay.md) — planned
     (not yet implemented) work to drape an illustrated park map onto the
     terrain as a texture.
