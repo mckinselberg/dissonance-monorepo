@@ -29,6 +29,9 @@ importers:
       '@babylonjs/core':
         specifier: ^7.0.0
         version: 7.54.3
+      '@babylonjs/loaders':
+        specifier: ^7.0.0
+        version: 7.54.3(@babylonjs/core@7.54.3)(babylonjs-gltf2interface@7.54.3)
       '@dissonance/materials':
         specifier: workspace:*
         version: link:../../packages/materials

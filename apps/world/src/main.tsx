@@ -78,6 +78,7 @@ import { AudioRow } from './ui/AudioRow';
 import type { MechDogSkin } from './pursuer/MechDogBody';
 import { MechDogController } from './pursuer/MechDogController';
 import { PlayerWhistleController } from './player/PlayerWhistleController';
+import { HeldFlashlight } from './player/HeldFlashlight';
 import { createWorldAudioStack, resolveWorldAudioEngine } from './audio/WorldAudioStack';
 import { createSurveillanceSession } from './interiors/SurveillanceSession';
 import { createWorkshopSession } from './interiors/WorkshopSession';
@@ -1167,6 +1168,8 @@ async function main() {
   const player = new PlayerController(scene, startPosition, { scale: level.playerScale, farClip: level.farClip });
   player.setFlashlightEnabled(flashlightEnabled.value);
   player.setTerrain(terrain);
+  const heldFlashlight = new HeldFlashlight(scene, player.camera);
+  heldFlashlight.setVisible(flashlightEnabled.value);
 
   // Fast air travel — a free-fly camera for covering this real-world-scale
   // map quickly, alongside walking. All three controllers stay alive
@@ -1530,6 +1533,9 @@ async function main() {
     player.setFlashlightEnabled(
       flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
     );
+    heldFlashlight.setVisible(
+      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
+    );
   });
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyI' || event.repeat) return;
@@ -1890,6 +1896,9 @@ async function main() {
     });
     publishTerminalSnapshot(terminalSnapshot);
     player.setFlashlightEnabled(
+      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
+    );
+    heldFlashlight.setVisible(
       flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
     );
     workshop.setFlashlightEnabled(flashlightEnabled.value && workshop.isInterior());

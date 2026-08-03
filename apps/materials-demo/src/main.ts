@@ -8,11 +8,15 @@ import {
   Color3,
   Engine,
   HemisphericLight,
+  LoadAssetContainerAsync,
   Matrix,
+  Mesh,
   MeshBuilder,
   PBRMaterial,
+  PointLight,
   Quaternion,
   Scene,
+  TransformNode,
   Vector3,
 } from '@babylonjs/core';
 import {
@@ -40,6 +44,13 @@ camera.upperRadiusLimit = 60;
 
 const light = new HemisphericLight('light', new Vector3(0.3, 1, 0.2), scene);
 light.intensity = 0.9;
+
+// A local key light makes the flashlight's authored roughness, ridged end
+// caps, and glass lens readable instead of flattening under the demo's broad
+// hemispheric illumination.
+const flashlightKey = new PointLight('flashlightKey', new Vector3(3, 7, 5), scene);
+flashlightKey.intensity = 18;
+flashlightKey.range = 16;
 
 // --- Scatter props: >=100 thin instances sharing one material, hue/value
 // jittered per-instance so they don't read as visibly cloned. ---
@@ -136,8 +147,55 @@ for (let i = 0; i < LINEGLASS_COUNT; i++) {
   accent.parent = body;
 }
 
+// --- Prepared prop preview: the exact 70% / 1K runtime GLB used by World.
+// Kept as authored PBR rather than replaced with a demo material so this
+// surface catches texture/export regressions in the shared asset workflow. ---
+const flashlightRoot = new TransformNode('flashlightPreview', scene);
+flashlightRoot.position.set(0, 3.25, 2.5);
+flashlightRoot.scaling.setAll(8);
+flashlightRoot.rotation.y = -0.55;
+
+const flashlightPedestalMat = new PBRMaterial('flashlightPedestalMat', scene);
+flashlightPedestalMat.albedoColor = new Color3(0.055, 0.065, 0.08);
+flashlightPedestalMat.metallic = 0.72;
+flashlightPedestalMat.roughness = 0.3;
+const flashlightPedestal = MeshBuilder.CreateCylinder(
+  'flashlightPedestal',
+  { height: 0.35, diameter: 3.1, tessellation: 64 },
+  scene,
+);
+flashlightPedestal.position.set(0, 2.65, 2.5);
+flashlightPedestal.material = flashlightPedestalMat;
+
+let flashlightStatus = 'loading';
+async function loadFlashlightPreview(): Promise<void> {
+  try {
+    await import('@babylonjs/loaders/glTF/index.js');
+    const container = await LoadAssetContainerAsync(
+      '/models/flashlight/runtime/flashlight.glb',
+      scene,
+    );
+    container.addAllToScene();
+    for (const node of container.rootNodes) node.parent = flashlightRoot;
+    const meshes = container.meshes.filter(
+      (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0,
+    );
+    const triangles = meshes.reduce(
+      (total, mesh) => total + Math.floor(mesh.getTotalIndices() / 3),
+      0,
+    );
+    for (const mesh of meshes) mesh.isPickable = false;
+    flashlightStatus = `${triangles.toLocaleString()} triangles · 1K PBR`;
+  } catch (error) {
+    flashlightStatus = 'load failed';
+    console.error('[materials-demo] flashlight preview failed to load', error);
+  }
+}
+void loadFlashlightPreview();
+
 engine.runRenderLoop(() => {
   scene.render();
+  flashlightRoot.rotation.y += 0.003;
   scene.meshes.forEach((mesh) => {
     if (mesh.name.startsWith('lineglassPreview_') && !mesh.name.includes('accent')) {
       mesh.rotation.y += 0.008;
@@ -145,6 +203,7 @@ engine.runRenderLoop(() => {
   });
   readout.textContent =
     `instances: ${placed}\n` +
+    `flashlight: ${flashlightStatus}\n` +
     `fps: ${engine.getFps().toFixed(0)}\n` +
     `drag to orbit, scroll to zoom`;
 });
