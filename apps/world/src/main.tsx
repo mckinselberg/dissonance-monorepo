@@ -45,6 +45,7 @@ import {
   loadGpxTrack,
   loadSavedViews,
   loadLocations,
+  loadForestDensityZones,
   loadReplayRoutes,
   loadStoryManifest,
   loadStrikeProfile,
@@ -451,8 +452,10 @@ async function main() {
   // Owns the map-wide tree candidate pool (feeds ForestFire, below, via
   // treePointsInRegion) plus the bulk/decimated forest scatter — see
   // BulkForestSystem's own comment.
+  const forestDensityZones = await loadForestDensityZones();
   const bulkForest = await BulkForestSystem.create(
     scene, sampler, contract, scaleTuning, backdrop.getShadowGenerator(), visualWindSource, savedSettings,
+    origin, forestDensityZones,
   );
 
   const [

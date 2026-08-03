@@ -1,0 +1,64 @@
+Quaternius Forest Kit
+=====================
+
+Author: @Quaternius (https://quaternius.com, https://www.patreon.com/quaternius)
+License: CC0 1.0 Universal (CC0 1.0) — Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Source note: the bundled License.txt in this download's root names it
+"Ultimate Platformer Pack" — that's boilerplate Quaternius reuses across nature
+packs; the actual contents (birch/maple/dead trees, bushes, flowers, grass)
+match the "Forest Kit"/"Nature Kit" family, not a platformer set. Same CC0
+terms apply regardless.
+
+Selection notes (this repo, 2026-08-01)
+----------------------------------------
+
+Raw multi-file glTF (mesh + .bin + loose textures), same convention as
+`downtown-city-megakit/` — not baked into a single GLB like the Poly Haven
+hero trees, since each species here is already a small single-mesh asset with
+no benefit from gltfpack decimation.
+
+Imported for the T7 forest-impasse/grove/secret-entrance work
+(`docs/intake/world-foliage-impasse-prompt-v1.md`, executed via the live
+locations.json + thin-instance pipeline rather than that doc's Blender/navmesh
+assumptions — see ForestImpasses.ts):
+
+- `BirchTree_1..5.gltf` / `MapleTree_1..5.gltf` — canopy/hero variety, used for
+  the grove clearing's canopy-frame anchor trees and general impasse-ring fill.
+- `DeadTree_1..10.gltf` — ten distinct silhouettes for deadfall-stack impasses
+  and the grove's standing snag landmark (varied angle/decay reads without
+  repeating the same trunk).
+- `Bush.gltf`, `Bush_Small.gltf`, `Bush_Large.gltf` (+ `_Flowers` variants) —
+  dense shrub-wall impasses and vine-tangle-style understory fill (this pack
+  has no literal vine/rope geometry; dense stacked bush/deadtree clusters
+  stand in for that visual, per the source doc's own "vine-heavy brush"
+  framing).
+- `Flower_1.gltf`, `Flower_2.gltf`, `Flower_1..5_Clump.gltf`,
+  `Grass_Small.gltf`, `Grass_Large.gltf`, `Grass_Large_Extruded.gltf` — grove
+  floor / ground-cover accents.
+
+Left out deliberately: `NormalTree_*`, `PalmTree_*`, `PineTree_*`, and
+`Rocks.jpg` — this particular download only includes texture maps for those,
+no mesh/.gltf files, so there was nothing importable for them. (`DeadTree_*`
+happens to reference the `NormalTree_Bark` texture set for its bark material —
+that pairing is intentional in the source pack, not a substitution made here.)
+
+Texture rework
+--------------
+
+`BirchTree_Bark(.jpg/_Normal.png)`, `MapleTree_Bark(.jpg/_Normal.png)`, and
+`NormalTree_Bark(.jpg/_Normal.png)` (used by DeadTree) shipped at 2048x2048;
+the normal maps in particular were multi-megabyte, poorly-compressed PNGs
+(~19-22MB each uncompressed). Downscaled to 512x512 with ffmpeg to match this
+repo's existing ground-texture convention (`rocky-terrain-02`,
+`marble-cliff-03`, both `_512`-suffixed) — nothing here reads at a distance
+close enough to need more resolution than the terrain textures already get:
+
+  ffmpeg -i <name>_Bark.jpg -vf scale=512:512 -q:v 3 <name>_Bark.jpg
+  ffmpeg -i <name>_Bark_Normal.png -vf scale=512:512 -compression_level 9 <name>_Bark_Normal.png
+
+`BirchTree_Leaves.png`, `Bush_Leaves.png`, `Flowers.png`, `Grass.png`, and
+`MapleTree_Leaves.png` were already 1024x1024 alpha-cutout cards and were left
+untouched. `MapleTree_Leaves_BW.png` was not copied — none of the five
+imported Maple variants reference it.

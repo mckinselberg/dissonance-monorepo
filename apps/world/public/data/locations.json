@@ -471,5 +471,97 @@
     "name": "boulder field",
     "latLong": [40.75, -74.27],
     "props": ["rocks"]
+  },
+  {
+    "id": "forest-grove",
+    "name": "forest grove (outside)",
+    "latLong": [40.755397, -74.274582],
+    "forestImpasse": {
+      "zones": [
+        {
+          "id": "vine-tangle-north",
+          "kind": "vine-tangle",
+          "local": [-20, 40],
+          "radiusMeters": 20
+        },
+        {
+          "id": "deadfall-east",
+          "kind": "deadfall",
+          "local": [60, 0],
+          "radiusMeters": 12.5,
+          "headingDegrees": 90
+        },
+        {
+          "id": "deadfall-west",
+          "kind": "deadfall",
+          "local": [-80, -30],
+          "radiusMeters": 9,
+          "headingDegrees": 90
+        },
+        {
+          "id": "shrub-wall-south",
+          "kind": "shrub-wall",
+          "local": [-30, -80],
+          "radiusMeters": 14
+        }
+      ],
+      "grove": {
+        "local": [0, 0],
+        "radiusMeters": 12,
+        "snagLocal": [5, -5]
+      },
+      "secretPassage": {
+        "zoneRef": "deadfall-west",
+        "local": [-80, -25],
+        "gapWidthMeters": 2.2
+      }
+    }
+  },
+  {
+    "id": "quaternius-forest-nursery",
+    "name": "quaternius forest nursery (demo)",
+    "latLong": [40.735, -74.26],
+    "assetShowcase": {
+      "columns": 6,
+      "spacingMeters": 6,
+      "assetUrls": [
+        "models/quaternius-forest/BirchTree_1.gltf",
+        "models/quaternius-forest/BirchTree_2.gltf",
+        "models/quaternius-forest/BirchTree_3.gltf",
+        "models/quaternius-forest/BirchTree_4.gltf",
+        "models/quaternius-forest/BirchTree_5.gltf",
+        "models/quaternius-forest/MapleTree_1.gltf",
+        "models/quaternius-forest/MapleTree_2.gltf",
+        "models/quaternius-forest/MapleTree_3.gltf",
+        "models/quaternius-forest/MapleTree_4.gltf",
+        "models/quaternius-forest/MapleTree_5.gltf",
+        "models/quaternius-forest/Bush.gltf",
+        "models/quaternius-forest/Bush_Flowers.gltf",
+        "models/quaternius-forest/Bush_Large.gltf",
+        "models/quaternius-forest/Bush_Large_Flowers.gltf",
+        "models/quaternius-forest/Bush_Small.gltf",
+        "models/quaternius-forest/Bush_Small_Flowers.gltf",
+        "models/quaternius-forest/DeadTree_1.gltf",
+        "models/quaternius-forest/DeadTree_2.gltf",
+        "models/quaternius-forest/DeadTree_3.gltf",
+        "models/quaternius-forest/DeadTree_4.gltf",
+        "models/quaternius-forest/DeadTree_5.gltf",
+        "models/quaternius-forest/DeadTree_6.gltf",
+        "models/quaternius-forest/DeadTree_7.gltf",
+        "models/quaternius-forest/DeadTree_8.gltf",
+        "models/quaternius-forest/DeadTree_9.gltf",
+        "models/quaternius-forest/DeadTree_10.gltf",
+        "models/quaternius-forest/Flower_1.gltf",
+        "models/quaternius-forest/Flower_2.gltf",
+        "models/quaternius-forest/Flower_1_Clump.gltf",
+        "models/quaternius-forest/Flower_2_Clump.gltf",
+        "models/quaternius-forest/Flower_3_Clump.gltf",
+        "models/quaternius-forest/Flower_4_Clump.gltf",
+        "models/quaternius-forest/Flower_5_Clump.gltf",
+        "models/quaternius-forest/Grass_Small.gltf",
+        "models/quaternius-forest/Grass_Large.gltf",
+        "models/quaternius-forest/Grass_Large_Extruded.gltf"
+      ]
+    }
   }
 ]

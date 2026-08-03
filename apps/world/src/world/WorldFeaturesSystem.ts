@@ -29,6 +29,8 @@ import {
   type WorldTerminalFixture,
   type WorldTerminalsHandle,
 } from './WorldTerminals';
+import { loadForestImpasses, type ForestImpassesHandle } from './ForestImpasses';
+import { loadAssetShowcase, type AssetShowcaseHandle } from './AssetShowcase';
 
 function worldBounds(realWidth: number, realDepth: number, scaleTuning: ScaleTuningSignals) {
   return {
@@ -97,6 +99,8 @@ export class WorldFeaturesSystem {
     private patrolDrones: BoulevardPatrolDronesHandle,
     private shelterEntrance: FalloutShelterEntranceHandle,
     private worldTerminals: WorldTerminalsHandle,
+    private forestImpasses: ForestImpassesHandle,
+    private assetShowcase: AssetShowcaseHandle,
   ) {
     this.applyPlayerColliders();
   }
@@ -151,11 +155,17 @@ export class WorldFeaturesSystem {
     validateTerminalClearance(
       worldTerminals, locations, toRenderXZ, scaleTuning.hScale.value,
     );
+    const forestImpasses = loadForestImpasses(
+      scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
+    );
+    const assetShowcase = loadAssetShowcase(
+      scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
+    );
 
     return new WorldFeaturesSystem(
       scene, locations, toRenderXZ, scaleTuning, terrain, atmosphere, powerLinesVisible, lineglass, realWidth, realDepth,
       shadowGenerator, player, locationProps, compositeLocations, utilityCorridors, lineglassParts, patrolDrones,
-      shelterEntrance, worldTerminals,
+      shelterEntrance, worldTerminals, forestImpasses, assetShowcase,
     );
   }
 
@@ -242,6 +252,7 @@ export class WorldFeaturesSystem {
       ...this.compositeLocations.doorBlockerColliders(),
       ...this.shelterEntrance.colliders,
       ...this.worldTerminals.colliders,
+      ...this.forestImpasses.colliders,
     ];
     this.player.setColliders(colliders);
     // Milo's stairwell steps + second-floor slab (2026-07-27) — the only
@@ -320,6 +331,16 @@ export class WorldFeaturesSystem {
     );
     validateTerminalClearance(
       this.worldTerminals, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value,
+    );
+
+    this.forestImpasses.dispose();
+    this.forestImpasses = loadForestImpasses(
+      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
+    );
+
+    this.assetShowcase.dispose();
+    this.assetShowcase = loadAssetShowcase(
+      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
     );
     this.applyPlayerColliders();
   }

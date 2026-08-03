@@ -97,6 +97,54 @@ export type LocationEntry = {
     headingDegrees: number;
     interactionRadiusMeters: number;
   };
+  // Hand-authored foliage that shapes navigable space through *exclusion*
+  // rather than open scatter — executes the design intent of
+  // docs/intake/world-foliage-impasse-prompt-v1.md (T7: impasse rings, one
+  // grove clearing, one secret entrance) through this app's actual
+  // locations.json + circle-collider pipeline, not that doc's Blender/
+  // baked-terrain/navmesh assumptions (this app has no navmesh — see
+  // ForestImpasses.ts). Same "local meters from latLong" convention as
+  // corridor/shelterEntrance; one cluster per location entry.
+  forestImpasse?: {
+    zones: Array<{
+      id: string;
+      // vine-tangle/deadfall are non-passable (real colliders); shrub-wall
+      // is a soft gate players can push through, so it gets none — matches
+      // the source doc's own per-type collision spec.
+      kind: 'vine-tangle' | 'deadfall' | 'shrub-wall';
+      local: [number, number];
+      radiusMeters: number;
+      // Orientation of the log-run/hedge-line through local — meaningless
+      // for the roughly-circular vine-tangle/shrub-wall clusters.
+      headingDegrees?: number;
+    }>;
+    grove: {
+      local: [number, number];
+      radiusMeters: number;
+      // Standing dead snag — the grove's wayfinding landmark.
+      snagLocal: [number, number];
+    };
+    // The one deliberately-not-signposted opening (source doc's Option A:
+    // low deadfall passage). `zoneRef` must name a `kind: 'deadfall'` zone
+    // above; ForestImpasses.ts leaves a real gap in that zone's log run and
+    // collider set at the point closest to `local`, rather than modeling a
+    // separate passable/impassable flag.
+    secretPassage: {
+      zoneRef: string;
+      local: [number, number];
+      gapWidthMeters: number;
+    };
+  };
+  // Dev-only visual QA tool: lays one instance of each named asset out in an
+  // evenly-spaced grid, centered on this location, for side-by-side
+  // comparison — not narrative content. Built for eyeballing a freshly
+  // imported asset pack (see AssetShowcase.ts) before deciding how to use it
+  // in real placements like forestImpasse above.
+  assetShowcase?: {
+    assetUrls: string[];
+    columns: number;
+    spacingMeters: number;
+  };
 };
 
 export interface LocationPropsHandle {

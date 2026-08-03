@@ -8,6 +8,7 @@ import type { SavedView } from '../ui/ViewToolsRow';
 import { parseRouteDocument, type ReplayRoute } from '../ui/RouteReplay';
 import { WorldFeatureRegistry } from '../world/WorldFeatureRegistry';
 import type { LocationEntry } from '../world/LocationProps';
+import type { ForestDensityZone } from '../world/BulkForestSystem';
 import { parseStoryManifest, type StoryManifest } from '../state/story';
 import { parseStrikeProfile, type StrikeProfile } from '../systems/strike/strikeProfile';
 import {
@@ -56,6 +57,17 @@ export async function loadLocations(): Promise<WorldFeatureRegistry> {
   if (!Array.isArray(raw)) throw new Error('World feature data must be a JSON array.');
   const entries = raw as LocationEntry[];
   return new WorldFeatureRegistry(entries);
+}
+
+// Per-lat/long-box relative density override for BulkForestSystem (see its
+// own comment) — a scoped bolt-on, not the real T23 region system. Empty by
+// default; grows by hand, same as views.json/locations.json.
+export async function loadForestDensityZones(): Promise<ForestDensityZone[]> {
+  const response = await fetch(`${import.meta.env.BASE_URL}data/density-zones.json`);
+  if (!response.ok) throw new Error(`Could not load forest density zones (${response.status}).`);
+  const raw = await response.json() as unknown;
+  if (!Array.isArray(raw)) throw new Error('Forest density zone data must be a JSON array.');
+  return raw as ForestDensityZone[];
 }
 
 export async function loadStoryManifest(

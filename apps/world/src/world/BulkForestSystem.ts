@@ -1,11 +1,51 @@
 import { Vector3, type Scene, type ShadowGenerator } from '@babylonjs/core';
 import { defaultWaterLevel, type TreePoint, type FoliageSwaySource } from '@dissonance/world';
-import { HeightmapSampler, type HeightmapContract } from '@dissonance/geo';
+import { HeightmapSampler, latLonToWorld, type HeightmapContract, type UtmCoordinate } from '@dissonance/geo';
 import { signal, type Signal } from '@preact/signals';
 import { createBulkForestScatterSignals, type BulkForestScatterSignals } from '../state/bulkForestScatter';
 import type { ScaleTuningSignals } from '../state/scaleTuning';
 import { loadHeroTreeInstances, type HeroTreeInstancesHandle } from './HeroTreeInstances';
 import { debounce } from '../utils';
+
+// Per-lat/long-box relative density override for this tier only (not
+// trailside, not the hand-authored forestImpasse zones) — a scoped bolt-on
+// (Dan, 2026-08-03) ahead of T23's real region system actually landing; see
+// THREADS.md's T23/T27 notes for why this is deliberately not that system.
+// `multiplier` is a *relative* weight, not an absolute trees-per-m² target —
+// see acceptDensityWeight below.
+export type ForestDensityZone = {
+  id: string;
+  minLat: number;
+  maxLat: number;
+  minLon: number;
+  maxLon: number;
+  multiplier: number;
+};
+
+type ForestDensityZoneRealSpace = { minX: number; maxX: number; minZ: number; maxZ: number; multiplier: number };
+
+// Lat/long boxes don't map to an exactly axis-aligned real-space rectangle
+// under this app's projection, but at the scale these zones are authored
+// at (part of one park's worth of terrain) the distortion is negligible —
+// projecting all four corners and taking the min/max is a fine
+// approximation, not worth a true polygon-clip for a bolt-on.
+function toRealSpaceZones(zones: ForestDensityZone[], origin: UtmCoordinate): ForestDensityZoneRealSpace[] {
+  return zones.map((zone) => {
+    const corners = [
+      latLonToWorld({ lat: zone.minLat, lon: zone.minLon }, origin),
+      latLonToWorld({ lat: zone.minLat, lon: zone.maxLon }, origin),
+      latLonToWorld({ lat: zone.maxLat, lon: zone.minLon }, origin),
+      latLonToWorld({ lat: zone.maxLat, lon: zone.maxLon }, origin),
+    ];
+    return {
+      minX: Math.min(...corners.map((c) => c.x)),
+      maxX: Math.max(...corners.map((c) => c.x)),
+      minZ: Math.min(...corners.map((c) => c.z)),
+      maxZ: Math.max(...corners.map((c) => c.z)),
+      multiplier: zone.multiplier,
+    };
+  });
+}
 
 // Candidate pool feeds ForestFire (via treePointsInRegion) and caps the
 // "Bulk forest count" slider — 8000 was a guessed-not-measured ceiling;
@@ -70,6 +110,8 @@ export class BulkForestSystem {
   private readonly forestWaterline: number;
   private readonly repositionDebouncedFn: () => void;
 
+  private readonly maxDensityMultiplier: number;
+
   private constructor(
     private readonly sampler: HeightmapSampler,
     contract: HeightmapContract,
@@ -78,7 +120,9 @@ export class BulkForestSystem {
     bulkForestScaleDefaults: { hScale: number; vScale: number; count: number },
     private bulkForest: HeroTreeInstancesHandle | null,
     private readonly bulkUnderstoryClusters: Array<{ label: string; fraction: number; handle: HeroTreeInstancesHandle }>,
+    private readonly densityZones: ForestDensityZoneRealSpace[],
   ) {
+    this.maxDensityMultiplier = Math.max(1, ...densityZones.map((z) => z.multiplier));
     const realWidth = contract.bbox.maxX - contract.bbox.minX;
     const realDepth = contract.bbox.maxZ - contract.bbox.minZ;
     this.treeRegionRadiusMax = Math.hypot(realWidth, realDepth) / 2;
@@ -116,6 +160,8 @@ export class BulkForestSystem {
       bulkForestVScale?: number;
       bulkForestCount?: number;
     },
+    origin: UtmCoordinate,
+    densityZones: ForestDensityZone[] = [],
   ): Promise<BulkForestSystem> {
     const system = new BulkForestSystem(
       sampler, contract, scaleTuning,
@@ -127,6 +173,7 @@ export class BulkForestSystem {
       },
       null,
       [],
+      toRealSpaceZones(densityZones, origin),
     );
 
     try {
@@ -217,9 +264,33 @@ export class BulkForestSystem {
       const x = Math.cos(angle) * distance;
       const z = Math.sin(angle) * distance;
       const point = { x, z, groundY: this.sampler.sampleHeight({ x, z }) };
-      if (this.isForestEligible(point)) positions.push(point);
+      if (!this.isForestEligible(point)) continue;
+      // Fast path when no zones are authored (the shipped default): skip
+      // the extra random() draw entirely so behavior/seeding is byte-for-
+      // byte identical to before this existed, not just "close enough."
+      if (this.densityZones.length > 0 && random() >= this.densityWeightAt(x, z)) continue;
+      positions.push(point);
     }
     return positions;
+  }
+
+  // Relative weight against whatever the densest authored zone is right
+  // now (1 if there are none), not an absolute trees-per-m² figure — a
+  // zone with multiplier 2 doesn't place "twice as many trees absolutely,"
+  // it gets weighted twice as favorably as an unzoned point the next time
+  // this same fixed-size candidate draw runs. Boosting one zone therefore
+  // makes everywhere else relatively sparser for the same total `count`
+  // budget, same as tightening treeRegionRadius already does today — this
+  // redistributes the existing budget rather than growing the instance
+  // count unboundedly. First zone containing the point wins; overlapping
+  // zones are not blended (not needed yet for a bolt-on).
+  private densityWeightAt(x: number, z: number): number {
+    for (const zone of this.densityZones) {
+      if (x >= zone.minX && x <= zone.maxX && z >= zone.minZ && z <= zone.maxZ) {
+        return zone.multiplier / this.maxDensityMultiplier;
+      }
+    }
+    return 1 / this.maxDensityMultiplier;
   }
 
   private bulkForestPoints(): TreePoint[] {

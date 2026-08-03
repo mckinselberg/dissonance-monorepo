@@ -1,0 +1,10 @@
+[
+  {
+    "id": "grove-density-boost",
+    "minLat": 40.753,
+    "maxLat": 40.758,
+    "minLon": -74.278,
+    "maxLon": -74.271,
+    "multiplier": 1.8
+  }
+]
