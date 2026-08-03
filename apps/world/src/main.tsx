@@ -17,13 +17,6 @@ import {
   type FoliageSwaySource,
 } from '@dissonance/world';
 import { PlayerController, FlightController, DriveController } from '@dissonance/player';
-import {
-  AmbientAudio,
-  AudioEngine,
-  HeartbeatAudio,
-  ShelterAlarmAudio,
-  TrailPlayerAudio,
-} from '@dissonance/audio';
 import type { PrecipitationMode, WeatherMode } from '@dissonance/shared-types';
 import { preventAccidentalClose } from '@dissonance/utils';
 import {
@@ -86,7 +79,8 @@ import { LineglassShell, type LineglassModuleDefinition } from './ui/lineglass';
 import { AudioRow } from './ui/AudioRow';
 import type { MechDogSkin } from './pursuer/MechDogBody';
 import { MechDogController } from './pursuer/MechDogController';
-import { WHISTLE_MELODIES } from './state/whistle';
+import { PlayerWhistleController } from './player/PlayerWhistleController';
+import { createWorldAudioStack, resolveWorldAudioEngine } from './audio/WorldAudioStack';
 import { createSurveillanceSession } from './interiors/SurveillanceSession';
 import { createWorkshopSession } from './interiors/WorkshopSession';
 import { InteriorDebugRow } from './ui/InteriorDebugRow';
@@ -102,6 +96,7 @@ import {
   type TerminalDockingSnapshot,
 } from './terminal';
 import { TerminalOverlay } from './ui/terminal';
+import { KeymapOverlay } from './ui/keymap';
 
 // Underwater look — WaterPlane's own "murky underside" mesh already gives a
 // plausible ceiling when you dip below the surface (Fly/Drive have no
@@ -129,6 +124,55 @@ function getOrCreateRunSeed(): number {
   const seed = values[0];
   sessionStorage.setItem(RUN_SEED_SESSION_KEY, String(seed));
   return seed;
+}
+
+function bindPauseControl(
+  gameLoop: GameLoop,
+  canvas: HTMLCanvasElement,
+  onPause: () => void,
+  onResume: () => void,
+): void {
+  const button = document.getElementById('toggle-pause-button') as HTMLButtonElement;
+  const overlay = document.getElementById('pause-overlay') as HTMLDivElement;
+
+  const togglePaused = (): void => {
+    if (gameLoop.isPaused()) {
+      gameLoop.resume();
+      onResume();
+      button.textContent = 'Pause';
+      button.setAttribute('aria-pressed', 'false');
+      overlay.hidden = true;
+      canvas.focus({ preventScroll: true });
+      return;
+    }
+
+    gameLoop.pause();
+    onPause();
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    button.textContent = 'Resume';
+    button.setAttribute('aria-pressed', 'true');
+    overlay.hidden = false;
+  };
+
+  button.addEventListener('click', togglePaused);
+
+  document.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyP' || !event.shiftKey || event.repeat) return;
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || target.closest('input, select, textarea, [contenteditable]'))
+    ) return;
+    togglePaused();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, { capture: true });
+
+  document.addEventListener('keydown', (event) => {
+    if (!gameLoop.isPaused() || event.target === button) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true });
 }
 
 // Fly and Drive are unconditionally available in this POC — no unlock gate
@@ -180,6 +224,10 @@ async function main() {
   const restoredExterior = worldSave.snapshot().lastExterior;
   const restoredHere = restoredExterior?.levelKey === levelKey ? restoredExterior : null;
   const flashlightEnabled = signal(worldSave.snapshot().equipment.flashlightEnabled);
+  const keymapOverlayOpen = signal(false);
+  // Dev/perf control, not authored environment state — deliberately not
+  // part of SharedSettingsSnapshot/Copy-Load View, resets to uncapped on reload.
+  const targetFps = signal<number | null>(null);
   if (worldSave.snapshot().activeRoute !== 'exterior') {
     // Interior cameras/geometry are runtime resources, not safe reload
     // targets. A reload resumes from the last committed exterior transform.
@@ -287,31 +335,34 @@ async function main() {
     });
   };
 
-  // Ported from dont-turn-around (@dissonance/audio) — AmbientAudio and
-  // HeartbeatAudio are already fully generic (no ExperienceProfile/DTA
-  // coupling), reused as-is. TrailPlayerAudio is a decoupled sibling of
-  // DTA's PlayerAudio: same breath-handling logic, but calls
-  // AudioEngine.playTrailStep() (open dirt/gravel) instead of
-  // playForestStep() for footsteps. All three construct with zero args
-  // (matches DTA's own Game.ts constructor pattern) — real playback only
-  // starts once the Enable Audio button fires a genuine user gesture
-  // (browsers require this for AudioContext unlock; World has no
-  // menu/start-screen gesture to piggyback on the way DTA's "Begin" button
-  // does, hence the dedicated button — see index.html).
+  // Production always selects Babylon. Dev may request the preserved Tone
+  // stack with ?audioEngine=tone; selection happens before construction so
+  // the two engines never coexist on one page.
   const audio = createAudioSignals({
     masterMuted: savedSettings.masterMuted ?? false,
     windVolume: savedSettings.windVolume ?? 0.7,
     footstepMuted: savedSettings.footstepMuted ?? false,
     breathMuted: savedSettings.breathMuted ?? false,
   });
-  const ambientAudio = new AmbientAudio();
-  const heartbeatAudio = new HeartbeatAudio();
-  const shelterAlarmAudio = new ShelterAlarmAudio();
-  const trailPlayerAudio = new TrailPlayerAudio();
-  AudioEngine.setMuted(audio.masterMuted.value);
+  const requestedAudioEngine = resolveWorldAudioEngine(window.location.search, import.meta.env.DEV);
+  const worldAudio = await createWorldAudioStack(scene, requestedAudioEngine);
+  const { ambientAudio, heartbeatAudio, shelterAlarmAudio, playerAudio: trailPlayerAudio } = worldAudio;
+  worldAudio.setMuted(audio.masterMuted.value);
   trailPlayerAudio.setFootstepMuted(audio.footstepMuted.value);
   trailPlayerAudio.setBreathMuted(audio.breathMuted.value);
   let audioStarted = false;
+  const playerWhistle = new PlayerWhistleController((notes) => {
+    if (audioStarted) worldAudio.playWhistle(notes);
+  });
+  let audioDisposed = false;
+  const disposeAudio = () => {
+    if (audioDisposed) return;
+    audioDisposed = true;
+    window.removeEventListener('pagehide', disposeAudio);
+    worldAudio.dispose();
+  };
+  window.addEventListener('pagehide', disposeAudio);
+  scene.onDisposeObservable.addOnce(disposeAudio);
 
   applyActiveEnvironmentProfile(activeEnvironmentProfile);
   if (savedSettings.windowTintColor !== undefined || savedSettings.windowGlow !== undefined) {
@@ -607,11 +658,22 @@ async function main() {
       rootIds: ['replay-root'],
     },
     {
-      id: 'diagnostics', label: 'Diagnostics', icon: '⌁', modes: ['system'], priority: 10,
+      id: 'diagnostics', label: 'Diagnostics', icon: '⚙', modes: ['system'], priority: 10,
       capabilities: ['view-diagnostics'],
       source: 'derived',
       summary: () => ({ primary: level.label, secondary: 'live engineering state' }),
-      rootIds: ['level-links', 'level-label', 'readout'],
+      rootIds: ['level-links', 'level-label', 'readout', 'performance-root'],
+    },
+    {
+      // Per-ticket debug scratch panels (T29/T31/T35/T36) — instrumentation
+      // and cheat controls for features under active development, not
+      // authored content. Kept out of 'context'/Interior, which they'd
+      // previously accreted into despite having nothing to do with it.
+      id: 'debug', label: 'Debug', icon: '⚑', modes: ['system'], priority: 20,
+      capabilities: ['view-diagnostics'],
+      source: 'derived',
+      summary: () => ({ primary: 'Per-feature panels', secondary: 'T29 · T31 · T35 · T36' }),
+      rootIds: ['debug-root'],
     },
   ];
   render(
@@ -633,6 +695,25 @@ async function main() {
   readout.textContent = 'loading...';
   const levelLabel = document.getElementById('level-label') as HTMLDivElement;
   levelLabel.textContent = level.label;
+
+  render(
+    <label class='weather-select-row'>
+      Target FPS
+      <select
+        value={targetFps.value === null ? 'uncapped' : String(targetFps.value)}
+        onChange={(event: JSX.TargetedEvent<HTMLSelectElement>) => {
+          const value = event.currentTarget.value;
+          targetFps.value = value === 'uncapped' ? null : Number(value);
+        }}
+      >
+        <option value='uncapped'>Uncapped</option>
+        <option value='30'>30</option>
+        <option value='60'>60</option>
+        <option value='120'>120</option>
+      </select>
+    </label>,
+    document.getElementById('performance-root') as HTMLDivElement,
+  );
 
   render(
     <div class='lineglass-control-grid'>
@@ -865,7 +946,14 @@ async function main() {
       <AudioRow
         signals={audio}
         showPlayerControls={level.cameraMode !== 'orbit'}
-        onMasterMutedCommit={(muted) => AudioEngine.setMuted(muted)}
+        engineKind={import.meta.env.DEV ? worldAudio.engineKind : undefined}
+        onEngineChange={import.meta.env.DEV ? (engineKind) => {
+          const url = new URL(window.location.href);
+          if (engineKind === 'tone') url.searchParams.set('audioEngine', 'tone');
+          else url.searchParams.delete('audioEngine');
+          window.location.href = url.toString();
+        } : undefined}
+        onMasterMutedCommit={(muted) => worldAudio.setMuted(muted)}
         onWindVolumeInput={() => {}}
         onFootstepMutedCommit={(muted) => trailPlayerAudio.setFootstepMuted(muted)}
         onBreathMutedCommit={(muted) => trailPlayerAudio.setBreathMuted(muted)}
@@ -882,13 +970,19 @@ async function main() {
   const audioToggleButton = document.getElementById('toggle-audio-button') as HTMLButtonElement;
   audioToggleButton.addEventListener('click', async () => {
     if (audioStarted) return;
-    audioStarted = true;
-    audioToggleButton.textContent = '🔊 Audio on';
     audioToggleButton.disabled = true;
-    await AudioEngine.start();
-    ambientAudio.start();
-    heartbeatAudio.start();
-    if (level.cameraMode !== 'orbit') trailPlayerAudio.start();
+    try {
+      await worldAudio.unlock();
+      ambientAudio.start();
+      heartbeatAudio.start();
+      if (level.cameraMode !== 'orbit') trailPlayerAudio.start();
+      audioStarted = true;
+      audioToggleButton.textContent = '🔊 Audio on';
+      audioToggleButton.setAttribute('aria-pressed', 'true');
+    } catch (error: unknown) {
+      audioToggleButton.disabled = false;
+      console.error(`Unable to start the ${worldAudio.engineKind} audio runtime.`, error);
+    }
   });
 
   const hudToggleButton = document.getElementById('toggle-hud-button') as HTMLButtonElement;
@@ -896,6 +990,7 @@ async function main() {
   let hudVisible = savedSettings.hudVisible ?? true;
   const applyHudVisible = () => {
     uiPanel.style.display = hudVisible ? 'block' : 'none';
+    hudToggleButton.setAttribute('aria-pressed', String(hudVisible));
   };
   applyHudVisible();
   hudToggleButton.addEventListener('click', () => {
@@ -1069,6 +1164,13 @@ async function main() {
         `left-drag to orbit, scroll to zoom, right-drag to pan`;
       scene.render();
     });
+    effect(() => { gameLoop.setTargetFps(targetFps.value); });
+    bindPauseControl(
+      gameLoop,
+      canvas,
+      () => worldAudio.setMuted(true),
+      () => worldAudio.setMuted(audio.masterMuted.value),
+    );
     hideLoadingOverlay();
     gameLoop.start();
     return;
@@ -1231,10 +1333,13 @@ async function main() {
     // which one); 'P' pets the dog if it's close enough. `mechDog` is
     // declared further down but already constructed by the time any of
     // this can fire from a real keypress.
-    if (e.code === 'KeyM') mechDog.whistle();
+    if (e.code === 'KeyM') {
+      playerWhistle.whistle();
+      mechDog.hearWhistle();
+    }
     const melodyDigit = /^Digit([1-9])$/.exec(e.code);
-    if (melodyDigit) mechDog.selectMelody(Number(melodyDigit[1]) - 1);
-    if (e.code === 'KeyP') mechDog.tryPet();
+    if (melodyDigit) playerWhistle.selectMelody(Number(melodyDigit[1]) - 1);
+    if (e.code === 'KeyP' && !e.shiftKey) mechDog.tryPet();
   });
 
   // Walk/Fly/Drive mode-switching — see TraversalRig's own comment.
@@ -1388,10 +1493,20 @@ async function main() {
     document.getElementById('terminal-root') as HTMLDivElement,
   );
 
+  render(
+    <KeymapOverlay
+      open={keymapOverlayOpen}
+      onToggle={() => { keymapOverlayOpen.value = !keymapOverlayOpen.value; }}
+    />,
+    document.getElementById('keymap-overlay-root') as HTMLDivElement,
+  );
+
   // Controllers and world actions listen globally. Capture only keydown while
   // a terminal owns focus, but allow keyup through so any held movement clears.
   window.addEventListener('keydown', (event) => {
     if (!terminalDocking.blocksWorldInput) return;
+    // The system-level pause shortcut remains available while docked.
+    if (event.code === 'KeyP' && event.shiftKey && !event.repeat) return;
     const target = event.target;
     const focusedUndockActivation =
       (event.code === 'Enter' || event.code === 'Space') &&
@@ -1444,26 +1559,41 @@ async function main() {
       flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
     );
   });
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyI' || event.repeat) return;
+    // Excludes text-entry controls only (not buttons) — clicking the ghost
+    // toggle leaves it focused, and 'I' must still close the panel from there.
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || target.closest('input, select, textarea, [contenteditable]'))
+    ) return;
+    keymapOverlayOpen.value = !keymapOverlayOpen.value;
+  });
 
+  render(
+    <Section title='Surveillance Interior'>
+      <InteriorDebugRow
+        route={worldSession.route}
+        transition={worldSession.transition}
+        exteriorSnapshot={worldSession.exteriorSnapshot}
+        onEnter={() => { void surveillance.enterInterior('debug'); }}
+        onExit={surveillance.requestExit}
+      />
+    </Section>,
+    document.getElementById('interior-debug-root') as HTMLDivElement,
+  );
+
+  // T29/T31/T35/T36 — per-ticket debug scratch panels, see the 'debug'
+  // Lineglass module above. Go-to-terminal and go-to-shelter buttons that
+  // used to live here were removed as duplicates of the Navigation module's
+  // Locations dropdown ('public-sanitation-terminal-01' / 'mountain-crater'
+  // in locations.json); the flashlight checkbox that used to live in T35
+  // was removed as a duplicate of the L keybinding.
   render(
     <>
       <Section title='T29 Offline Terminal'>
         <div id='t29-terminal-status'>Loading terminal state…</div>
-        <button
-          type='button'
-          onClick={() => {
-            if (!isExteriorGameplay() || terminalDocking.blocksWorldInput) return;
-            const controller = controllers[movement.activeMode.value];
-            controller.setPosition(new Vector3(
-              terminalFixture.position.x - terminalFixture.interactionRadius * 0.75,
-              terminalFixture.position.y,
-              terminalFixture.position.z,
-            ));
-            canvas.focus({ preventScroll: true });
-          }}
-        >
-          Go to public sanitation terminal
-        </button>
       </Section>
       <Section title='T31 Strike Acquisition'>
         <div id='t31-strike-status'>Loading strike state…</div>
@@ -1493,18 +1623,6 @@ async function main() {
         </button>
       </Section>
       <Section title='T35 Shelter Entrance'>
-        <button
-          type='button'
-          onClick={() => {
-            const entrance = locationFeatures.falloutShelterPosition;
-            if (!entrance) return;
-            controllers[movement.activeMode.value].setPosition(
-              new Vector3(entrance.x, entrance.y, entrance.z - 15),
-            );
-          }}
-        >
-          Go to crater shelter
-        </button>
         <div>
           Corridor: {corridorDiagnostics.valid ? 'valid' : 'invalid'} ·{' '}
           {corridorDiagnostics.segmentCount} segments ·{' '}
@@ -1521,19 +1639,6 @@ async function main() {
           />{' '}
           Unlock workshop test corridor (debug only)
         </label>
-        <br />
-        <label>
-          <input
-            type='checkbox'
-            checked={flashlightEnabled.value}
-            onChange={(event: JSX.TargetedEvent<HTMLInputElement>) => {
-              flashlightEnabled.value = event.currentTarget.checked;
-              worldSave.setFlashlightEnabled(flashlightEnabled.value);
-              workshop.setFlashlightEnabled(flashlightEnabled.value);
-            }}
-          />{' '}
-          Milo flashlight (L)
-        </label>
       </Section>
       <Section title='T36 Rey Caverns Boundary'>
         <div id='t36-lurker-status'>Lurker: loading…</div>
@@ -1547,17 +1652,8 @@ async function main() {
           Reset hallway lurker (debug only)
         </button>
       </Section>
-      <Section title='Surveillance Interior'>
-        <InteriorDebugRow
-          route={worldSession.route}
-          transition={worldSession.transition}
-          exteriorSnapshot={worldSession.exteriorSnapshot}
-          onEnter={() => { void surveillance.enterInterior('debug'); }}
-          onExit={surveillance.requestExit}
-        />
-      </Section>
     </>,
-    document.getElementById('interior-debug-root') as HTMLDivElement,
+    document.getElementById('debug-root') as HTMLDivElement,
   );
 
   if (worldSession.route.value.kind === 'surveillance') {
@@ -2004,7 +2100,7 @@ async function main() {
       `T31: ${strikeSnapshot.state} · ${strikeSnapshot.anchorId} · windup ${Math.round(strikeSnapshot.windupProgress * 100)}%` +
         `${strikeSnapshot.flags.chassisRecovered ? ' · recovered' : ''}\n` +
       `T31 gate: LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · rain ${Math.round(strikeSnapshot.rainIntensity * 100)}%\n` +
-      `whistle [M]: "${WHISTLE_MELODIES[mechDog.whistleMelodyIndex.value].label}" (1-${WHISTLE_MELODIES.length} to pick) — pet [P]${mechDog.isPettable() ? '' : ' (get closer)'}\n` +
+      `whistle [M]: "${playerWhistle.selectedMelody.label}" (1-${playerWhistle.melodyCount} to pick) — pet [P]${mechDog.isPettable() ? '' : ' (get closer)'}\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
       controlsHint;
 
@@ -2042,6 +2138,13 @@ async function main() {
       persistSettings();
     }
   });
+  effect(() => { gameLoop.setTargetFps(targetFps.value); });
+  bindPauseControl(
+    gameLoop,
+    canvas,
+    () => worldAudio.setMuted(true),
+    () => worldAudio.setMuted(audio.masterMuted.value),
+  );
   hideLoadingOverlay();
   gameLoop.start();
 }

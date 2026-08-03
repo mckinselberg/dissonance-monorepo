@@ -1,10 +1,8 @@
 import type { Scene, ShadowGenerator, Vector3 } from '@babylonjs/core';
-import { AudioEngine } from '@dissonance/audio';
 import { PursuerSystem, type PursuerConfig } from '@dissonance/pursuit';
 import type { PursuerModel } from '@dissonance/shared-types';
-import { signal, type Signal } from '@preact/signals';
+import type { Signal } from '@preact/signals';
 import { MechDogBody, type MechDogSkin } from './MechDogBody';
-import { WHISTLE_MELODIES } from '../state/whistle';
 
 // World's first pursuer slice deliberately keeps the behavior small: the
 // dog closes from directly ahead, then holds a readable standoff instead of
@@ -47,14 +45,9 @@ export interface MechDogTarget {
 }
 
 // Owns the mech dog's pursuit state machine (@dissonance/pursuit), its
-// visual body (MechDogBody), and the whistle/pet/skin session state around
-// it. Player-mode-only (see main.tsx — orbit mode never constructs this).
+// visual body (MechDogBody), and its reactions to player actions. Player-
+// mode-only (see main.tsx — orbit mode never constructs this).
 export class MechDogController {
-  // Index into WHISTLE_MELODIES — number keys 1-9 change it, 'M' plays
-  // whichever one it currently points at. Session-only; not worth a
-  // SavedSettings field yet.
-  readonly whistleMelodyIndex = signal(0);
-
   private readonly body: MechDogBody;
   private readonly pursuit: PursuerSystem;
   private readonly position: { x: number; z: number };
@@ -92,12 +85,7 @@ export class MechDogController {
     this.body.setSkin(skin);
   }
 
-  selectMelody(index: number): void {
-    if (index < WHISTLE_MELODIES.length) this.whistleMelodyIndex.value = index;
-  }
-
-  whistle(): void {
-    AudioEngine.playWhistleMelody(WHISTLE_MELODIES[this.whistleMelodyIndex.value].notes);
+  hearWhistle(): void {
     this.body.reactToWhistle();
   }
 

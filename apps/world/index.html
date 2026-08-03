@@ -4,11 +4,28 @@
     <meta charset="UTF-8" />
     <title>Dissonance World</title>
     <style>
-      html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; background: #000; }
-      #renderCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
-      #renderCanvas:focus { outline: none; }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        height: 100%;
+        background: #000;
+      }
+      #renderCanvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        touch-action: none;
+      }
+      #renderCanvas:focus {
+        outline: none;
+      }
       #ui {
-        position: fixed; top: 40px; left: 12px; z-index: 10;
+        position: fixed;
+        top: 40px;
+        left: 12px;
+        z-index: 10;
         color: #eee;
         font: 12px/1.5 monospace;
         user-select: none;
@@ -21,58 +38,282 @@
         scrollbar-width: thin;
         scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
       }
-      #ui::-webkit-scrollbar { width: 8px; }
-      #ui::-webkit-scrollbar-track { background: transparent; }
-      #ui::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 4px; }
-      #toggle-hud-button {
-        position: fixed; top: 8px; left: 12px; z-index: 11;
-        font: 12px monospace; cursor: pointer; padding: 3px 8px;
+      #ui::-webkit-scrollbar {
+        width: 8px;
       }
-      #toggle-audio-button {
-        position: fixed; top: 8px; left: 78px; z-index: 11;
-        font: 12px monospace; cursor: pointer; padding: 3px 8px;
+      #ui::-webkit-scrollbar-track {
+        background: transparent;
       }
-      #ui label { display: block; cursor: pointer; }
-      #readout { margin-top: 8px; white-space: pre; }
-      #level-label { margin-top: 8px; font-weight: bold; }
-      #level-links a { color: #9cf; margin-right: 8px; }
-      #level-links a.active { color: #fff; text-decoration: none; font-weight: bold; }
+      #ui::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+      }
+      /* Shares the --lineglass-* token set with lineglass.css/keymap.css
+         (loaded once the JS bundle mounts) so the always-on-screen chrome
+         reads as one system rather than two. Fallback literals match those
+         tokens' current values, for the brief window before that CSS loads. */
+      .toolbar-buttons {
+        position: fixed;
+        top: 8px;
+        left: 12px;
+        z-index: 11;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .toolbar-buttons button {
+        padding: 5px 10px;
+        border: 1px solid var(--lineglass-border, #28565d);
+        border-radius: 6px;
+        background: var(--lineglass-surface, rgba(7, 27, 30, 0.88));
+        color: var(--lineglass-text-muted, #83a2a8);
+        font: 12px "Cascadia Mono", "Roboto Mono", Consolas, monospace;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      .toolbar-buttons button:hover,
+      .toolbar-buttons button[aria-pressed="true"] {
+        border-color: var(--lineglass-border-active, #37c9e5);
+        color: var(--lineglass-accent, #20d7f4);
+        background: var(--lineglass-surface-raised, #0a2529);
+      }
+      .toolbar-buttons button:focus-visible {
+        outline: 2px solid var(--lineglass-focus, #d4f9ff);
+        outline-offset: 2px;
+      }
+      .toolbar-buttons button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      #pause-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.48);
+        color: #fff;
+        font: 600 24px/1 monospace;
+        letter-spacing: 0.18em;
+        pointer-events: auto;
+      }
+      #pause-overlay[hidden] {
+        display: none;
+      }
+      #ui label {
+        display: block;
+        cursor: pointer;
+      }
+      #readout {
+        margin-top: 8px;
+        white-space: pre;
+      }
+      #level-label {
+        margin-top: 8px;
+        font-weight: bold;
+      }
+      #level-links a {
+        color: #9cf;
+        margin-right: 8px;
+      }
+      #level-links a.active {
+        color: #fff;
+        text-decoration: none;
+        font-weight: bold;
+      }
       #interaction-prompt {
-        position: fixed; left: 50%; bottom: 32px; z-index: 12;
-        display: none; transform: translateX(-50%);
-        padding: 8px 12px; border: 1px solid rgba(255, 255, 255, 0.45);
-        background: rgba(0, 0, 0, 0.78); color: #fff;
-        font: 14px/1.4 monospace; pointer-events: none;
+        position: fixed;
+        left: 50%;
+        bottom: 32px;
+        z-index: 12;
+        display: none;
+        transform: translateX(-50%);
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.45);
+        background: rgba(0, 0, 0, 0.78);
+        color: #fff;
+        font: 14px/1.4 monospace;
+        pointer-events: none;
       }
       .surveillance-camera-controls {
-        position: fixed; right: 20px; bottom: 24px; z-index: 12;
-        display: flex; align-items: center; gap: 8px;
-        padding: 8px; border: 1px solid rgba(255, 255, 255, 0.35);
-        background: rgba(0, 0, 0, 0.75); color: #eee;
+        position: fixed;
+        right: 20px;
+        bottom: 24px;
+        z-index: 12;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        background: rgba(0, 0, 0, 0.75);
+        color: #eee;
         font: 12px/1.4 monospace;
       }
       .surveillance-camera-controls button {
-        min-width: 32px; padding: 5px 8px; cursor: pointer;
+        min-width: 32px;
+        padding: 5px 8px;
+        cursor: pointer;
       }
       /* Covers the black screen during initial load AND during the several
          reload()/href navigations this app does on purpose (Load View,
          reset-position, the saved-views dropdown) — same overlay either
          way, hidden once main.tsx reaches "the scene is ready to render". */
       #loading-overlay {
-        position: fixed; inset: 0; z-index: 20;
-        display: flex; align-items: center; justify-content: center;
-        background: #000; color: #eee; font: 16px/1.5 monospace;
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 50% 48%, rgba(55, 102, 83, 0.08), transparent 28%),
+          #020403;
+        color: #b8d8ca;
+        font: 16px/1.5 monospace;
+      }
+      #loading-overlay::before {
+        position: absolute;
+        inset: -20%;
+        content: '';
+        background: repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 3px,
+          rgba(156, 220, 192, 0.035) 4px
+        );
+        pointer-events: none;
+        animation: loading-scanlines 9s linear infinite;
+      }
+      #loading-overlay::after {
+        position: absolute;
+        inset: 0;
+        content: '';
+        background:
+          linear-gradient(
+            to bottom,
+            transparent 0%,
+            rgba(182, 255, 220, 0.035) 49.6%,
+            rgba(182, 255, 220, 0.11) 50%,
+            transparent 50.5%
+          ),
+          radial-gradient(ellipse at center, transparent 42%, rgba(0, 0, 0, 0.82) 100%);
+        background-size: 100% 220%, 100% 100%;
+        pointer-events: none;
+        animation: loading-scan-beam 4.8s linear infinite;
+      }
+      .loading-terminal-text {
+        position: relative;
+        z-index: 1;
+        display: inline-block;
+        padding: 10px 14px;
+        color: #b8d8ca;
+        letter-spacing: 0.08em;
+        text-shadow:
+          0 0 4px rgba(158, 255, 207, 0.72),
+          0 0 15px rgba(76, 188, 137, 0.28);
+        animation:
+          loading-terminal-flicker 5.2s steps(1, end) infinite,
+          loading-terminal-drift 7s ease-in-out infinite;
+      }
+      .loading-terminal-text::before,
+      .loading-terminal-text::after {
+        position: absolute;
+        inset: 10px 14px;
+        content: attr(data-text);
+        opacity: 0;
+        pointer-events: none;
+        mix-blend-mode: screen;
+      }
+      .loading-terminal-text::before {
+        color: #64ffc1;
+        text-shadow: -2px 0 5px rgba(100, 255, 193, 0.5);
+        animation: loading-signal-split-a 5.2s steps(1, end) infinite;
+      }
+      .loading-terminal-text::after {
+        color: #9ab7ff;
+        text-shadow: 2px 0 5px rgba(154, 183, 255, 0.42);
+        animation: loading-signal-split-b 5.2s steps(1, end) infinite;
+      }
+      .loading-terminal-cursor {
+        display: inline-block;
+        width: 0.55em;
+        height: 1em;
+        margin-left: 0.35em;
+        vertical-align: -0.14em;
+        background: currentColor;
+        box-shadow: 0 0 8px rgba(158, 255, 207, 0.7);
+        animation: loading-cursor 1.05s steps(1, end) infinite;
+      }
+      @keyframes loading-terminal-flicker {
+        0%, 15%, 18%, 22%, 63%, 65%, 77%, 100% { opacity: 1; filter: brightness(1); }
+        15.4% { opacity: 0.28; filter: brightness(1.9); }
+        16.1% { opacity: 0.86; }
+        17.2% { opacity: 0.42; }
+        63.4% { opacity: 0.16; filter: brightness(2.4); }
+        64.1% { opacity: 0.74; }
+        77.3% { opacity: 0.58; filter: brightness(1.5); }
+      }
+      @keyframes loading-terminal-drift {
+        0%, 46%, 48%, 100% { transform: translate(0, 0); }
+        47% { transform: translate(-0.75px, 0.4px); }
+      }
+      @keyframes loading-signal-split-a {
+        0%, 14.9%, 18%, 62.9%, 65.1%, 100% { opacity: 0; transform: translateX(0); }
+        15.1%, 16.4% { opacity: 0.48; transform: translateX(-2px); clip-path: inset(12% 0 60%); }
+        17.1% { opacity: 0.3; transform: translateX(1px); clip-path: inset(67% 0 8%); }
+        63.2% { opacity: 0.58; transform: translateX(-1px); clip-path: inset(42% 0 34%); }
+      }
+      @keyframes loading-signal-split-b {
+        0%, 15.5%, 17%, 63.6%, 77%, 78%, 100% { opacity: 0; transform: translateX(0); }
+        15.8% { opacity: 0.38; transform: translateX(2px); clip-path: inset(56% 0 18%); }
+        16.6% { opacity: 0.24; transform: translateX(-1px); clip-path: inset(18% 0 55%); }
+        77.4% { opacity: 0.32; transform: translateX(1px); clip-path: inset(36% 0 40%); }
+      }
+      @keyframes loading-scanlines {
+        from { transform: translateY(-8px); }
+        to { transform: translateY(8px); }
+      }
+      @keyframes loading-scan-beam {
+        from { background-position: 0 -120%, 0 0; }
+        to { background-position: 0 120%, 0 0; }
+      }
+      @keyframes loading-cursor {
+        0%, 48% { opacity: 0.9; }
+        49%, 100% { opacity: 0.08; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #loading-overlay::before,
+        #loading-overlay::after,
+        .loading-terminal-text,
+        .loading-terminal-text::before,
+        .loading-terminal-text::after,
+        .loading-terminal-cursor {
+          animation: none;
+        }
+        .loading-terminal-text::before,
+        .loading-terminal-text::after {
+          display: none;
+        }
       }
     </style>
   </head>
   <body>
     <canvas id="renderCanvas" tabindex="0" aria-label="Dissonance World"></canvas>
-    <div id="loading-overlay">Loading trail data…</div>
-    <button id="toggle-hud-button" type="button">☰ HUD</button>
-    <button id="toggle-audio-button" type="button">🔊 Enable Audio</button>
+    <div id="loading-overlay" role="status" aria-live="polite">
+      <span class="loading-terminal-text" data-text="Loading world data…">Loading world data…<span class="loading-terminal-cursor" aria-hidden="true"></span></span>
+    </div>
+    <div class="toolbar-buttons">
+      <button id="toggle-hud-button" type="button" aria-pressed="true">☰ HUD</button>
+      <button id="toggle-audio-button" type="button" aria-pressed="false">🔊 Enable Audio</button>
+      <button id="toggle-pause-button" type="button" aria-pressed="false">Pause</button>
+    </div>
+    <div id="pause-overlay" role="status" aria-live="polite" hidden>PAUSED</div>
     <div id="interaction-prompt"></div>
     <div id="terminal-root"></div>
     <div id="surveillance-camera-controls-root"></div>
+    <div id="keymap-overlay-root"></div>
     <div id="ui">
       <div id="lineglass-root"></div>
     </div>
