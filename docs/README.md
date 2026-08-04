@@ -90,6 +90,10 @@ to locate each migrated artifact and understand its authority.
 
 ## Engineering and historical artifacts
 
+- [`intake/RENDER_PIPELINE_QUICKSTART.md`](intake/RENDER_PIPELINE_QUICKSTART.md)
+  is the tracked T24 billboard/impostor dispatch brief. Its original quick-start
+  APIs are aspirational pseudocode; follow the prepended repository assessment
+  and Phase 0 audit before implementation.
 - [`engineering/prompts/`](engineering/prompts/) contains active or
   implementation-candidate prompts. A Phase 0 refresh is still required before
   executing a legacy prompt.
