@@ -2008,6 +2008,13 @@ async function main() {
       movement.activeMode.value === 'walk' && player.isCrouching,
       (x, z) => terrain.getHeightAt(x, z),
     );
+    // Walk mode is the only controller with physical collision (Fly/Drive
+    // have none of their own — see their file comments), so this is inert
+    // outside it. The dog moves every frame, unlike the static building/pole
+    // colliders WorldFeaturesSystem batches — see setDynamicColliders' own
+    // comment.
+    const mechDogCollider = mechDog.getCollider();
+    player.setDynamicColliders(mechDogCollider ? [mechDogCollider] : []);
     const mechDogModel = mechDog.getModel();
     const strikeSnapshot = strikeAcquisition.snapshot();
     if (strikeSnapshot.state === 'SPENT') {

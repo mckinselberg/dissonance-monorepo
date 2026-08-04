@@ -17,6 +17,11 @@ import { buildUtilityPole } from './LocationProps';
 // parked scatter-placement-prompt-v1.md proposed. Its pole-height/sag/span
 // numbers are kept here as plain geometry defaults, not an endorsement of
 // that doc's architecture.
+// Height/attach/stagger dimensions below scale by horizontalScale alone, not
+// verticalExaggeration — same fix and reasoning as CompositeLocations'
+// expandCompoundPositions (see its scaleY comment): poles/wires are built
+// structures, not DEM relief, so the cosmetic terrain-exaggeration dial must
+// not inflate their height.
 const POLE_HEIGHT_M = 10;
 const WIRE_ATTACH_HEIGHT_M = POLE_HEIGHT_M - 0.6; // just under the crossarm
 const SAG_RATIO = 0.035; // fraction of span length the wire dips at midspan
@@ -148,7 +153,6 @@ export function loadUtilityCorridors(
   locations: LocationEntry[],
   toRenderXZ: (lat: number, lon: number) => { x: number; z: number },
   horizontalScale: number,
-  verticalExaggeration: number,
   getHeightAt: (x: number, z: number) => number,
   worldBoundsRender?: WorldBoundsRender,
   shadowGenerator?: ShadowGenerator,
@@ -181,7 +185,7 @@ export function loadUtilityCorridors(
     const groundYs = poles.map((pole) => getHeightAt(pole.x, pole.z));
     for (let i = 0; i < poles.length; i++) {
       poleMatrices.push(Matrix.Compose(
-        new Vector3(horizontalScale, verticalExaggeration, horizontalScale),
+        new Vector3(horizontalScale, horizontalScale, horizontalScale),
         Quaternion.FromEulerAngles(0, poles[i].headingRadians, 0),
         new Vector3(poles[i].x, groundYs[i], poles[i].z),
       ));
@@ -192,15 +196,15 @@ export function loadUtilityCorridors(
     for (let w = 0; w < location.corridor.wireCount; w++) {
       const heightOffset = location.corridor.wireCount === 1
         ? 0
-        : (w - (location.corridor.wireCount - 1) / 2) * WIRE_HEIGHT_STAGGER_M * verticalExaggeration;
+        : (w - (location.corridor.wireCount - 1) / 2) * WIRE_HEIGHT_STAGGER_M * horizontalScale;
       const wirePoints: Vector3[] = [];
       for (let i = 0; i < poles.length; i++) {
-        const attachY = groundYs[i] + WIRE_ATTACH_HEIGHT_M * verticalExaggeration + heightOffset;
+        const attachY = groundYs[i] + WIRE_ATTACH_HEIGHT_M * horizontalScale + heightOffset;
         if (i === 0) {
           wirePoints.push(new Vector3(poles[i].x, attachY, poles[i].z));
           continue;
         }
-        const prevAttachY = groundYs[i - 1] + WIRE_ATTACH_HEIGHT_M * verticalExaggeration + heightOffset;
+        const prevAttachY = groundYs[i - 1] + WIRE_ATTACH_HEIGHT_M * horizontalScale + heightOffset;
         const spanLength = Math.hypot(poles[i].x - poles[i - 1].x, poles[i].z - poles[i - 1].z);
         const sag = SAG_RATIO * spanLength;
         for (let s = 1; s <= SAMPLES_PER_SPAN; s++) {

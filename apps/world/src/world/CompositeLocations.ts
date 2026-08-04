@@ -226,13 +226,19 @@ type PositionedPlacement = {
   x: number;
   z: number;
   rotationRadians: number;
-  // Kept separate (not one isotropic factor) so a placement's footprint
-  // spreads with the world's horizontal scale the same way the terrain
-  // itself does, while its height tracks verticalExaggeration instead —
-  // matching HeroTreeInstances' own H/V-scale separation. Folding
-  // horizontalScale into every axis (this file's original approach) made
-  // buildings grow taller purely because the world got wider, with no
-  // relationship to the dial that's actually supposed to own height.
+  // Isotropic by horizontalScale alone — verticalExaggeration is a cosmetic
+  // DEM-relief exaggeration dial (see HeightmapTerrain), not a physical
+  // dimension for human-built structures. An earlier version of this
+  // function used verticalExaggeration for scaleY on the theory that it was
+  // "the dial that's actually supposed to own height," matching how
+  // HeroTreeInstances scales tree canopy height — but trees are read as part
+  // of exaggerated terrain relief, while curbs/buildings/poles are not: at
+  // level 1 (horizontalScale=1, verticalExaggeration=10) that made every
+  // compound structure render ~10x too tall (docs/intake/
+  // dissonance-scaling-bug.PNG — a curb towering over the mech dog). T38
+  // (docs/design/world/CATEGORY-OBJECT-SCALING.md) is the eventual fully
+  // decoupled fix; this keeps scaleXZ and scaleY on the same dial in the
+  // meantime so structures stay proportionate rather than distorted.
   scaleXZ: number;
   scaleY: number;
 };
@@ -243,7 +249,6 @@ function expandCompoundPositions(
   location: LocationEntry,
   anchor: { x: number; z: number },
   horizontalScale: number,
-  verticalExaggeration: number,
 ): PositionedPlacement[] {
   if (!location.compound) return [];
   const compoundRotation = (location.compound.rotationDegrees ?? 0) * Math.PI / 180;
@@ -266,7 +271,7 @@ function expandCompoundPositions(
         z: anchor.z + (localX * sin + localZ * cos) * horizontalScale,
         rotationRadians: compoundRotation + (placement.rotationDegrees ?? 0) * Math.PI / 180,
         scaleXZ: scale * horizontalScale,
-        scaleY: scale * verticalExaggeration,
+        scaleY: scale * horizontalScale,
       });
     }
   }
@@ -377,7 +382,7 @@ export function compositeGradeHeightAt(
   for (const location of locations) {
     if (!location.compound) continue;
     const anchor = toRenderXZ(location.latLong[0], location.latLong[1]);
-    const positioned = expandCompoundPositions(location, anchor, horizontalScale, 1);
+    const positioned = expandCompoundPositions(location, anchor, horizontalScale);
     const surface = gradingSurfaceFor(positioned, anchor, horizontalScale, getHeightAt);
     if (!surface) continue;
     const { bounds, plane } = surface;
@@ -403,7 +408,7 @@ export function compositeObstacleClearanceAt(
   for (const location of locations) {
     if (!location.compound) continue;
     const anchor = toRenderXZ(location.latLong[0], location.latLong[1]);
-    const positioned = expandCompoundPositions(location, anchor, horizontalScale, 1);
+    const positioned = expandCompoundPositions(location, anchor, horizontalScale);
     for (const placement of positioned) {
       if (placement.id === MILOS_BUILDING_ID) continue;
       const radiusMeters = OBSTACLE_COLLISION_RADII[placement.asset];
@@ -781,7 +786,6 @@ export async function loadCompositeLocations(
   locations: LocationEntry[],
   toRenderXZ: (lat: number, lon: number) => { x: number; z: number },
   horizontalScale: number,
-  verticalExaggeration: number,
   getHeightAt: (x: number, z: number) => number,
   windowTintColor: Color3 = Color3.White(),
   windowGlow: number = 0,
@@ -805,7 +809,7 @@ export async function loadCompositeLocations(
     if (!location.compound) continue;
     const [lat, lon] = location.latLong;
     const anchor = toRenderXZ(lat, lon);
-    const positioned = expandCompoundPositions(location, anchor, horizontalScale, verticalExaggeration);
+    const positioned = expandCompoundPositions(location, anchor, horizontalScale);
 
     const surface = gradingSurfaceFor(positioned, anchor, horizontalScale, getHeightAt);
     if (!surface) continue;

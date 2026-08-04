@@ -1,6 +1,7 @@
 import type { Scene, ShadowGenerator, Vector3 } from '@babylonjs/core';
 import { PursuerSystem, type PursuerConfig } from '@dissonance/pursuit';
 import type { PursuerModel } from '@dissonance/shared-types';
+import type { Collider } from '@dissonance/world';
 import type { Signal } from '@preact/signals';
 import { MechDogBody, type MechDogSkin } from './MechDogBody';
 
@@ -25,6 +26,12 @@ const WORLD_MECH_DOG_CONFIG: PursuerConfig = {
 };
 const MECH_DOG_STANDOFF_DISTANCE = 3.5;
 const MECH_DOG_VISUAL_HEIGHT = 0.65;
+// Rough body-footprint radius for physical player collision — same order as
+// the other body-sized colliders in this app (POLE_COLLISION_RADIUS_M,
+// LocationProps' prop radii), not a tight hitbox. Well inside
+// MECH_DOG_STANDOFF_DISTANCE, so it's a walked-into-it safety net, not
+// something the pursuit standoff logic already handles.
+const MECH_DOG_COLLISION_RADIUS = 0.35;
 // 'P' only does something within this range — petting from across the
 // clearing doesn't make sense. Loose enough to allow for the dog's own
 // standoff-distance wobble around the player.
@@ -52,6 +59,7 @@ export class MechDogController {
   private readonly pursuit: PursuerSystem;
   private readonly position: { x: number; z: number };
   private spawned = false;
+  private visible: boolean;
   private lastTargetX: number;
   private lastTargetZ: number;
 
@@ -73,11 +81,21 @@ export class MechDogController {
     this.lastTargetZ = initialTargetPosition.z;
     this.pursuit = new PursuerSystem(WORLD_MECH_DOG_CONFIG, WORLD_MECH_DOG_CONFIG.startDistance);
     this.body = new MechDogBody(scene, shadowGenerator, this.skin.value);
+    this.visible = initialVisible;
     this.body.setVisible(initialVisible);
   }
 
   setVisible(visible: boolean): void {
+    this.visible = visible;
     this.body.setVisible(visible);
+  }
+
+  // Null before the dog has picked its spawn point (see the `!this.spawned`
+  // branch in update()) or while hidden — an unspawned/invisible dog must
+  // not block player movement at whatever placeholder position it starts at.
+  getCollider(): Collider | null {
+    if (!this.spawned || !this.visible) return null;
+    return { x: this.position.x, z: this.position.z, radius: MECH_DOG_COLLISION_RADIUS };
   }
 
   setSkin(skin: MechDogSkin): void {

@@ -69,6 +69,11 @@ export class PlayerController {
 
   private terrain: ITerrain | null = null;
   private colliders: Collider[] = [];
+  // Separate from `colliders`: static world geometry (buildings, poles,
+  // props) is rebuilt wholesale on scale/state changes via setColliders(),
+  // while moving agents (mech dog, patrol drones) need their position
+  // updated every frame without touching that larger, rarely-changing list.
+  private dynamicColliders: Collider[] = [];
   private floorSurfaces: FloorSurface[] = [];
   private worldBoundaryRadius: number | null = null;
   // Extra Y added on top of the normal stand/crouch eye height — a scene-level
@@ -147,6 +152,13 @@ export class PlayerController {
 
   setColliders(colliders: Collider[]): void {
     this.colliders = colliders;
+  }
+
+  // Called every frame by whichever agent moves (e.g. MechDogController) —
+  // see the `dynamicColliders` field comment for why this is separate from
+  // setColliders().
+  setDynamicColliders(colliders: Collider[]): void {
+    this.dynamicColliders = colliders;
   }
 
   setFloorSurfaces(surfaces: FloorSurface[]): void {
@@ -301,6 +313,12 @@ export class PlayerController {
       if (x * x + z * z > r * r) return true;
     }
     for (const c of this.colliders) {
+      const dx = x - c.x;
+      const dz = z - c.z;
+      const r = c.radius + this.playerRadius;
+      if (dx * dx + dz * dz < r * r) return true;
+    }
+    for (const c of this.dynamicColliders) {
       const dx = x - c.x;
       const dz = z - c.z;
       const r = c.radius + this.playerRadius;
