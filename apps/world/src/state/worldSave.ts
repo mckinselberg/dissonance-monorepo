@@ -1,4 +1,5 @@
 import type { ActiveMode } from './movement';
+import type { VehicleTravelMode } from '../vehicle/vehicleProfile';
 
 const WORLD_SAVE_KEY = 'dissonance:world-save:v1';
 const LEGACY_STORY_KEY = 'dissonance:world-story-flags:v1';
@@ -17,8 +18,19 @@ export interface ExteriorPlayerState {
   rotation: { x: number; y: number; z: number };
 }
 
+// Fuel is stored as a fraction of capacity (0..1) rather than an absolute
+// amount so the save stays valid across vehicle-profile tuning (Dev HUD
+// JSON edits, or a future profile revision) instead of silently meaning a
+// different real amount of fuel than what was actually saved.
+export interface VehicleSaveState {
+  distanceMeters: number;
+  fuelFraction: number;
+  travelMode: VehicleTravelMode;
+  stranded: boolean;
+}
+
 export interface WorldSaveDocument {
-  version: 1;
+  version: 2;
   savedAt: number;
   activeRoute: WorldRouteId;
   lastExterior: ExteriorPlayerState | null;
@@ -31,6 +43,7 @@ export interface WorldSaveDocument {
     windupSeconds: number | null;
     recoverablePosition: { x: number; y: number; z: number } | null;
   };
+  vehicle: VehicleSaveState;
   progression: {
     storyFlags: string[];
     inventory: {
@@ -81,6 +94,28 @@ function parseExterior(value: unknown): ExteriorPlayerState | null {
   return raw as ExteriorPlayerState;
 }
 
+function defaultVehicleState(): VehicleSaveState {
+  return { distanceMeters: 0, fuelFraction: 1, travelMode: 'careful', stranded: false };
+}
+
+function parseVehicleState(value: unknown): VehicleSaveState {
+  const fallback = defaultVehicleState();
+  if (typeof value !== 'object' || value === null) return fallback;
+  const raw = value as Partial<VehicleSaveState>;
+  const distanceMeters = Number.isFinite(raw.distanceMeters) && (raw.distanceMeters as number) >= 0
+    ? raw.distanceMeters as number
+    : fallback.distanceMeters;
+  const fuelFraction = Number.isFinite(raw.fuelFraction) && (raw.fuelFraction as number) >= 0 && (raw.fuelFraction as number) <= 1
+    ? raw.fuelFraction as number
+    : fallback.fuelFraction;
+  const travelMode: VehicleTravelMode =
+    raw.travelMode === 'careful' || raw.travelMode === 'fast' || raw.travelMode === 'reckless'
+      ? raw.travelMode
+      : fallback.travelMode;
+  const stranded = typeof raw.stranded === 'boolean' ? raw.stranded : fallback.stranded;
+  return { distanceMeters, fuelFraction, travelMode, stranded };
+}
+
 function parsePosition(value: unknown): { x: number; y: number; z: number } | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as { x?: unknown; y?: unknown; z?: unknown };
@@ -90,8 +125,14 @@ function parsePosition(value: unknown): { x: number; y: number; z: number } | nu
 
 function parseDocument(value: unknown, fallbackRunSeed = 0): WorldSaveDocument | null {
   if (typeof value !== 'object' || value === null) return null;
+  const rawVersion = (value as { version?: unknown }).version;
+  // Accepts a stored v1 doc (pre-dates the `vehicle` block) and upgrades it
+  // in place — parseVehicleState defaults a missing/absent `vehicle` field
+  // to a fresh, unstranded, full-tank vehicle rather than falling through
+  // to migrate() and losing the rest of the v1 document's state.
+  if (rawVersion !== 1 && rawVersion !== 2) return null;
   const raw = value as Partial<WorldSaveDocument>;
-  if (raw.version !== 1 || !['exterior', 'workshop', 'surveillance'].includes(raw.activeRoute ?? '')) {
+  if (!['exterior', 'workshop', 'surveillance'].includes(raw.activeRoute ?? '')) {
     return null;
   }
   const progression = raw.progression;
@@ -100,7 +141,7 @@ function parseDocument(value: unknown, fallbackRunSeed = 0): WorldSaveDocument |
   if (!inventory || typeof inventory !== 'object') return null;
   const storyFlags = uniqueStrings(progression.storyFlags);
   return {
-    version: 1,
+    version: 2,
     savedAt: Number.isFinite(raw.savedAt) ? raw.savedAt as number : Date.now(),
     activeRoute: raw.activeRoute as WorldRouteId,
     lastExterior: parseExterior(raw.lastExterior),
@@ -120,6 +161,7 @@ function parseDocument(value: unknown, fallbackRunSeed = 0): WorldSaveDocument |
         : null,
       recoverablePosition: parsePosition(raw.strike?.recoverablePosition),
     },
+    vehicle: parseVehicleState(raw.vehicle),
     progression: {
       storyFlags,
       inventory: {
@@ -146,7 +188,7 @@ function migrate(seed: WorldSaveMigrationSeed): WorldSaveDocument {
     seed.rotation.x, seed.rotation.y, seed.rotation.z,
   ].every(Number.isFinite);
   return {
-    version: 1,
+    version: 2,
     savedAt: Date.now(),
     activeRoute: 'exterior',
     lastExterior: hasTransform ? {
@@ -164,6 +206,7 @@ function migrate(seed: WorldSaveMigrationSeed): WorldSaveDocument {
       windupSeconds: null,
       recoverablePosition: null,
     },
+    vehicle: defaultVehicleState(),
     progression: {
       storyFlags,
       inventory: {
@@ -252,6 +295,10 @@ export class WorldSaveStore {
 
   setStrikeProgress(strike: WorldSaveDocument['strike']): void {
     this.update({ ...this.document, strike: structuredClone(strike) });
+  }
+
+  setVehicleState(vehicle: VehicleSaveState): void {
+    this.update({ ...this.document, vehicle: { ...vehicle } });
   }
 
   private update(document: WorldSaveDocument): void {

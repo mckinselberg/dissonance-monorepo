@@ -563,5 +563,26 @@
         "models/quaternius-forest/Grass_Large_Extruded.gltf"
       ]
     }
+  },
+  {
+    "id": "sr-27-service-road",
+    "name": "SR-27 maintenance service road",
+    "latLong": [40.7415, -74.298],
+    "road": {
+      "routeFile": "sr-27-service-road.json",
+      "widthMeters": 4,
+      "pullOffs": [
+        { "id": "sr-27-pulloff-01", "distanceMeters": 165 }
+      ]
+    }
+  },
+  {
+    "id": "grove-to-dissonance-blvd",
+    "name": "grove to dissonance blvd road",
+    "latLong": [40.7349157, -74.2598971],
+    "road": {
+      "routeFile": "grove-to-dissonance-blvd.geojson",
+      "widthMeters": 4
+    }
   }
 ]

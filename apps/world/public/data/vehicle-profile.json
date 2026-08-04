@@ -1,0 +1,14 @@
+{
+  "id": "synod-road-service-utility-27-v1",
+  "fuelCapacity": 6,
+  "speedMetersPerSecond": {
+    "careful": 4,
+    "fast": 9,
+    "reckless": 14
+  },
+  "consumptionPerMeter": {
+    "careful": 0.012,
+    "fast": 0.02,
+    "reckless": 0.032
+  }
+}

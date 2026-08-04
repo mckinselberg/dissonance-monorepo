@@ -43,6 +43,7 @@ import {
   loadStoryManifest,
   loadStrikeProfile,
   loadTerminalFixture,
+  loadVehicleProfile,
 } from './data/loaders';
 import { hideLoadingOverlay } from './utils';
 import { createAtmosphereSignals } from './state/atmosphere';
@@ -87,6 +88,10 @@ import { InteriorDebugRow } from './ui/InteriorDebugRow';
 import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
 import { createStoryState } from './state/story';
 import { WorldSaveStore, type WorldRouteId } from './state/worldSave';
+import { createVehicleSession } from './vehicle/VehicleSession';
+import { VehicleTravelState, type VehicleTravelInput } from './vehicle/VehicleTravelState';
+import { VEHICLE_TRAVEL_MODES } from './vehicle/vehicleProfile';
+import { VehicleRow } from './ui/VehicleRow';
 import {
   InProcessTerminalScrambler,
   TerminalDockingSystem,
@@ -516,6 +521,7 @@ async function main() {
     replayRoutes,
     strikeProfile,
     terminalSimulation,
+    vehicleProfile,
   ] = await Promise.all([
     loadTrails(),
     loadGpxTrack(),
@@ -523,6 +529,7 @@ async function main() {
     loadReplayRoutes(),
     loadStrikeProfile(),
     loadTerminalFixture(),
+    loadVehicleProfile(),
   ]);
   const storyManifest = await loadStoryManifest(worldFeatures);
   const story = createStoryState(storyManifest, {
@@ -1267,8 +1274,8 @@ async function main() {
   // building GLBs, utility-corridor power lines, Lineglass collectibles) —
   // see WorldFeaturesSystem's own comment.
   const locationFeatures = await WorldFeaturesSystem.create(
-    scene, locations, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines, lineglass,
-    realWidth, realDepth, backdrop.getShadowGenerator(), player,
+    scene, locations, replayRoutes, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines,
+    lineglass, realWidth, realDepth, backdrop.getShadowGenerator(), player,
   );
   const resolveTerminalFixture = () => {
     const fixture = locationFeatures.getTerminal(terminalSimulation.terminalId);
@@ -1418,6 +1425,84 @@ async function main() {
       }
     },
   });
+  // Diegetic road travel (Phase 1 slice) — one authored road, one Synod
+  // road-service vehicle. See docs/intake/dissonance_diegetic_vehicle_
+  // storage_drone_engineering_prompt.md §3/§5; storage/discovery/trace/
+  // drone-corridor sections are deferred to later slices.
+  let roadNetworkRoad = locationFeatures.getRoad('sr-27-service-road');
+  if (!roadNetworkRoad) {
+    throw new Error('[Vehicle] road "sr-27-service-road" has no matching locations.json entry.');
+  }
+  const savedVehicle = worldSave.snapshot().vehicle;
+  const vehicleTravelState = new VehicleTravelState(vehicleProfile, roadNetworkRoad.totalLengthMeters, {
+    distanceMeters: savedVehicle.distanceMeters,
+    travelMode: savedVehicle.travelMode,
+    fuelCurrent: savedVehicle.fuelFraction * vehicleProfile.fuelCapacity,
+    stranded: savedVehicle.stranded,
+  });
+  let vehicleSession = await createVehicleSession({
+    scene,
+    canvas,
+    road: roadNetworkRoad,
+    horizontalScale: scaleTuning.hScale.value,
+    shadowGenerator: backdrop.getShadowGenerator(),
+  });
+  vehicleSession.update(0, vehicleTravelState.snapshot());
+  let vehicleThrottle: VehicleTravelInput['throttle'] = 0;
+  let vehicleSessionGeneration = 0;
+  const refreshVehicleSession = async (wasInVehicle: boolean): Promise<void> => {
+    const requestedGeneration = ++vehicleSessionGeneration;
+    const nextRoad = locationFeatures.getRoad('sr-27-service-road');
+    if (!nextRoad) throw new Error('[Vehicle] road "sr-27-service-road" missing after rebuild.');
+    const nextSession = await createVehicleSession({
+      scene, canvas, road: nextRoad, horizontalScale: scaleTuning.hScale.value,
+      shadowGenerator: backdrop.getShadowGenerator(),
+    });
+    if (requestedGeneration !== vehicleSessionGeneration) {
+      nextSession.dispose();
+      return;
+    }
+    roadNetworkRoad = nextRoad;
+    vehicleSession.dispose();
+    vehicleSession = nextSession;
+    vehicleSession.update(0, vehicleTravelState.snapshot());
+    if (wasInVehicle) vehicleSession.enter();
+  };
+  const persistVehicleState = (): void => {
+    const snapshot = vehicleTravelState.snapshot();
+    worldSave.setVehicleState({
+      distanceMeters: snapshot.distanceMeters,
+      fuelFraction: snapshot.fuelCurrent / snapshot.fuelCapacity,
+      travelMode: snapshot.travelMode,
+      stranded: snapshot.stranded,
+    });
+  };
+  const updateVehicleHud = (): void => {
+    const snapshot = vehicleTravelState.snapshot();
+    const roadStatus = document.getElementById('vehicle-road-status');
+    if (roadStatus) {
+      roadStatus.textContent =
+        `${snapshot.distanceMeters.toFixed(1)}m / ${roadNetworkRoad!.totalLengthMeters.toFixed(1)}m`;
+    }
+    const modeStatus = document.getElementById('vehicle-travel-mode');
+    if (modeStatus) modeStatus.textContent = snapshot.travelMode;
+    const fuelStatus = document.getElementById('vehicle-fuel');
+    if (fuelStatus) {
+      fuelStatus.textContent =
+        `${snapshot.fuelCurrent.toFixed(2)} / ${snapshot.fuelCapacity.toFixed(2)}`;
+    }
+    const rangeStatus = document.getElementById('vehicle-range');
+    if (rangeStatus) {
+      rangeStatus.textContent = `${vehicleTravelState.estimateRemainingRangeMeters().toFixed(1)}m`;
+    }
+    const occupancyStatus = document.getElementById('vehicle-occupancy');
+    if (occupancyStatus) {
+      occupancyStatus.textContent = snapshot.stranded
+        ? 'stranded'
+        : vehicleSession.isInVehicle() ? 'driving' : 'parked';
+    }
+  };
+
   const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
   const createTerminalDocking = () => new TerminalDockingSystem({
     availableDistance: terminalFixture.interactionRadius,
@@ -1535,10 +1620,19 @@ async function main() {
       event.stopImmediatePropagation();
       return;
     }
-    if (workshop.isInterior()) {
+    if (vehicleSession.isInVehicle()) {
+      vehicleSession.exit();
+      vehicleThrottle = 0;
+      const exitPos = vehicleSession.getExitPosition();
+      const groundY = terrain.getHeightAt(exitPos.x, exitPos.z);
+      controllers[movement.activeMode.value].setPosition(new Vector3(exitPos.x, groundY, exitPos.z));
+      persistVehicleState();
+    } else if (workshop.isInterior()) {
       if (workshop.isNearExit()) workshop.exit();
     } else if (workshop.isNearEntrance()) {
       workshop.enter();
+    } else if (vehicleSession.isNearVehicle(controllers[movement.activeMode.value].getPosition())) {
+      vehicleSession.enter();
     } else {
       const flags = strikeAcquisition.recover(
         controllers[movement.activeMode.value].getPosition(),
@@ -1549,6 +1643,24 @@ async function main() {
         console.info('[T31] recovery hand-off', flags);
       }
     }
+  });
+  // While driving, W/S double as throttle/brake (the walk controller they'd
+  // otherwise move is already skipped — see the game loop's isInVehicle
+  // gate) and X cycles careful/fast/reckless (doc §3's "travel intensity").
+  window.addEventListener('keydown', (event) => {
+    if (!vehicleSession.isInVehicle()) return;
+    if (event.code === 'KeyW') vehicleThrottle = 1;
+    else if (event.code === 'KeyS') vehicleThrottle = -1;
+    else if (event.code === 'KeyX' && !event.repeat) {
+      const modes = VEHICLE_TRAVEL_MODES;
+      const nextMode = modes[(modes.indexOf(vehicleTravelState.snapshot().travelMode) + 1) % modes.length];
+      vehicleTravelState.setTravelMode(nextMode);
+      persistVehicleState();
+    }
+  });
+  window.addEventListener('keyup', (event) => {
+    if (event.code === 'KeyW' && vehicleThrottle === 1) vehicleThrottle = 0;
+    if (event.code === 'KeyS' && vehicleThrottle === -1) vehicleThrottle = 0;
   });
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyL' || event.repeat) return;
@@ -1652,6 +1764,18 @@ async function main() {
           Reset hallway lurker (debug only)
         </button>
       </Section>
+      <Section title='VEHICLE'>
+        <VehicleRow />
+        <button
+          type='button'
+          onClick={() => {
+            vehicleTravelState.refuel(vehicleProfile.fuelCapacity);
+            persistVehicleState();
+          }}
+        >
+          Refuel (debug only)
+        </button>
+      </Section>
     </>,
     document.getElementById('debug-root') as HTMLDivElement,
   );
@@ -1704,6 +1828,17 @@ async function main() {
     terminalFixture = resolveTerminalFixture();
     terminalDocking = createTerminalDocking();
     publishTerminalSnapshot(terminalDocking.snapshot());
+
+    // The road mesh/RoadHandle just got disposed and reloaded at the new
+    // hScale (locationFeatures.rebuild(), above) — VehicleSession's camera
+    // and vehicle model must move to a freshly built one too, the same
+    // "re-resolve after rebuild" treatment as terminalFixture just above.
+    // Loading the model is async (glTF fetch), so this follows
+    // WorldFeaturesSystem's own composite-locations reload shape: fire
+    // without blocking rebuildWorld, and use a generation token to drop a
+    // stale in-flight reload if the slider moves again before this resolves
+    // — the old vehicle stays visible (at the old scale) in the meantime.
+    void refreshVehicleSession(vehicleSession.isInVehicle());
 
     backdrop.rebuildClouds();
     backdrop.rebuildMountains();
@@ -1884,6 +2019,7 @@ async function main() {
         },
       } : undefined,
     );
+    persistVehicleState();
     saveSettings(levelKey, {
       x: pos.x,
       y: pos.y,
@@ -1921,10 +2057,20 @@ async function main() {
       flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
     );
     workshop.setFlashlightEnabled(flashlightEnabled.value && workshop.isInterior());
-    if (isExteriorGameplay() && !terminalSnapshot.blocksWorldInput) {
+    if (isExteriorGameplay() && !terminalSnapshot.blocksWorldInput && !vehicleSession.isInVehicle()) {
       activeTraversalController.update(dt);
       clampToWorldBounds(activeTraversalController);
     }
+    if (isExteriorGameplay() && vehicleSession.isInVehicle()) {
+      const wasStranded = vehicleTravelState.snapshot().stranded;
+      vehicleTravelState.update(dt, { throttle: vehicleThrottle });
+      const travelSnapshot = vehicleTravelState.snapshot();
+      if (travelSnapshot.stranded && !wasStranded) persistVehicleState();
+      vehicleSession.update(dt, travelSnapshot);
+    } else {
+      vehicleSession.update(0, vehicleTravelState.snapshot());
+    }
+    updateVehicleHud();
     backdrop.update(dt);
     weatherSystem.update(dt, (windIntensity) => {
       ambientAudio.setWeatherIntensity(windIntensity * audio.windVolume.value);
@@ -2114,7 +2260,10 @@ async function main() {
         interactionPrompt.style.display = 'none';
       }
     } else if (worldSession.isExterior()) {
-      if (terminalSnapshot.state === 'available') {
+      if (vehicleSession.isInVehicle()) {
+        interactionPrompt.textContent = 'E — Exit vehicle';
+        interactionPrompt.style.display = 'block';
+      } else if (terminalSnapshot.state === 'available') {
         interactionPrompt.textContent = 'E — Dock public sanitation terminal';
         interactionPrompt.style.display = 'block';
       } else if (workshop.isNearEntrance()) {
@@ -2122,6 +2271,9 @@ async function main() {
         interactionPrompt.style.display = 'block';
       } else if (strikeSnapshot.recoveryAvailable) {
         interactionPrompt.textContent = 'E — Recover emitter and drone chassis';
+        interactionPrompt.style.display = 'block';
+      } else if (vehicleSession.isNearVehicle(controllers[movement.activeMode.value].getPosition())) {
+        interactionPrompt.textContent = 'E — Enter vehicle';
         interactionPrompt.style.display = 'block';
       } else if (surveillance.isNearEntrance()) {
         interactionPrompt.textContent = 'E — Enter Milo’s apartment';

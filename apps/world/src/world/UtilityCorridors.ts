@@ -9,6 +9,7 @@ import type { Mesh, Scene, ShadowGenerator } from '@babylonjs/core';
 import type { Collider } from '@dissonance/world';
 import type { LocationEntry } from './LocationProps';
 import { buildUtilityPole } from './LocationProps';
+import { buildCumulativeDistances, sampleAtSpacing } from './polyline';
 
 // T26/T27's real starting point (see THREADS.md's 2026-07-27 T7-substrate
 // resolution) — placement stays the runtime/data-hybrid pattern every other
@@ -45,8 +46,6 @@ export interface UtilityCorridorsHandle {
 }
 
 export type WorldBoundsRender = { minX: number; maxX: number; minZ: number; maxZ: number };
-
-type CorridorPole = { x: number; z: number; headingRadians: number };
 
 // How far (t >= 0) a ray from `origin` in `direction` can travel before
 // exiting `bounds` — the standard slab method. `origin` is assumed to
@@ -101,43 +100,6 @@ function extendPathToWorldBounds(
   return extended;
 }
 
-// Walks an arbitrary polyline (in render-space meters) at a fixed step
-// distance, returning evenly spaced points plus each one's tangent heading.
-// Always includes the path's exact final vertex so the last span isn't
-// stretched past the authored corridor's end.
-function samplePolylineAtSpacing(path: Array<{ x: number; z: number }>, spacing: number): CorridorPole[] {
-  const cumulative: number[] = [0];
-  for (let i = 1; i < path.length; i++) {
-    cumulative.push(cumulative[i - 1] + Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z));
-  }
-  const total = cumulative[cumulative.length - 1];
-  if (total === 0) return [];
-
-  const headingAt = (segIndex: number) => Math.atan2(
-    path[segIndex + 1].x - path[segIndex].x,
-    path[segIndex + 1].z - path[segIndex].z,
-  );
-
-  const points: CorridorPole[] = [];
-  let segIndex = 0;
-  for (let dist = 0; dist <= total; dist += spacing) {
-    while (segIndex < cumulative.length - 2 && cumulative[segIndex + 1] < dist) segIndex++;
-    const segLength = cumulative[segIndex + 1] - cumulative[segIndex];
-    const t = segLength === 0 ? 0 : (dist - cumulative[segIndex]) / segLength;
-    points.push({
-      x: path[segIndex].x + (path[segIndex + 1].x - path[segIndex].x) * t,
-      z: path[segIndex].z + (path[segIndex + 1].z - path[segIndex].z) * t,
-      headingRadians: headingAt(segIndex),
-    });
-  }
-  const last = path[path.length - 1];
-  const lastPoint = points[points.length - 1];
-  if (!lastPoint || Math.hypot(lastPoint.x - last.x, lastPoint.z - last.z) > 0.01) {
-    points.push({ x: last.x, z: last.z, headingRadians: headingAt(cumulative.length - 2) });
-  }
-  return points;
-}
-
 // Reads locations.json entries' `corridor` field and builds one thin-
 // instanced pole row + a sagging multi-wire line mesh per corridor — same
 // "template mesh, thin-instance the placements" split as CompositeLocations'
@@ -172,7 +134,11 @@ export function loadUtilityCorridors(
       }
     }
 
-    const poles = samplePolylineAtSpacing(renderPath, location.corridor.poleSpacingMeters * horizontalScale);
+    const poles = sampleAtSpacing(
+      renderPath,
+      buildCumulativeDistances(renderPath),
+      location.corridor.poleSpacingMeters * horizontalScale,
+    );
     if (poles.length < 2) {
       console.warn(`[UtilityCorridors] "${location.name}" corridor too short to place any poles`);
       continue;

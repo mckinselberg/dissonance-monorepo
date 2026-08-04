@@ -14,6 +14,7 @@ import {
   type SurveilledLocationEntrance,
 } from './CompositeLocations';
 import { loadUtilityCorridors, type UtilityCorridorsHandle } from './UtilityCorridors';
+import { loadRoadNetwork, type RoadHandle, type RoadNetworkHandle } from './RoadNetwork';
 import { loadLineglassParts, type LineglassPartsHandle } from './LineglassParts';
 import {
   loadBoulevardPatrolDrones,
@@ -31,6 +32,7 @@ import {
 } from './WorldTerminals';
 import { loadForestImpasses, type ForestImpassesHandle } from './ForestImpasses';
 import { loadAssetShowcase, type AssetShowcaseHandle } from './AssetShowcase';
+import type { ReplayRoute } from '../ui/RouteReplay';
 
 function worldBounds(realWidth: number, realDepth: number, scaleTuning: ScaleTuningSignals) {
   return {
@@ -82,6 +84,7 @@ export class WorldFeaturesSystem {
   private constructor(
     private readonly scene: Scene,
     private readonly locations: LocationEntry[],
+    private readonly replayRoutes: ReplayRoute[],
     private readonly toRenderXZ: (lat: number, lon: number) => { x: number; z: number },
     private readonly scaleTuning: ScaleTuningSignals,
     private readonly terrain: ITerrain,
@@ -95,6 +98,7 @@ export class WorldFeaturesSystem {
     private locationProps: LocationPropsHandle,
     private compositeLocations: CompositeLocationsHandle,
     private utilityCorridors: UtilityCorridorsHandle,
+    private roadNetwork: RoadNetworkHandle,
     private lineglassParts: LineglassPartsHandle,
     private patrolDrones: BoulevardPatrolDronesHandle,
     private shelterEntrance: FalloutShelterEntranceHandle,
@@ -108,6 +112,7 @@ export class WorldFeaturesSystem {
   static async create(
     scene: Scene,
     locations: LocationEntry[],
+    replayRoutes: ReplayRoute[],
     toRenderXZ: (lat: number, lon: number) => { x: number; z: number },
     scaleTuning: ScaleTuningSignals,
     terrain: ITerrain,
@@ -130,6 +135,9 @@ export class WorldFeaturesSystem {
       worldBounds(realWidth, realDepth, scaleTuning), shadowGenerator,
     );
     utilityCorridors.setVisible(powerLinesVisible.value);
+    const roadNetwork = loadRoadNetwork(
+      scene, locations, toRenderXZ, scaleTuning.hScale.value, scaleTuning.vExag.value, heightAt, replayRoutes,
+    );
     // state/lineglass.ts's diegetic half — parts already collected last
     // session (lineglass.collectedPartIds, restored in main.tsx) load
     // already hidden, never re-awarded.
@@ -163,9 +171,9 @@ export class WorldFeaturesSystem {
     );
 
     return new WorldFeaturesSystem(
-      scene, locations, toRenderXZ, scaleTuning, terrain, atmosphere, powerLinesVisible, lineglass, realWidth, realDepth,
-      shadowGenerator, player, locationProps, compositeLocations, utilityCorridors, lineglassParts, patrolDrones,
-      shelterEntrance, worldTerminals, forestImpasses, assetShowcase,
+      scene, locations, replayRoutes, toRenderXZ, scaleTuning, terrain, atmosphere, powerLinesVisible, lineglass,
+      realWidth, realDepth, shadowGenerator, player, locationProps, compositeLocations, utilityCorridors, roadNetwork,
+      lineglassParts, patrolDrones, shelterEntrance, worldTerminals, forestImpasses, assetShowcase,
     );
   }
 
@@ -190,6 +198,10 @@ export class WorldFeaturesSystem {
     const terminal = this.worldTerminals.get(id);
     if (!terminal) return null;
     return { ...terminal, position: terminal.position.clone() };
+  }
+
+  getRoad(locationId: string): RoadHandle | null {
+    return this.roadNetwork.getRoad(locationId);
   }
 
   private terminalHeightAt(x: number, z: number): number {
@@ -297,6 +309,12 @@ export class WorldFeaturesSystem {
     );
     this.utilityCorridors.setVisible(this.powerLinesVisible.value);
     this.applyPlayerColliders();
+
+    this.roadNetwork.dispose();
+    this.roadNetwork = loadRoadNetwork(
+      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.scaleTuning.vExag.value,
+      this.heightAt, this.replayRoutes,
+    );
 
     this.lineglassParts.dispose();
     // Live collected set, not savedSettings' original snapshot — a part

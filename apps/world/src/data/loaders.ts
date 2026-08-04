@@ -11,6 +11,7 @@ import type { LocationEntry } from '../world/LocationProps';
 import type { ForestDensityZone } from '../world/BulkForestSystem';
 import { parseStoryManifest, type StoryManifest } from '../state/story';
 import { parseStrikeProfile, type StrikeProfile } from '../systems/strike/strikeProfile';
+import { parseVehicleProfile, type VehicleProfile } from '../vehicle/vehicleProfile';
 import {
   parseTerminalSimulationSnapshot,
   type TerminalSimulationSnapshot,
@@ -82,6 +83,12 @@ export async function loadStrikeProfile(): Promise<StrikeProfile> {
   const response = await fetch(`${import.meta.env.BASE_URL}data/strike-profile.json`);
   if (!response.ok) throw new Error(`Could not load strike profile (${response.status}).`);
   return parseStrikeProfile(await response.json() as unknown);
+}
+
+export async function loadVehicleProfile(): Promise<VehicleProfile> {
+  const response = await fetch(`${import.meta.env.BASE_URL}data/vehicle-profile.json`);
+  if (!response.ok) throw new Error(`Could not load vehicle profile (${response.status}).`);
+  return parseVehicleProfile(await response.json() as unknown);
 }
 
 export async function loadTerminalFixture(): Promise<TerminalSimulationSnapshot> {

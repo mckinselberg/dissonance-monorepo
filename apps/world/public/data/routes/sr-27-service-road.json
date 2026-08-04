@@ -1,0 +1,12 @@
+{
+  "name": "SR-27 service road",
+  "coordinateSystem": "WGS84",
+  "heightmapUnits": "meters",
+  "points": [
+    { "latLongHeightmap": [40.7415, -74.298, 0] },
+    { "latLongHeightmap": [40.7419038, -74.2977352, 0] },
+    { "latLongHeightmap": [40.7424468, -74.2981559, 0] },
+    { "latLongHeightmap": [40.7429854, -74.2978422, 0] },
+    { "latLongHeightmap": [40.7434815, -74.2979318, 0] }
+  ]
+}

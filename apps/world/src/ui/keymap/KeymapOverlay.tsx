@@ -31,6 +31,14 @@ const KEYMAP_GROUPS: KeymapGroup[] = [
     ],
   },
   {
+    label: 'Vehicle',
+    entries: [
+      { keys: ['E'], action: 'Enter / exit (near vehicle)' },
+      { keys: ['W', 'S'], action: 'Throttle / brake' },
+      { keys: ['X'], action: 'Cycle travel mode' },
+    ],
+  },
+  {
     label: 'Companion',
     entries: [
       { keys: ['M'], action: 'Whistle selected melody' },

@@ -61,6 +61,30 @@ export type LocationEntry = {
     // coordinates. Interior points (if any) are left alone.
     extendToWorldBounds?: boolean;
   };
+  // An authored, drivable Synod service road — consumed by
+  // vehicle/RoadNetwork.ts. Unlike `corridor` (a power right-of-way with
+  // poles/wires), a road is a traversal surface: it gets a wide ground-hugging
+  // ribbon mesh, not thin-instanced props along it. `pullOffs` are named stops
+  // (parking/sanctioned destinations) addressed by distance along the path
+  // rather than their own local offset, since a pull-off only makes sense as
+  // a point *on* the road.
+  //
+  // The path itself comes from exactly one of two sources:
+  // - `routeFile`: the id (filename) of an entry in public/data/routes/
+  //   index.json — the same recorded/imported route documents RouteReplay.tsx
+  //   already loads (RouteRecorder.tsx's export format or a GeoJSON
+  //   LineString), as absolute WGS84 points. This is the preferred source —
+  //   walk or fly the intended road once with the route recorder, export,
+  //   commit the file, and point a road at it. No local-meter conversion.
+  // - `path`: a freeform polyline in local meters from `latLong`, same
+  //   convention as `corridor.path` — a hand-authored fallback for when
+  //   there's no recording (or the road is short enough not to need one).
+  road?: {
+    path?: Array<[number, number]>;
+    routeFile?: string;
+    widthMeters: number;
+    pullOffs?: Array<{ id: string; distanceMeters: number }>;
+  };
   // Diegetic Lineglass parts (see world/LineglassParts.ts, state/
   // lineglass.ts) — exact local-meter offsets from `latLong`, same
   // convention as `corridor.path`. Deliberately its own field rather than

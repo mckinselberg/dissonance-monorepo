@@ -19,6 +19,7 @@ museum/DTA key `dta_player_state`.
 | camera/view presets | view snapshot | authored/exported |
 | run seed | World session | session only |
 | breath, velocity, strike windup, interior camera | owning runtime systems | no |
+| vehicle road-distance, fuel fraction, travel mode, stranded flag | World save vehicle | yes |
 
 The active route records where a save occurred, but interiors are not reload
 targets: their cameras and procedural meshes are runtime resources. Reloading
@@ -64,6 +65,32 @@ They may hide or reveal independently, but they never write progression or
 infer ownership from mesh visibility; the World save remains authoritative.
 On load, known acquisition flags repair any missing corresponding hardware ID;
 `chassisRecovered` also restores the app-local exterior-drone suppression.
+
+## Version 2
+
+Adds a `vehicle` block for the diegetic road-travel slice (Synod road-service
+coupe utility, `apps/world/src/vehicle/`). Loading a stored v1 document
+upgrades it in place — `vehicle` defaults to a fresh, full-tank, unstranded
+vehicle parked at the start of its road rather than dropping the rest of the
+v1 document's state:
+
+```ts
+vehicle: {
+  distanceMeters: number;
+  // Fraction of VehicleProfile.fuelCapacity (0..1), not an absolute amount —
+  // stays valid across vehicle-profile tuning instead of silently meaning a
+  // different real amount of fuel than what was saved.
+  fuelFraction: number;
+  travelMode: 'careful' | 'fast' | 'reckless';
+  stranded: boolean;
+};
+```
+
+`strike` (run seed, anchor, windup, recoverable position — the T31 patrol-drone
+strike/recovery system) already existed in the document before this bump; it
+was missing from this doc's Version 1 schema listing above, which predates
+that feature landing in code. Not corrected here — flagged, not fixed, per
+this doc's own scope.
 
 ## One-time compatibility
 

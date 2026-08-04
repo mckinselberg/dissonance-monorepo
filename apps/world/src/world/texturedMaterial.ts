@@ -13,35 +13,44 @@ export const TEXTURES_BASE = `${import.meta.env.BASE_URL}textures/`;
 // textureScale. Third call site (after FalloutShelterEntrance's original)
 // is what pulled this out of that file — LocationProps and CompositeLocations
 // both needed the identical albedo/normal/roughness-or-ORM wiring.
+// A single number tiles uniformly; { u, v } tiles the two axes independently
+// — needed for long thin meshes (e.g. a road ribbon many times longer than
+// it is wide) where a uniform scale would stretch one axis or over-tile the
+// other. Every call site before RoadNetwork.ts's road surface used a plain
+// number on roughly-square meshes, so this stays backward compatible.
+export type TextureScale = number | { u: number; v: number };
+
 export function texturedMaterial(
   scene: Scene,
   name: string,
   paths: { albedo: string; normal?: string; roughness?: string; orm?: string },
-  textureScale: number,
+  textureScale: TextureScale,
 ): PBRMaterial {
+  const uScale = typeof textureScale === 'number' ? textureScale : textureScale.u;
+  const vScale = typeof textureScale === 'number' ? textureScale : textureScale.v;
   const result = new PBRMaterial(name, scene);
   const albedo = new Texture(paths.albedo, scene);
-  albedo.uScale = textureScale;
-  albedo.vScale = textureScale;
+  albedo.uScale = uScale;
+  albedo.vScale = vScale;
   result.albedoTexture = albedo;
   if (paths.normal) {
     const normal = new Texture(paths.normal, scene);
-    normal.uScale = textureScale;
-    normal.vScale = textureScale;
+    normal.uScale = uScale;
+    normal.vScale = vScale;
     result.bumpTexture = normal;
   }
   if (paths.roughness) {
     const roughness = new Texture(paths.roughness, scene);
-    roughness.uScale = textureScale;
-    roughness.vScale = textureScale;
+    roughness.uScale = uScale;
+    roughness.vScale = vScale;
     result.metallicTexture = roughness;
     result.useRoughnessFromMetallicTextureGreen = true;
     result.useMetallnessFromMetallicTextureBlue = false;
     result.useRoughnessFromMetallicTextureAlpha = false;
   } else if (paths.orm) {
     const orm = new Texture(paths.orm, scene);
-    orm.uScale = textureScale;
-    orm.vScale = textureScale;
+    orm.uScale = uScale;
+    orm.vScale = vScale;
     result.metallicTexture = orm;
     result.useRoughnessFromMetallicTextureGreen = true;
     result.useMetallnessFromMetallicTextureBlue = true;
