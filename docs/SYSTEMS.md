@@ -2,7 +2,7 @@
 
 **Status:** Canonical  
 **Scope:** Repository-wide runtime, state, and presentation ownership  
-**Last reviewed:** 2026-07-31
+**Last reviewed:** 2026-08-04
 
 This registry follows [DISSONANCE-DOCSYSTEM.md](./DISSONANCE-DOCSYSTEM.md). Package
 names marked `VERIFY` must be confirmed by a Phase 0 audit before implementation.
@@ -25,3 +25,4 @@ names marked `VERIFY` must be confirmed by a Phase 0 audit before implementation
 | Captured drone acquisition | T31 | `apps/world` + `packages/world` weather | World save strike and hardware state | Babylon, Tone.js, Dev Lineglass | v1 landed; live QA deferred | `docs/dissonance/THREADS-delta-T31-T32.md` |
 | Underground network/workshop | T35 | `apps/world` | versioned World save | Babylon + Tone.js | Draft 1 landed | `docs/dissonance/underground-network-concept-v1.md` |
 | Rey Caverns | T36 | `apps/world` `VERIFY` | World save encounter/progression state | Babylon + future tonal systems | boundary teaser only; blocked | `docs/dissonance/rey-caverns-concept-v1.md` |
+| Rural infrastructure | T28 | `apps/world/src/world` (`LocationProps.ts`, `CompositeLocations.ts`, `RoadNetwork.ts`) `VERIFY` | `apps/world/public/data/locations.json` | Babylon world + Dev Lineglass (compass) | farm silo placeholder, highway on-foot hookup, and compass HUD readout in progress | `docs/design/world/RURAL-INFRASTRUCTURE.md` |
