@@ -584,5 +584,19 @@
       "routeFile": "grove-to-dissonance-blvd.geojson",
       "widthMeters": 4
     }
+  },
+  {
+    "id": "farm-silo-cluster-01",
+    "name": "farm silo cluster",
+    "latLong": [40.745, -74.3],
+    "compound": {
+      "cellMeters": 16,
+      "rotationDegrees": 0,
+      "placements": [
+        { "asset": "farm-silo", "grid": [0, 0] },
+        { "asset": "farm-silo", "grid": [1, 0] },
+        { "asset": "farm-silo", "grid": [0, 1] }
+      ]
+    }
   }
 ]

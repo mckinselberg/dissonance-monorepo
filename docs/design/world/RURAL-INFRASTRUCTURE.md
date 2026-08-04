@@ -1,6 +1,6 @@
 # Rural Infrastructure
 
-**Status:** canon + placement/asset/acoustic contracts reconciled; silo placeholder implementation in progress
+**Status:** canon + placement/asset/acoustic contracts reconciled; silo placeholder, highway on-foot hookup, and compass HUD readout all landed 2026-08-04
 
 **Thread:** T28
 
@@ -54,11 +54,11 @@ repurposing, not demolition.
 |---|---|---|---|
 | Windmill | T20 + T28 | Provisional | T20 acoustic doctrine |
 | Water tower | T26 + T28 | Provisional | T26 landmark-identity |
-| Farm silo | T20 + T17 + T28 | Provisional, **placeholder in progress** | T20 wrongness doctrine (for the wrongness-seed variant only — plain silo is unblocked) |
+| Farm silo | T20 + T17 + T28 | Provisional, **placeholder landed** | T20 wrongness doctrine (for the wrongness-seed variant only — plain silo is unblocked) |
 | Self-storage | T22 (pattern) + T28 | Provisional | none blocking — reuses T22's existing per-prop story-profile pattern as data |
 | Regional airport | T28 | Experimental, very low priority | largest build by far; don't start here |
-| Two-lane highway | T28 | Provisional, **on-foot hookup in progress** | none — placement mechanism already shipped |
-| Physical compass | T21 + T28 | Provisional, **HUD slice in progress** | T27 zone-field blending (for the full diegetic item only — HUD readout is unblocked) |
+| Two-lane highway | T28 | Provisional, **on-foot speed hookup landed** | none — placement mechanism already shipped |
+| Physical compass | T21 + T28 | Provisional, **HUD readout landed** | T27 zone-field blending (for the full diegetic item only — HUD readout is unblocked) |
 | Power lines | T28 | Done (visual only) | none |
 
 Fauna (birdsong, forest understory, small animals) are **not** T28 content —
@@ -115,8 +115,10 @@ corrugation/fluting, moisture streaks below a rusted cap band, a ~3m hatch
 with broken/missing welded ladder steps, a moss-covered concrete pad, no
 graffiti (actively Synod-policed).
 
-**Implementation status:** first-pass procedural placeholder in progress —
-see "Placement and asset contracts" below.
+**Implementation status:** landed — `buildFarmSilo` (`LocationProps.ts`), a
+`farm-silo` `PROCEDURAL_ASSETS` entry, an `OBSTACLE_COLLISION_RADII` entry,
+T30 weathering variation, and a 3-silo test cluster (`farm-silo-cluster-01`
+in `locations.json`). See "Placement and asset contracts" below.
 
 ### Self-storage facility
 Half-abandoned commercial complex, one per major settlement (T16 hub
@@ -171,8 +173,8 @@ collectible spiral.
 **Not greenfield** — `packages/navigation` (`CompassReading`, `MapPlacard`,
 `NearbyLandmark` types; `bearingBetween`, `distanceBetween`,
 `createMapPlacard` functions) already exists. It's currently dead code: not
-a listed `apps/world` dependency, zero imports. First slice (in progress) is
-a HUD bearing/nearby-landmark readout in the existing Lineglass Navigation
+a listed `apps/world` dependency, zero imports. First slice (landed) is a
+HUD bearing/nearby-landmark readout in the existing Lineglass Navigation
 panel — no new 3D prop, no collectible pickup yet. The full diegetic item
 (physical pickup, broken-needle prop, "compass deviates near active
 infrastructure") is a deliberately deferred second phase: that deviation

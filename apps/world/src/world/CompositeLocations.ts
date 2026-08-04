@@ -16,8 +16,9 @@ import type {
 } from '@babylonjs/core';
 import type { Collider } from '@dissonance/world';
 import type { FloorSurface } from '@dissonance/player';
+import { DEFAULT_SCATTER_VARIATION_PROFILE, setScatterVariationBuffer } from '@dissonance/materials';
 import type { LocationEntry } from './LocationProps';
-import { buildStreetLamp } from './LocationProps';
+import { buildFarmSilo, buildStreetLamp } from './LocationProps';
 import type { DoorController, LocalFurniturePlacement } from './MilosInterior';
 import { COUCH_SCALE, createDoorController, createMilosInteriorGeometry } from './MilosInterior';
 import { ensureGltfLoader } from './gltfLoader';
@@ -80,6 +81,9 @@ const OBSTACLE_COLLISION_RADII: Record<string, number> = {
   bollard: 0.15,
   planter: 1.0,
   'street-lamp': 0.3,
+  // Sealed traversal obstacle per T28 lore (docs/design/world/
+  // RURAL-INFRASTRUCTURE.md) — matches buildFarmSilo's 8m diameter.
+  'farm-silo': 4,
 };
 // One building on "dissonance boulevard" is tagged this id in locations.json
 // (Dan, 2026-07-27: "all buildings but milo's apartment building
@@ -214,7 +218,16 @@ function applyWindowTint(
 // AssetContainer step.
 const PROCEDURAL_ASSETS: Record<string, (scene: Scene) => Mesh> = {
   'street-lamp': buildStreetLamp,
+  'farm-silo': buildFarmSilo,
 };
+
+// Assets whose template material has ScatterVariationMaterialPlugin
+// attached (see their builder's own comment) need their per-instance
+// buffer filled once placement count is known — buildXxx only attaches the
+// plugin, it can't fill the buffer itself. Keyed the same as
+// PROCEDURAL_ASSETS/CITY_ASSETS so a future second variant-using asset is a
+// one-line addition, not a special case.
+const SCATTER_VARIATION_ASSETS = new Set(['farm-silo']);
 
 // Position/orientation only — resolved before any terrain sampling, since
 // fitting the grading plane (below) needs the compound's own placement
@@ -855,6 +868,9 @@ export async function loadCompositeLocations(
     ...[...byAsset].map(async ([asset, entries]) => {
       if (asset in PROCEDURAL_ASSETS) {
         const template = placeProceduralAsset(scene, PROCEDURAL_ASSETS[asset], entries, shadowGenerator);
+        if (SCATTER_VARIATION_ASSETS.has(asset)) {
+          setScatterVariationBuffer(template, entries.length, DEFAULT_SCATTER_VARIATION_PROFILE);
+        }
         proceduralMeshes.push(template);
       } else {
         const container = await loadThinInstancedAsset(
