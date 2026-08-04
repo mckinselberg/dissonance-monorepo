@@ -622,6 +622,16 @@ async function main() {
       rootIds: ['audio-root'],
     },
     ...(level.cameraMode === 'orbit' ? [] : [{
+      id: 'player', label: 'Player', icon: '◉', modes: ['inspect', 'tune'], priority: 55,
+      capabilities: ['inspect-world'],
+      source: 'live',
+      summary: () => ({
+        primary: flashlightEnabled.value ? 'Flashlight on' : 'Flashlight off',
+        secondary: 'equipment',
+      }),
+      rootIds: ['player-root'],
+    } satisfies LineglassModuleDefinition]),
+    ...(level.cameraMode === 'orbit' ? [] : [{
       id: 'movement', label: 'Movement', icon: '↟', modes: ['inspect', 'tune'], priority: 60,
       capabilities: ['inspect-world'],
       source: 'live',
@@ -1521,6 +1531,25 @@ async function main() {
   };
 
   const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
+  const setFlashlightPreference = (enabled: boolean) => {
+    flashlightEnabled.value = enabled;
+    worldSave.setFlashlightEnabled(enabled);
+    const exteriorWalkEnabled = enabled && isExteriorGameplay() && movement.activeMode.value === 'walk';
+    player.setFlashlightEnabled(exteriorWalkEnabled);
+    heldFlashlight.setVisible(exteriorWalkEnabled);
+    workshop.setFlashlightEnabled(enabled && workshop.isInterior());
+  };
+
+  render(
+    <div class='lineglass-control-grid'>
+      <ToggleLabel
+        label='Flashlight'
+        signal={flashlightEnabled}
+        onCommit={setFlashlightPreference}
+      />
+    </div>,
+    document.getElementById('player-root') as HTMLDivElement,
+  );
   const createTerminalDocking = () => new TerminalDockingSystem({
     availableDistance: terminalFixture.interactionRadius,
     dockingDurationSeconds: 0.55,
@@ -1681,15 +1710,7 @@ async function main() {
   });
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyL' || event.repeat) return;
-    flashlightEnabled.value = !flashlightEnabled.value;
-    worldSave.setFlashlightEnabled(flashlightEnabled.value);
-    workshop.setFlashlightEnabled(flashlightEnabled.value);
-    player.setFlashlightEnabled(
-      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
-    );
-    heldFlashlight.setVisible(
-      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
-    );
+    setFlashlightPreference(!flashlightEnabled.value);
   });
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyI' || event.repeat) return;

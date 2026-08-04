@@ -30,10 +30,13 @@ Source labels must accompany color so the distinction remains accessible.
 
 Phase 1 wraps the canonical legacy control roots in the new shell. This keeps
 one state and command path while the controls move module-by-module. World,
-Sky, Audio, Context, Movement, Navigation, Routes, Replay, and Diagnostics now
-have separate Lineglass homes. The active mode and last-open module per mode
-persist as UI preferences. Module rows expose the dominant value source and an
-override count where saved runtime settings can be identified safely.
+Sky, Audio, Context, Player, Movement, Companion, Navigation, Routes, Replay,
+and Diagnostics now have separate Lineglass homes. Player owns durable
+player/equipment controls such as the flashlight; Movement remains responsible
+for traversal mode, camera height, and world bounds. The active mode and
+last-open module per mode persist as UI preferences. Module rows expose the
+dominant value source and an override count where saved runtime settings can be
+identified safely.
 
 The next slice should move source metadata down to individual controls and
 replace the remaining legacy `Section` headings with primary/advanced/
