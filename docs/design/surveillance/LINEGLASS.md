@@ -9,9 +9,9 @@
 **Presentation owner:** Babylon device/render layers + Preact overlay  
 **Depends on:** T21 geographic substrate, T26 stable features, T29 terminal boundary  
 **Consumed by:** Boulevard investigation, T31 drone review/control, navigation  
-**Decisions:** D44  
-**Open questions:** O12, O19, O23  
-**Last reviewed:** 2026-07-31
+**Decisions:** D44, D47<br>
+**Open questions:** O19, O23<br>
+**Last reviewed:** 2026-08-03
 
 Lineglass makes otherwise hidden structural, signal, acoustic, historical,
 biological, and geographic relationships perceptible. It is an unreliable

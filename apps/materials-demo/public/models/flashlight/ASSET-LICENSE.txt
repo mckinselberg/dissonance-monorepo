@@ -1,0 +1,13 @@
+Small Plastic Torch — materials-demo mirror
+==============================================
+
+This directory mirrors the prepared runtime GLB used by apps/world so the
+standalone materials demo can validate its authored PBR surfaces and export.
+
+Canonical source and preparation record:
+
+  apps/world/public/models/flashlight/ASSET-LICENSE.txt
+
+The original download URL, author, and license have not yet been recorded.
+Do not ship or redistribute this asset until that source attribution and
+license are confirmed.

@@ -47,6 +47,10 @@ to locate each migrated artifact and understand its authority.
   - [scale-tuning.md](dissonance/world/scale-tuning.md) — why real terrain
     reads as flat at human scale, the three viewing levels
     (`?level=1|2|3`), the actual slope math, and known tradeoffs/bugs.
+  - [design/world/CATEGORY-OBJECT-SCALING.md](design/world/CATEGORY-OBJECT-SCALING.md)
+    — T38's canonical contract for separating terrain/geographic H/V from
+    realistic cross-source object calibration, independently persisted category
+    scale, and a separate transient seam for dysphoric spatial effects.
   - [park-map-overlay.md](dissonance/world/park-map-overlay.md) — planned
     (not yet implemented) work to drape an illustrated park map onto the
     terrain as a texture.
@@ -88,6 +92,10 @@ to locate each migrated artifact and understand its authority.
 
 ## Engineering and historical artifacts
 
+- [`intake/RENDER_PIPELINE_QUICKSTART.md`](intake/RENDER_PIPELINE_QUICKSTART.md)
+  is the tracked T24 billboard/impostor dispatch brief. Its original quick-start
+  APIs are aspirational pseudocode; follow the prepended repository assessment
+  and Phase 0 audit before implementation.
 - [`engineering/prompts/`](engineering/prompts/) contains active or
   implementation-candidate prompts. A Phase 0 refresh is still required before
   executing a legacy prompt.

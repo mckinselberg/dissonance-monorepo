@@ -50,6 +50,7 @@ export type SavedSettings = {
   sunTint?: string;
   windowTintColor?: string;
   windowGlow?: number;
+  vegetationCullRadius?: number;
   // Collected Lineglass part ids (state/lineglass.ts) — drives which of the
   // grid/GPX/OSM geo-reference toggles start unlocked on reload. A list of
   // stable ids, not a count, so a specific part is never re-awarded twice.

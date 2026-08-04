@@ -1,0 +1,29 @@
+Small Plastic Torch
+===================
+
+Source package supplied locally by Daniel on 2026-08-03:
+
+  apps/world/assets/models/flashlight/source/small_plastic_torch_4k/
+
+The original download URL, author, and license have not yet been recorded.
+Do not infer redistribution rights from the presence of this working asset;
+confirm and add its source attribution/license before a public release.
+
+Runtime derivative
+------------------
+
+Generated with Blender 5.2 and:
+
+  apps/world/scripts/blender/prepare_prop.py
+
+Settings used:
+
+  --decimate-ratio 0.7
+  --texture-size 1024
+
+The prepared mesh has 9,276 triangles (source: 13,252); a round-trip import of
+the exported GLB reports 9,288 triangles after final exporter triangulation.
+The GLB embeds 1K versions of the source package's five 4K material textures. Full-detail,
+70%, and 50% candidates were rendered from the same camera; 70% was selected
+as the lowest conservative reduction with no visible silhouette loss in the
+comparison, preserving the wrist loop and ridged end caps for close viewing.

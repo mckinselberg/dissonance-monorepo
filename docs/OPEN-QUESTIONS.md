@@ -2,7 +2,7 @@
 
 **Status:** Canonical  
 **Scope:** Unresolved design and architecture forks  
-**Last reviewed:** 2026-07-31
+**Last reviewed:** 2026-08-03
 
 Identifiers O1–O19 are preserved from `THREADS.md`. This file is now their
 canonical registry; `THREADS.md` should link to them rather than grow new prose.
@@ -19,7 +19,7 @@ canonical registry; `THREADS.md` should link to them rather than grow new prose.
 | O9 | open | Is composition region family → clock interpolation → detection overlay? | T5/T23/T25/T27 profile seam |
 | O10 | open | Can T4 start with T3 phases A/B complete and phase C deferred? | T4 |
 | O11 | open | Does the audio single-writer queue still apply? | T9, T18, T19, T20 |
-| O12 | open | May distortion remain perceptual, or will authoritative geometry ever deform? | T27 later slices |
+| O12 | resolved — D47 | Distortion is perceptual only; authoritative geometry does not deform. | none |
 | O13 | blocked on assets | Are higher-resolution rust/plastic/tape source crops available? | T30 material families |
 | O14 | deferred | Atlas or single-tile variation once a second family exists? | T30 expansion |
 | O15 | open | Are Echo-17 reference-art output rights cleared? | external distribution |
@@ -34,4 +34,7 @@ canonical registry; `THREADS.md` should link to them rather than grow new prose.
 
 O6 is closed by the established bus names (`spatial`, `ambient-beds`, `interior`,
 `music-synth`) and is recorded in `THREADS.md` as resolved.
+
+O12 is closed by D47. Persisted object calibration defines the authoritative
+baseline; transient dysphoric distortion changes presentation only.
 

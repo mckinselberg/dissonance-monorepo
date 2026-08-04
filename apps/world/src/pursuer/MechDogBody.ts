@@ -57,7 +57,7 @@ export class MechDogBody {
     void this.load();
   }
 
-  /** Swaps to a different reskin of the same rig/animations, e.g. for a friendlier pet-dog look vs. the menacing mech-dog default. */
+  /** Swaps to a different reskin of the same rig/animations: the real pet dog or the black mech dog. */
   setSkin(skin: MechDogSkin): void {
     if (this.disposed || this.skin === skin) return;
     this.skin = skin;

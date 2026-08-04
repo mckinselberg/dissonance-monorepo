@@ -17,7 +17,40 @@ export interface HeroTreeInstancesHandle {
 // variation, which is what "realistic heights" means for a single template.
 const SCALE_JITTER_MIN = 0.82;
 const SCALE_JITTER_MAX = 1.18;
-const jitterScale = (base: number) => base * (SCALE_JITTER_MIN + Math.random() * (SCALE_JITTER_MAX - SCALE_JITTER_MIN));
+const jitterScale = (base: number, rand: () => number) =>
+  base * (SCALE_JITTER_MIN + rand() * (SCALE_JITTER_MAX - SCALE_JITTER_MIN));
+
+// setPlacements is called repeatedly for the SAME ground position whenever
+// distance culling re-uploads the currently-visible subset (BulkForestSystem/
+// TrailsideForestSystem's updateCulling, every 0.25s while the camera moves)
+// — not just once at load/reposition time. Math.random() per call made every
+// still-visible tree reroll its rotation and scale jitter on every culling
+// tick, which read as the whole forest "animating"/jumping in place instead
+// of holding still. Seeding off the position itself (mulberry32, same
+// generator shape as BulkForestSystem's createBulkEligibleCandidatePositions)
+// makes a given ground position always produce the same jitter, so repeat
+// calls with the same positions are visually stable.
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hashPosition(x: number, z: number): number {
+  let h = 0x811c9dc5;
+  // Millimeter precision keeps neighboring trees from colliding onto the
+  // same seed while staying far below any meaningful position difference.
+  h ^= Math.imul(Math.floor(x * 1000) | 0, 0x85ebca6b);
+  h = Math.imul(h, 0x01000193);
+  h ^= Math.imul(Math.floor(z * 1000) | 0, 0xc2b2ae35);
+  h = Math.imul(h, 0x01000193);
+  return h >>> 0;
+}
 
 // Scatters ONE loaded GLB as GPU thin instances — the hero-zone half of the
 // two-tier plan in docs/archive/THREADS-fold-in.260721.md (T8): full-detail real
@@ -89,11 +122,12 @@ export async function loadHeroTreeInstances(
 
     const setPlacements = (positions: Vector3[], scaleXZ: number, scaleY: number) => {
       const matrices = positions.map((pos) => {
-        const sxz = jitterScale(scaleXZ);
-        const sy = jitterScale(scaleY);
+        const rand = seededRandom(hashPosition(pos.x, pos.z));
+        const sxz = jitterScale(scaleXZ, rand);
+        const sy = jitterScale(scaleY, rand);
         return Matrix.Compose(
           new Vector3(sxz, sy, sxz),
-          Quaternion.FromEulerAngles(0, Math.random() * Math.PI * 2, 0),
+          Quaternion.FromEulerAngles(0, rand() * Math.PI * 2, 0),
           new Vector3(pos.x, pos.y - minimumY * sy, pos.z),
         );
       });

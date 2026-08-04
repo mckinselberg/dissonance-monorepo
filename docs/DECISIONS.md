@@ -2,7 +2,7 @@
 
 **Status:** Canonical  
 **Scope:** Accepted repository-wide design and architecture decisions  
-**Last reviewed:** 2026-07-31
+**Last reviewed:** 2026-08-03
 
 Existing identifiers from `THREADS.md` remain stable. This migration begins new
 documentation-system decisions at `D41` to avoid colliding with undocumented
@@ -85,3 +85,12 @@ historical identifiers.
 - **Decision:** Strike, recovery, persistence, profile round-trip, and deterministic tests complete the acquisition slice; construction and control are separate later work.
 - **Applies to:** T31, T32, T35.
 - **Consequences:** `emitter-drone-prompt-v1.md` is completed provenance, not an open implementation prompt.
+
+### D47 — Spatial distortion is perceptual only
+
+- **Date:** 2026-08-03
+- **Status:** accepted
+- **Decision:** Transient dysphoric scale distortion may alter rendered object transforms, atmosphere, and audio, but it never deforms authoritative world geometry. Persisted asset/category calibration defines the ordinary physical baseline. Canonical geographic and simulation coordinates, collision, floors, doors, navigation, interaction geometry, saves, and multiplayer state remain on that baseline.
+- **Rationale:** The intended effect is that the world looks wrong to the player, not that physical reality or shared simulation state changes. This preserves the expressive category H/V effect without making source-of-truth geometry unstable.
+- **Applies to:** T27, T38, and future T4/T5/T9/T21 distortion consumers.
+- **Consequences:** Closes O12. Distortion intensity and presentation must account for temporary visual/collision mismatch; no navmesh rebake, physics deformation, save migration, or replicated geometry state is introduced for the effect.

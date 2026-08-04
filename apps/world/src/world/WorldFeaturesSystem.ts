@@ -127,11 +127,11 @@ export class WorldFeaturesSystem {
     const heightAt = (x: number, z: number) => terrain.getHeightAt(x, z);
     const locationProps = scatterLocationProps(scene, locations, toRenderXZ, heightAt, shadowGenerator);
     const compositeLocations = await loadCompositeLocations(
-      scene, locations, toRenderXZ, scaleTuning.hScale.value, scaleTuning.vExag.value, heightAt,
+      scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt,
       Color3.FromHexString(atmosphere.windowTintColor.value), atmosphere.windowGlow.value, shadowGenerator,
     );
     const utilityCorridors = loadUtilityCorridors(
-      scene, locations, toRenderXZ, scaleTuning.hScale.value, scaleTuning.vExag.value, heightAt,
+      scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt,
       worldBounds(realWidth, realDepth, scaleTuning), shadowGenerator,
     );
     utilityCorridors.setVisible(powerLinesVisible.value);
@@ -287,7 +287,7 @@ export class WorldFeaturesSystem {
     const requestedCompositeGeneration = ++this.compositeLocationsGeneration;
     this.compositeLocations.dispose();
     void loadCompositeLocations(
-      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.scaleTuning.vExag.value,
+      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value,
       this.heightAt, Color3.FromHexString(this.atmosphere.windowTintColor.value), this.atmosphere.windowGlow.value, this.shadowGenerator,
     )
       .then((next) => {
@@ -304,7 +304,7 @@ export class WorldFeaturesSystem {
 
     this.utilityCorridors.dispose();
     this.utilityCorridors = loadUtilityCorridors(
-      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.scaleTuning.vExag.value,
+      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value,
       this.heightAt, worldBounds(this.realWidth, this.realDepth, this.scaleTuning), this.shadowGenerator,
     );
     this.utilityCorridors.setVisible(this.powerLinesVisible.value);

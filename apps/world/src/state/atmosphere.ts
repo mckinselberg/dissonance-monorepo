@@ -30,6 +30,13 @@ export type AtmosphereSignals = {
   // concept-art view in views.json).
   windowTintColor: Signal<string>;
   windowGlow: Signal<number>;
+  // Distance-cull threshold for BulkForestSystem/TrailsideForestSystem's
+  // thin-instance forests (see T24 in docs/THREADS.md) — a live-tunable
+  // override of the active EnvironmentRenderingProfile's
+  // foliage.impostorRadius, same override-a-profile-default pattern as
+  // fogDensity/fogColor above. Exists so a slow machine can dial this down
+  // without editing profile data.
+  vegetationCullRadius: Signal<number>;
 };
 
 export function createAtmosphereSignals(defaults: {
@@ -50,6 +57,7 @@ export function createAtmosphereSignals(defaults: {
   sunTint: string;
   windowTintColor: string;
   windowGlow: number;
+  vegetationCullRadius: number;
 }): AtmosphereSignals {
   return {
     timeOfDay: signal(defaults.timeOfDay),
@@ -69,5 +77,6 @@ export function createAtmosphereSignals(defaults: {
     sunTint: signal(defaults.sunTint),
     windowTintColor: signal(defaults.windowTintColor),
     windowGlow: signal(defaults.windowGlow),
+    vegetationCullRadius: signal(defaults.vegetationCullRadius),
   };
 }
