@@ -58,6 +58,8 @@ import { WorldFeaturesSystem } from './world/WorldFeaturesSystem';
 import { createTraversalRig } from './world/TraversalRig';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
+import { deriveCompassReading, type CompassLandmarkCandidate } from './state/compass';
+import type { CompassReading } from '@dissonance/navigation';
 import { createLineglassSignals, unlockedLineglassLayers, LINEGLASS_TIERS } from './state/lineglass';
 import type { EnvironmentRenderingProfile } from './state/environmentRenderingProfile';
 import { applyEnvironmentRenderingProfile } from './state/applyEnvironmentRenderingProfile';
@@ -73,6 +75,7 @@ import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
 import { ViewToolsRow } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
+import { CompassRow } from './ui/CompassRow';
 import { RouteRecorder, type RouteSample } from './ui/RouteRecorder';
 import { RouteReplay } from './ui/RouteReplay';
 import { Section } from './ui/Section';
@@ -540,6 +543,16 @@ async function main() {
   });
   if (story.has('shelterAlarmSilenced')) shelterAlarmAudio.silence();
   const locations = worldFeatures.entries;
+  // T28 compass HUD slice (docs/design/world/RURAL-INFRASTRUCTURE.md) — real
+  // (unscaled) landmark positions, computed once since locations don't move;
+  // only the player-relative bearing/distance in compassReading needs to
+  // recompute every frame. See state/compass.ts for why real meters, not
+  // render-space units.
+  const compassLandmarks: CompassLandmarkCandidate[] = locations.map((location) => {
+    const real = latLonToWorld({ lat: location.latLong[0], lon: location.latLong[1] }, origin);
+    return { name: location.name, realX: real.x, realZ: real.z };
+  });
+  const compassReading = signal<CompassReading | null>(null);
   // Owns the terrain mesh plus its OSM/GPX/grid overlays as one unit — see
   // TerrainOverlaySystem's own comment. Grid defaults off (a measurement
   // layer, not something every session should pay rendering cost for
@@ -1995,6 +2008,7 @@ async function main() {
           }}
           locations={locations}
         />
+        <CompassRow reading={compassReading} />
     </>,
     document.getElementById('navigation-root') as HTMLDivElement,
   );
@@ -2163,6 +2177,12 @@ async function main() {
     const pos = activeTraversalController.getPosition();
     bulkForest.updateCulling(dt, pos, atmosphere.vegetationCullRadius.value);
     trailsideForest.updateCulling(dt, pos, atmosphere.vegetationCullRadius.value);
+    compassReading.value = deriveCompassReading(
+      pos.x / scaleTuning.hScale.value,
+      pos.z / scaleTuning.hScale.value,
+      activeTraversalController.camera.rotation.y,
+      compassLandmarks,
+    );
     terminalDistance = Math.hypot(
       pos.x - terminalFixture.position.x,
       pos.z - terminalFixture.position.z,
