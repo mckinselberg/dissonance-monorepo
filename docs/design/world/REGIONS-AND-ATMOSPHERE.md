@@ -9,9 +9,9 @@
 **Presentation owner:** Babylon fog/post stack + Tone.js consumers  
 **Depends on:** T1 profile pattern and existing time/weather state  
 **Consumed by:** T5 reactive environment, Boulevard, DTA migration  
-**Decisions:** D41  
-**Open questions:** O9, O12  
-**Last reviewed:** 2026-07-31
+**Decisions:** D41, D47<br>
+**Open questions:** O9<br>
+**Last reviewed:** 2026-08-03
 
 The manually selectable environment-presentation runtime is landed: fixed-four
 haze and red gain live in `@dissonance/materials`; World owns live window/lamp
@@ -22,5 +22,7 @@ depth-ramp/reference tuning remains outstanding.
 The larger composition problem remains provisional. One seam must serve region,
 clock, detection, and spatial-zone inputs. The current proposal is a
 region-selected profile family, clock-interpolated base, then detection overlay
-with named weights. Spatial zones initially alter perceptual atmosphere only. O9
-and O12 must be resolved before that seam becomes canonical API.
+with named weights. Per D47, spatial distortion is always perceptual: canonical
+geometry, collision, navigation, interaction, saves, and multiplayer state do
+not deform. O9 must still be resolved before the composition seam becomes a
+canonical API.

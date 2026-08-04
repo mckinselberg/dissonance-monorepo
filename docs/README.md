@@ -47,7 +47,8 @@ to locate each migrated artifact and understand its authority.
     (`?level=1|2|3`), the actual slope math, and known tradeoffs/bugs.
   - [design/world/CATEGORY-OBJECT-SCALING.md](design/world/CATEGORY-OBJECT-SCALING.md)
     — T38's canonical contract for separating terrain/geographic H/V from
-    independently persisted structures, vegetation, props, and agents scale.
+    realistic cross-source object calibration, independently persisted category
+    scale, and a separate transient seam for dysphoric spatial effects.
   - [park-map-overlay.md](dissonance/world/park-map-overlay.md) — planned
     (not yet implemented) work to drape an illustrated park map onto the
     terrain as a texture.

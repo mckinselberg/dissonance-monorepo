@@ -6,6 +6,8 @@
 
 **Runtime scope:** `apps/world`
 
+**Decision:** D47
+
 **Date:** 2026-08-03
 
 ## Purpose
@@ -28,6 +30,35 @@ The result must let terrain exaggeration, geographic spacing, and object size
 be tuned independently while preserving grounding, collision, interaction,
 animation, and saved-view behavior.
 
+## Design intent: calibration and dysphoria
+
+This system has two related purposes, and implementation must preserve both.
+
+First, World combines models from many sources with different authored units,
+export conventions, and assumed dimensions. It needs an ordinary, believable
+baseline in which a dog, doorway, tree, terminal, and building read at realistic
+sizes relative to one another. Asset calibration establishes that baseline;
+category controls make it practical to tune related assets together without
+re-exporting source files.
+
+Second, once the ordinary baseline is trustworthy, independently changing the
+horizontal and vertical scale of selected categories can create deliberate
+dysphoric spatial effects: vegetation can become oppressively tall, structures
+can feel compressed or impossibly narrow, or agents can become subtly wrong in
+relation to the world around them. The effect works because the player first
+has a coherent scale relationship to lose.
+
+Persisted category values belong to the calibration/authoring layer. A future
+diegetic effect must be a separate, transient modulation layered on top; it must
+not overwrite saved calibration values. T38 provides a composable scale
+resolver seam but does not author the trigger, envelope, radius, audio cause, or
+narrative event for that effect.
+
+THREADS P11 (transform reality, not assets) favors this profile-driven approach.
+D47 resolves the former O12 fork: diegetic distortion is perceptual only.
+Transient modulation never alters collision, navigation, interactions, saves,
+multiplayer state, or simulation coordinates.
+
 ## Coordinate-space contract
 
 The implementation must keep these concerns distinct:
@@ -38,10 +69,14 @@ The implementation must keep these concerns distinct:
 3. **Asset calibration:** a fixed conversion from an asset's authored units to
    World meters. This belongs beside the asset definition, not in saved user
    settings.
-4. **Category tuning:** an editable `{ horizontal, vertical }` multiplier applied
-   to calibrated object geometry. Horizontal means X/Z; vertical means Y.
+4. **Category calibration:** an editable, persisted
+   `{ horizontal, vertical }` multiplier applied to calibrated object geometry.
+   Horizontal means X/Z; vertical means Y.
 5. **Placement override:** an optional authored multiplier for one placement.
    Existing uniform `scale` remains supported and applies to both axes.
+6. **Transient modulation:** a non-persisted `{ horizontal, vertical }`
+   multiplier reserved for deliberate dysphoric effects. Its identity value is
+   `{ horizontal: 1, vertical: 1 }`.
 
 For an object at a geographic point:
 
@@ -50,13 +85,19 @@ renderX = sourceX * terrainHorizontalScale
 renderZ = sourceZ * terrainHorizontalScale
 groundY = sampledElevation * terrainVerticalExaggeration
 
-objectScaleXZ = assetCalibrationXZ * categoryHorizontal * placementScaleXZ
-objectScaleY  = assetCalibrationY  * categoryVertical   * placementScaleY
+baselineScaleXZ = assetCalibrationXZ * categoryHorizontal * placementScaleXZ
+baselineScaleY  = assetCalibrationY  * categoryVertical   * placementScaleY
+
+visualScaleXZ = baselineScaleXZ * transientHorizontal
+visualScaleY  = baselineScaleY  * transientVertical
 ```
 
-Terrain H/V values must not appear in `objectScaleXZ` or `objectScaleY`.
+Terrain H/V values must not appear in the baseline or visual object scale.
 Changing terrain scale may move an object's root and change its ground height;
 it must not change the object's dimensions.
+
+Gameplay geometry always resolves from baseline scale and never follows
+transient modulation.
 
 Changing category scale changes geometry, not geographic positions, compound
 spacing, patrol paths, scatter density/radius, or movement speed.
@@ -214,6 +255,8 @@ The effort is complete when all of the following are true:
 9. Manual browser verification covers levels 1–3, all movement modes that exist
    on each level, each category at `0.25`, `1`, and `3`, and at least one live
    terrain H/V change after category tuning.
+10. The resolver accepts identity transient modulation without changing the
+    baseline, and transient values are absent from settings and view snapshots.
 
 ## Non-goals
 
@@ -221,6 +264,9 @@ The effort is complete when all of the following are true:
 - Scaling object placement density, geographic spacing, routes, or speeds.
 - Building a general inspector or per-instance runtime editor.
 - Automatically inferring real dimensions from arbitrary glTF files.
+- Authoring the trigger, timing envelope, spatial radius, audio driver, or
+  narrative content of a dysphoric scale effect.
+- Making transient distortion authoritative or persisting it as world state.
 - Moving the contract into a shared package before a second consumer exists.
 - Altering the preserved museum exhibit.
 
