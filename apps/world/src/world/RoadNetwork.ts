@@ -1,7 +1,7 @@
 import { Mesh, MeshBuilder, Vector3 } from '@babylonjs/core';
 import type { PBRMaterial, Scene } from '@babylonjs/core';
 import type { LocationEntry } from './LocationProps';
-import { buildCumulativeDistances, pointAtDistance, sampleAtSpacing, type PlanarPoint } from './polyline';
+import { buildCumulativeDistances, nearestPointOnPolyline, pointAtDistance, sampleAtSpacing, type PlanarPoint } from './polyline';
 import { texturedMaterial, CITY_KIT_TEXTURE_BASE, TEXTURES_BASE } from './texturedMaterial';
 import type { ReplayRoute } from '../ui/RouteReplay';
 
@@ -36,8 +36,14 @@ export interface RoadPullOff {
 export interface RoadHandle {
   readonly locationId: string;
   readonly totalLengthMeters: number;
+  readonly widthMeters: number;
   readonly pullOffs: RoadPullOff[];
   positionAtDistance(distanceMeters: number): RoadPositionSample;
+  // Render-space query point in, real-meters distances out — same
+  // convention as positionAtDistance/totalLengthMeters. lateralDistanceMeters
+  // is how far (x, z) is from the road centerline; compare against
+  // widthMeters / 2 to decide "on the road surface" (T28 on-foot exposure).
+  nearestPointOnRoad(x: number, z: number): { distanceAlongMeters: number; lateralDistanceMeters: number };
 }
 
 export interface RoadNetworkHandle {
@@ -221,6 +227,7 @@ export function loadRoadNetwork(
     roads.set(location.id, {
       locationId: location.id,
       totalLengthMeters,
+      widthMeters: location.road.widthMeters,
       pullOffs,
       positionAtDistance(distanceMeters: number): RoadPositionSample {
         const sample = pointAtDistance(renderPath, cumulative, distanceMeters * horizontalScale);
@@ -229,6 +236,13 @@ export function loadRoadNetwork(
           y: getHeightAt(sample.x, sample.z),
           z: sample.z,
           headingRadians: sample.headingRadians,
+        };
+      },
+      nearestPointOnRoad(x: number, z: number) {
+        const projection = nearestPointOnPolyline(renderPath, cumulative, x, z);
+        return {
+          distanceAlongMeters: projection.distanceAlong / horizontalScale,
+          lateralDistanceMeters: projection.lateralDistance / horizontalScale,
         };
       },
     });

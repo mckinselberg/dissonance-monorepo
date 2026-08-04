@@ -122,6 +122,17 @@ const UNDERWATER_FOG_COLOR = Color3.FromHexString('#0a2e33');
 const UNDERWATER_FOG_DENSITY = 0.04;
 const RUN_SEED_SESSION_KEY = 'dissonance:world-run-seed';
 
+// T28 highway on-foot exposure (docs/design/world/RURAL-INFRASTRUCTURE.md) —
+// grove-to-dissonance-blvd already renders (RoadNetwork.ts) but had no
+// gameplay hook; sr-27-service-road stays the vehicle sequence's road,
+// untouched. Faster on-road movement is the achievable slice — there's no
+// general open-world detection/exposure system in World yet to attach a real
+// risk consequence to (the mech dog is its own separate lightweight system),
+// so that half of the lore's "speed vs. exposure trade" is a documented
+// follow-up, not built here.
+const HIGHWAY_ON_FOOT_LOCATION_ID = 'grove-to-dissonance-blvd';
+const HIGHWAY_ON_FOOT_SPEED_MULTIPLIER = 1.35;
+
 function getOrCreateRunSeed(): number {
   const stored = sessionStorage.getItem(RUN_SEED_SESSION_KEY);
   if (stored !== null) {
@@ -1317,6 +1328,13 @@ async function main() {
     scene, locations, replayRoutes, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines,
     lineglass, realWidth, realDepth, backdrop.getShadowGenerator(), player,
   );
+  // Optional — a missing/misconfigured route just disables the on-foot
+  // speed effect rather than taking the app down (unlike the vehicle
+  // sequence's sr-27-service-road, which is load-bearing for that feature).
+  const highwayOnFootRoad = locationFeatures.getRoad(HIGHWAY_ON_FOOT_LOCATION_ID);
+  if (!highwayOnFootRoad) {
+    console.warn(`[T28] highway on-foot road "${HIGHWAY_ON_FOOT_LOCATION_ID}" not found — exposure/speed effect disabled`);
+  }
   const resolveTerminalFixture = () => {
     const fixture = locationFeatures.getTerminal(terminalSimulation.terminalId);
     if (!fixture) {
@@ -2183,6 +2201,11 @@ async function main() {
       activeTraversalController.camera.rotation.y,
       compassLandmarks,
     );
+    if (highwayOnFootRoad) {
+      const projection = highwayOnFootRoad.nearestPointOnRoad(pos.x, pos.z);
+      const isOnHighway = projection.lateralDistanceMeters <= highwayOnFootRoad.widthMeters / 2;
+      player.setSpeedMultiplier(isOnHighway ? HIGHWAY_ON_FOOT_SPEED_MULTIPLIER : 1);
+    }
     terminalDistance = Math.hypot(
       pos.x - terminalFixture.position.x,
       pos.z - terminalFixture.position.z,
