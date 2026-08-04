@@ -83,6 +83,7 @@ import { LineglassShell, type LineglassModuleDefinition } from './ui/lineglass';
 import { AudioRow } from './ui/AudioRow';
 import type { MechDogSkin } from './pursuer/MechDogBody';
 import { MechDogController } from './pursuer/MechDogController';
+import { loadRoadPatrolDogs } from './pursuer/RoadPatrolDog';
 import { PlayerWhistleController } from './player/PlayerWhistleController';
 import { HeldFlashlight } from './player/HeldFlashlight';
 import { createWorldAudioStack, resolveWorldAudioEngine } from './audio/WorldAudioStack';
@@ -1335,6 +1336,12 @@ async function main() {
   if (!highwayOnFootRoad) {
     console.warn(`[T28] highway on-foot road "${HIGHWAY_ON_FOOT_LOCATION_ID}" not found — exposure/speed effect disabled`);
   }
+  // T28 highway consequence — one hostile patroller per road tagged with
+  // road.patrol in locations.json (currently grove-to-dissonance-blvd only;
+  // sr-27-service-road, the vehicle sequence's road, is untagged).
+  const roadPatrolDogs = loadRoadPatrolDogs(
+    scene, locations, (id) => locationFeatures.getRoad(id), backdrop.getShadowGenerator(),
+  );
   const resolveTerminalFixture = () => {
     const fixture = locationFeatures.getTerminal(terminalSimulation.terminalId);
     if (!fixture) {
@@ -2246,13 +2253,22 @@ async function main() {
       movement.activeMode.value === 'walk' && player.isCrouching,
       (x, z) => terrain.getHeightAt(x, z),
     );
+    roadPatrolDogs.update(
+      dt,
+      pos,
+      movement.activeMode.value === 'walk' && player.isCrouching,
+      (x, z) => terrain.getHeightAt(x, z),
+    );
     // Walk mode is the only controller with physical collision (Fly/Drive
     // have none of their own — see their file comments), so this is inert
     // outside it. The dog moves every frame, unlike the static building/pole
     // colliders WorldFeaturesSystem batches — see setDynamicColliders' own
     // comment.
     const mechDogCollider = mechDog.getCollider();
-    player.setDynamicColliders(mechDogCollider ? [mechDogCollider] : []);
+    player.setDynamicColliders([
+      ...(mechDogCollider ? [mechDogCollider] : []),
+      ...roadPatrolDogs.getColliders(),
+    ]);
     const mechDogModel = mechDog.getModel();
     const strikeSnapshot = strikeAcquisition.snapshot();
     if (strikeSnapshot.state === 'SPENT') {

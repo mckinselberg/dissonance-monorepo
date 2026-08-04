@@ -582,7 +582,11 @@
     "latLong": [40.7349157, -74.2598971],
     "road": {
       "routeFile": "grove-to-dissonance-blvd.geojson",
-      "widthMeters": 4
+      "widthMeters": 4,
+      "patrol": {
+        "id": "grove-blvd-patrol-dog",
+        "type": "mech-dog"
+      }
     }
   },
   {
