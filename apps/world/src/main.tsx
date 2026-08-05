@@ -449,8 +449,7 @@ async function main() {
 
   // Fly/Drive have no collision or bounds of their own (see their "no
   // collision" comments) — it's easy to wander straight off the edge of
-  // the loaded DEM into the featureless void beyond it (the same problem
-  // the reset-position button exists to recover from). This clamps X/Z to
+  // the loaded DEM into the featureless void beyond it. This clamps X/Z to
   // the DEM's actual rectangular bbox extent every frame when enabled.
   // PlayerController already has a boundary mechanism of its own
   // (setWorldBoundaryRadius, used for DTA's mountain ring) but it's
@@ -2032,21 +2031,6 @@ async function main() {
             const pos = controllers[movement.activeMode.value].getPosition();
             const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
             return worldToLatLon(real, origin);
-          }}
-          onResetPosition={() => {
-            // Fly Mode has no bounds clamping, so it's easy to end up saved
-            // somewhere far outside the DEM's real footprint (nothing but
-            // sky, a distant sliver of terrain). This drops just the saved
-            // position for the current level (keeping scale/water/camera-
-            // height tuning intact) and reloads back to the recorded hike's
-            // trailhead.
-            unregisterBeforeNavigate();
-            const withoutPosition = loadSavedSettings(levelKey);
-            delete withoutPosition.x;
-            delete withoutPosition.y;
-            delete withoutPosition.z;
-            saveSettings(levelKey, withoutPosition);
-            location.reload();
           }}
           locations={locations}
         />
