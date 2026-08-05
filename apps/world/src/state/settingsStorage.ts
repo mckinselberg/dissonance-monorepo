@@ -69,6 +69,7 @@ export type SavedSettings = {
   mountainsVisible?: boolean;
   powerLinesVisible?: boolean;
   mechDogVisible?: boolean;
+  patrolDogVisible?: boolean;
   masterMuted?: boolean;
   windVolume?: number;
   footstepMuted?: boolean;

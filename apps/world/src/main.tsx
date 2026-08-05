@@ -302,6 +302,7 @@ async function main() {
     mountains: savedSettings.mountainsVisible,
     powerLines: savedSettings.powerLinesVisible,
     mechDog: savedSettings.mechDogVisible,
+    patrolDog: savedSettings.patrolDogVisible,
   });
   // Created here (rather than owned by MechDogController) because the
   // shared Toggles-section HUD below reads it synchronously in a <select
@@ -678,8 +679,8 @@ async function main() {
       capabilities: ['inspect-world'],
       source: 'live',
       summary: () => ({
-        primary: visibility.mechDog.value ? 'Mech dog visible' : 'Mech dog hidden',
-        secondary: mechDogSkin.value === 'default' ? 'pet-friend skin' : 'black mech-dog skin',
+        primary: visibility.mechDog.value ? 'Pet friend visible' : 'Pet friend hidden',
+        secondary: visibility.patrolDog.value ? 'mech dog patrolling' : 'mech dog hidden',
       }),
       rootIds: ['companion-root'],
     } satisfies LineglassModuleDefinition]),
@@ -815,7 +816,7 @@ async function main() {
     render(
       <div class='companion-controls'>
         <ToggleLabel
-          label='Mech dog visible'
+          label='Pet friend visible'
           signal={visibility.mechDog}
           onCommit={(checked) => mechDog.setVisible(checked)}
         />
@@ -831,6 +832,20 @@ async function main() {
             <option value='black'>Mech dog (black)</option>
           </select>
         </label>
+        {/* T28 hostile road patroller (RoadPatrolDog.ts) — independent
+            entity from the companion dog above, not a skin variant of it. */}
+        <ToggleLabel
+          label='Mech dog visible'
+          signal={visibility.patrolDog}
+          onCommit={(checked) => roadPatrolDogs.setVisible(checked)}
+        />
+        <button
+          type='button'
+          style={{ font: 'inherit', cursor: 'pointer', marginTop: '4px' }}
+          onClick={() => roadPatrolDogs.reset()}
+        >
+          Reset mech dog position
+        </button>
       </div>,
       document.getElementById('companion-root') as HTMLDivElement,
     );
@@ -1357,6 +1372,7 @@ async function main() {
   // sr-27-service-road, the vehicle sequence's road, is untagged).
   const roadPatrolDogs = loadRoadPatrolDogs(
     scene, locations, (id) => locationFeatures.getRoad(id), backdrop.getShadowGenerator(),
+    visibility.patrolDog.value,
   );
   const resolveTerminalFixture = () => {
     const fixture = locationFeatures.getTerminal(terminalSimulation.terminalId);

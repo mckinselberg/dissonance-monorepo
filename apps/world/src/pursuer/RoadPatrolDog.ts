@@ -63,8 +63,10 @@ class RoadPatrolDogInstance {
     private readonly road: RoadHandle,
     private readonly patrolSpeedMps: number,
     private readonly detectionRadiusMeters: number,
+    initialVisible: boolean,
   ) {
     this.body = new MechDogBody(scene, shadowGenerator, 'default');
+    this.body.setVisible(initialVisible);
     this.pursuit = new PursuerSystem(ROAD_PATROL_DOG_CONFIG, ROAD_PATROL_DOG_CONFIG.startDistance);
     const start = road.positionAtDistance(0);
     this.position = { x: start.x, z: start.z };
@@ -142,6 +144,27 @@ class RoadPatrolDogInstance {
     return this.threatLevel;
   }
 
+  setVisible(visible: boolean): void {
+    this.body.setVisible(visible);
+  }
+
+  // Back to patrolling at the road's own start (distance 0), matching
+  // construction-time state exactly — clears pursuit state too, not just
+  // position, so a reset dog doesn't resume mid-chase next frame.
+  reset(): void {
+    this.state = 'patrolling';
+    this.patrolDistanceMeters = 0;
+    this.patrolDirection = 1;
+    this.releaseTimer = 0;
+    this.threatLevel = 0;
+    this.lastPlayerX = null;
+    this.lastPlayerZ = null;
+    this.pursuit.reset(ROAD_PATROL_DOG_CONFIG.startDistance);
+    const start = this.road.positionAtDistance(0);
+    this.position.x = start.x;
+    this.position.z = start.z;
+  }
+
   dispose(): void {
     this.body.dispose();
   }
@@ -158,6 +181,10 @@ export interface RoadPatrolDogsHandle {
   // Highest threatLevel across every dispatched dog — see
   // RoadPatrolDogInstance.getThreatLevel and heartbeatVignette.ts.
   getMaxThreatLevel(): number;
+  setVisible(visible: boolean): void;
+  // Resets every dispatched patrol dog back to its road-start position and
+  // patrol state — never touches MechDogController's companion dog.
+  reset(): void;
   dispose(): void;
 }
 
@@ -170,6 +197,7 @@ export function loadRoadPatrolDogs(
   locations: LocationEntry[],
   getRoad: (locationId: string) => RoadHandle | null,
   shadowGenerator: ShadowGenerator | undefined,
+  initialVisible: boolean,
 ): RoadPatrolDogsHandle {
   const dogs: RoadPatrolDogInstance[] = [];
   for (const location of locations) {
@@ -186,6 +214,7 @@ export function loadRoadPatrolDogs(
       road,
       patrol.speedMetersPerSecond ?? DEFAULT_PATROL_SPEED_MPS,
       patrol.detectionRadiusMeters ?? DEFAULT_DETECTION_RADIUS_M,
+      initialVisible,
     ));
   }
 
@@ -198,6 +227,12 @@ export function loadRoadPatrolDogs(
     },
     getMaxThreatLevel() {
       return dogs.reduce((max, dog) => Math.max(max, dog.getThreatLevel()), 0);
+    },
+    setVisible(visible) {
+      dogs.forEach((dog) => dog.setVisible(visible));
+    },
+    reset() {
+      dogs.forEach((dog) => dog.reset());
     },
     dispose() {
       dogs.forEach((dog) => dog.dispose());

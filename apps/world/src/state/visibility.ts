@@ -16,6 +16,11 @@ export type VisibilitySignals = {
   mountains: Signal<boolean>;
   powerLines: Signal<boolean>;
   mechDog: Signal<boolean>;
+  // T28's hostile road patroller (RoadPatrolDog.ts) — independent of
+  // mechDog above, which is the always-nearby companion. Named `patrolDog`
+  // rather than reusing `mechDog` so "differentiate pet-friend from mech
+  // dog" (Dan) has two distinct switches, not one shared one.
+  patrolDog: Signal<boolean>;
 };
 
 export type VisibilitySignalDefaults = Partial<{
@@ -28,6 +33,7 @@ export type VisibilitySignalDefaults = Partial<{
   mountains: boolean;
   powerLines: boolean;
   mechDog: boolean;
+  patrolDog: boolean;
 }>;
 
 export function createVisibilitySignals(defaults: VisibilitySignalDefaults = {}): VisibilitySignals {
@@ -41,5 +47,6 @@ export function createVisibilitySignals(defaults: VisibilitySignalDefaults = {})
     mountains: signal(defaults.mountains ?? true),
     powerLines: signal(defaults.powerLines ?? true),
     mechDog: signal(defaults.mechDog ?? true),
+    patrolDog: signal(defaults.patrolDog ?? true),
   };
 }

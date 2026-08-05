@@ -65,6 +65,7 @@ export type SharedSettingsSnapshot = Pick<
   | 'mountainsVisible'
   | 'powerLinesVisible'
   | 'mechDogVisible'
+  | 'patrolDogVisible'
 >;
 
 export function buildSharedSettingsSnapshot(deps: {
@@ -137,5 +138,6 @@ export function buildSharedSettingsSnapshot(deps: {
     mountainsVisible: visibility.mountains.value,
     powerLinesVisible: visibility.powerLines.value,
     mechDogVisible: visibility.mechDog.value,
+    patrolDogVisible: visibility.patrolDog.value,
   };
 }
