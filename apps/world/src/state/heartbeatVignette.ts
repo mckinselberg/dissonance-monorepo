@@ -19,8 +19,14 @@ export function createHeartbeatVignetteState(): HeartbeatVignetteState {
 
 const BASE_BPM = 65;
 const STRESS_BPM_RANGE = 90;
-const BASE_WEIGHT = 0.15;
-const PULSE_WEIGHT = 0.55;
+// Babylon's own ImageProcessingConfiguration default vignetteWeight is 1.5
+// (vignettePower in its shader is -2.0 * vignetteWeight) — that's the scale
+// a "normal, visible" vignette sits at. The original 0.15/0.55 here topped
+// out under half that even at maximum threat and was near-invisible below
+// it, which is why nothing read on screen. Scaled up so full threat clearly
+// exceeds Babylon's own default and moderate threat is still legible.
+const BASE_WEIGHT = 0.6;
+const PULSE_WEIGHT = 1.8;
 
 export function updateHeartbeatVignette(
   state: HeartbeatVignetteState,
