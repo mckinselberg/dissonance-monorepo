@@ -171,7 +171,23 @@ consequence — no catch/fail state, consistent with D2 and
 after a sustained-distance cooldown, picking the road's nearest point to
 resume from (`RoadHandle.nearestPointOnRoad`). Physically collides with the
 player via the same `PlayerController.setDynamicColliders` mechanism the
-companion dog uses. Asphalt surface itself also got real normal/roughness
+companion dog uses.
+
+**Felt consequence: landed (2026-08-04).** Proximity to a pursuing patrol
+dog drives a real "diegetic heartbeat" response — a screen-edge vignette
+(Babylon `DefaultRenderingPipeline`'s built-in vignette, `state/
+heartbeatVignette.ts`) that pulses at a BPM scaled by threat level (same
+lub/dub double-pulse curve as `packages/glow/HeartbeatGlow.ts`, adapted so
+the vignette is fully invisible at zero threat rather than glow's always-on
+baseline). The companion dog contributes too, but on a deliberately
+different, heavily damped signal (`COMPANION_THREAT_WEIGHT = 0.12`, coarse
+state buckets rather than smooth distance) so playing with your pet never
+reads as being hunted. `packages/audio`'s `HeartbeatAudio` was deliberately
+left untouched — its output gain is never ramped above 0 anywhere in that
+class, an existing mute this pass didn't have context to safely reverse;
+this consequence is visual-only for now.
+
+Asphalt surface itself also got real normal/roughness
 detail this pass (`RoadNetwork.ts`'s asphalt material was albedo-only) —
 lane markings stayed out of scope: the city kit's only decal sheet is urban
 crosswalk/stop-sign signage, wrong register for an unmaintained rural road.

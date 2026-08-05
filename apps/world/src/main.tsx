@@ -4,6 +4,7 @@ import {
   ArcRotateCamera,
   Vector3,
   Color3,
+  Color4,
   DefaultRenderingPipeline,
 } from '@babylonjs/core';
 import { GameLoop } from '@dissonance/engine';
@@ -59,6 +60,12 @@ import { createTraversalRig } from './world/TraversalRig';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
 import { deriveCompassReading, type CompassLandmarkCandidate } from './state/compass';
+import {
+  createHeartbeatVignetteState,
+  updateHeartbeatVignette,
+  combineThreatStress,
+  companionStateThreatLevel,
+} from './state/heartbeatVignette';
 import type { CompassReading } from '@dissonance/navigation';
 import { createLineglassSignals, unlockedLineglassLayers, LINEGLASS_TIERS } from './state/lineglass';
 import type { EnvironmentRenderingProfile } from './state/environmentRenderingProfile';
@@ -270,6 +277,7 @@ async function main() {
   const environmentProfileId = signal(initialEnvironmentProfile.id);
   let activeEnvironmentProfile = initialEnvironmentProfile;
   let renderingPipeline: DefaultRenderingPipeline | undefined;
+  const heartbeatVignetteState = createHeartbeatVignetteState();
   const environmentPresentationConsumers = {
     haze: new HazeBandFogSceneController(scene),
     emissive: new EnvironmentEmissiveController(scene),
@@ -1280,10 +1288,19 @@ async function main() {
   // also softens the street lamps' existing emissive globes the same way.
   // scene.cameras already holds player/flight/drive by this point (each
   // camera self-registers on construction) — no per-controller wiring
-  // needed. Every other pipeline feature (FXAA, grain, DoF, vignette,
-  // chromatic aberration) stays off; this is scoped to bloom alone.
+  // needed. Every other pipeline feature (FXAA, grain, DoF, chromatic
+  // aberration) stays off; bloom plus the threat vignette below are the
+  // only two in use.
   renderingPipeline = new DefaultRenderingPipeline('bloomPipeline', true, scene, scene.cameras);
   applyActiveEnvironmentProfile(activeEnvironmentProfile, renderingPipeline);
+  // T28 threat-proximity vignette (docs/design/world/RURAL-INFRASTRUCTURE.md
+  // — RoadPatrolDog's exposure consequence). Weight stays at 0 (invisible)
+  // until updateHeartbeatVignette drives it in the game loop below; enabled
+  // once here rather than toggled per-frame. Dark red-black rather than
+  // pure black — reads as a pulse of dread, not just a screen darkening.
+  renderingPipeline.imageProcessing.vignetteEnabled = true;
+  renderingPipeline.imageProcessing.vignetteColor = new Color4(0.25, 0, 0, 1);
+  renderingPipeline.imageProcessing.vignetteWeight = 0;
   // The named profile is the inherited source; persisted fog values are
   // explicit runtime overrides and must win after post-processing setup.
   scene.fogDensity = atmosphere.fogDensity.value;
@@ -2270,6 +2287,18 @@ async function main() {
       ...roadPatrolDogs.getColliders(),
     ]);
     const mechDogModel = mechDog.getModel();
+    // T28 threat vignette — patrol-dog threat drives it near-fully; the
+    // companion dog's is heavily damped (see heartbeatVignette.ts) so
+    // playing with your pet never reads the same as being hunted.
+    const threatStress = combineThreatStress(
+      roadPatrolDogs.getMaxThreatLevel(),
+      companionStateThreatLevel(mechDogModel.state),
+    );
+    if (renderingPipeline) {
+      renderingPipeline.imageProcessing.vignetteWeight = updateHeartbeatVignette(
+        heartbeatVignetteState, dt, threatStress,
+      );
+    }
     const strikeSnapshot = strikeAcquisition.snapshot();
     if (strikeSnapshot.state === 'SPENT') {
       story.applyBeat('witness-boulevard-drone-strike');

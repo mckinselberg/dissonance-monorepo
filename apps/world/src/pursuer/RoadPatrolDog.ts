@@ -51,6 +51,11 @@ class RoadPatrolDogInstance {
   private releaseTimer = 0;
   private lastPlayerX: number | null = null;
   private lastPlayerZ: number | null = null;
+  // 0..1 — 0 while patrolling (undetected), rising toward 1 as the dog
+  // closes in while pursuing. Drives the T28 threat vignette (main.tsx);
+  // see heartbeatVignette.ts for why this reads as real dread while the
+  // companion dog's own threat signal stays deliberately faint.
+  private threatLevel = 0;
 
   constructor(
     scene: Scene,
@@ -114,12 +119,27 @@ class RoadPatrolDogInstance {
     this.lastPlayerX = playerPosition.x;
     this.lastPlayerZ = playerPosition.z;
 
+    // Recomputed post-movement so it reflects this frame's actual position,
+    // not the pre-update distance used for the state-transition check above.
+    const currentDistanceToPlayer = Math.hypot(
+      playerPosition.x - this.position.x,
+      playerPosition.z - this.position.z,
+    );
+    const detectionSpan = Math.max(1, this.detectionRadiusMeters - ROAD_PATROL_DOG_CONFIG.catchRadius);
+    this.threatLevel = this.state === 'pursuing'
+      ? Math.max(0, Math.min(1, 1 - (currentDistanceToPlayer - ROAD_PATROL_DOG_CONFIG.catchRadius) / detectionSpan))
+      : 0;
+
     const groundY = getHeightAt(this.position.x, this.position.z);
     this.body.update(dt, this.position, groundY);
   }
 
   getCollider(): Collider {
     return { x: this.position.x, z: this.position.z, radius: PATROL_DOG_COLLISION_RADIUS };
+  }
+
+  getThreatLevel(): number {
+    return this.threatLevel;
   }
 
   dispose(): void {
@@ -135,6 +155,9 @@ export interface RoadPatrolDogsHandle {
     getHeightAt: (x: number, z: number) => number,
   ): void;
   getColliders(): Collider[];
+  // Highest threatLevel across every dispatched dog — see
+  // RoadPatrolDogInstance.getThreatLevel and heartbeatVignette.ts.
+  getMaxThreatLevel(): number;
   dispose(): void;
 }
 
@@ -172,6 +195,9 @@ export function loadRoadPatrolDogs(
     },
     getColliders() {
       return dogs.map((dog) => dog.getCollider());
+    },
+    getMaxThreatLevel() {
+      return dogs.reduce((max, dog) => Math.max(max, dog.getThreatLevel()), 0);
     },
     dispose() {
       dogs.forEach((dog) => dog.dispose());

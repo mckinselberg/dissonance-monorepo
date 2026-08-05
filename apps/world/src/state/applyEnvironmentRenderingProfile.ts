@@ -31,7 +31,12 @@ export function applyEnvironmentRenderingProfile(
 
   if (pipeline) {
     const grade = profile.grade;
-    pipeline.imageProcessingEnabled = Boolean(grade);
+    // Was `Boolean(grade)` — the whole image-processing stage (which the
+    // T28 threat vignette also lives in, see main.tsx's pipeline setup) was
+    // getting disabled by any profile that doesn't grade color, silently
+    // killing the vignette on profile switch. Color curves stay
+    // grade-gated independently; the master switch no longer is.
+    pipeline.imageProcessingEnabled = true;
     pipeline.imageProcessing.colorCurvesEnabled = Boolean(grade);
     if (grade) {
       const curves = new ColorCurves();
