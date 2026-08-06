@@ -4,6 +4,7 @@ import {
   ArcRotateCamera,
   Vector3,
   Color3,
+  Color4,
   DefaultRenderingPipeline,
 } from '@babylonjs/core';
 import { GameLoop } from '@dissonance/engine';
@@ -28,9 +29,9 @@ import {
 } from '@dissonance/geo';
 import { render } from 'preact';
 import type { JSX } from 'preact';
-import { signal, effect } from '@preact/signals';
+import { signal, effect, type Signal } from '@preact/signals';
 import { LEVELS, currentLevelKey } from './state/levels';
-import { loadSavedSettings, saveSettings, seedSettingsFromView } from './state/settingsStorage';
+import { loadSavedSettings, saveSettings, seedSettingsFromView, type SavedSettings } from './state/settingsStorage';
 import { buildSharedSettingsSnapshot } from './state/snapshot';
 import {
   loadHeightmap,
@@ -59,6 +60,12 @@ import { createTraversalRig } from './world/TraversalRig';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
 import { deriveCompassReading, type CompassLandmarkCandidate } from './state/compass';
+import {
+  createHeartbeatVignetteState,
+  updateHeartbeatVignette,
+  combineThreatStress,
+  companionStateThreatLevel,
+} from './state/heartbeatVignette';
 import type { CompassReading } from '@dissonance/navigation';
 import { createLineglassSignals, unlockedLineglassLayers, LINEGLASS_TIERS } from './state/lineglass';
 import type { EnvironmentRenderingProfile } from './state/environmentRenderingProfile';
@@ -77,16 +84,18 @@ import { ViewToolsRow } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
 import { CompassRow } from './ui/CompassRow';
 import { RouteRecorder, type RouteSample } from './ui/RouteRecorder';
-import { RouteReplay } from './ui/RouteReplay';
+import { RouteReplay, type ReplayPoint } from './ui/RouteReplay';
 import { Section } from './ui/Section';
 import { LineglassShell, type LineglassModuleDefinition } from './ui/lineglass';
 import { AudioRow } from './ui/AudioRow';
 import type { MechDogSkin } from './pursuer/MechDogBody';
 import { MechDogController } from './pursuer/MechDogController';
+import { loadRoadPatrolDogs } from './pursuer/RoadPatrolDog';
 import { PlayerWhistleController } from './player/PlayerWhistleController';
 import { HeldFlashlight } from './player/HeldFlashlight';
 import { createWorldAudioStack, resolveWorldAudioEngine } from './audio/WorldAudioStack';
 import { createSurveillanceSession } from './interiors/SurveillanceSession';
+import { createKeyActionDispatcher, isTextEntryTarget, type KeyActionDispatcher } from './input/keyActionDispatcher';
 import { createWorkshopSession } from './interiors/WorkshopSession';
 import { InteriorDebugRow } from './ui/InteriorDebugRow';
 import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
@@ -146,7 +155,17 @@ function getOrCreateRunSeed(): number {
   return seed;
 }
 
+// Per-frame HUD/debug readouts below intentionally bypass Preact signals
+// and write straight into a plain DOM node's textContent each frame — the
+// same imperative-DOM-for-a-hot-value convention already used by AudioRow's
+// breath readout and VehicleRow's telemetry fields (see their own
+// comments). A full Preact rerender for a value this hot isn't worth it.
+function writeReadout(el: HTMLElement | null, text: string): void {
+  if (el) el.textContent = text;
+}
+
 function bindPauseControl(
+  dispatcher: KeyActionDispatcher,
   gameLoop: GameLoop,
   canvas: HTMLCanvasElement,
   onPause: () => void,
@@ -176,23 +195,28 @@ function bindPauseControl(
 
   button.addEventListener('click', togglePaused);
 
-  document.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyP' || !event.shiftKey || event.repeat) return;
-    const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      (target.isContentEditable || target.closest('input, select, textarea, [contenteditable]'))
-    ) return;
-    togglePaused();
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }, { capture: true });
+  dispatcher.register({
+    id: 'pause.toggle',
+    phase: 'keydown',
+    code: 'KeyP',
+    capture: true,
+    priority: 0,
+    when: (event) => event.shiftKey && !event.repeat && !isTextEntryTarget(event.target),
+    preventDefault: true,
+    stopPropagation: true,
+    handler: togglePaused,
+  });
 
-  document.addEventListener('keydown', (event) => {
-    if (!gameLoop.isPaused() || event.target === button) return;
-    event.preventDefault();
-    event.stopPropagation();
-  }, { capture: true });
+  dispatcher.register({
+    id: 'pause.swallowWhilePaused',
+    phase: 'keydown',
+    capture: true,
+    priority: 20,
+    when: (event) => gameLoop.isPaused() && event.target !== button,
+    preventDefault: true,
+    stopPropagation: true,
+    handler: () => {},
+  });
 }
 
 // Fly and Drive are unconditionally available in this POC — no unlock gate
@@ -210,6 +234,10 @@ async function main() {
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
   const engine = new Engine(canvas, true);
   const scene = new Scene(engine);
+  // Single owner of every discrete keyboard-action binding in this app —
+  // see apps/world/src/input/keyActionDispatcher.ts. Created before the
+  // orbit/player-mode split below so both branches share one instance.
+  const keyDispatcher = createKeyActionDispatcher();
 
   const levelKey = currentLevelKey();
   const level = LEVELS[levelKey];
@@ -269,6 +297,7 @@ async function main() {
   const environmentProfileId = signal(initialEnvironmentProfile.id);
   let activeEnvironmentProfile = initialEnvironmentProfile;
   let renderingPipeline: DefaultRenderingPipeline | undefined;
+  const heartbeatVignetteState = createHeartbeatVignetteState();
   const environmentPresentationConsumers = {
     haze: new HazeBandFogSceneController(scene),
     emissive: new EnvironmentEmissiveController(scene),
@@ -293,6 +322,7 @@ async function main() {
     mountains: savedSettings.mountainsVisible,
     powerLines: savedSettings.powerLinesVisible,
     mechDog: savedSettings.mechDogVisible,
+    patrolDog: savedSettings.patrolDogVisible,
   });
   // Created here (rather than owned by MechDogController) because the
   // shared Toggles-section HUD below reads it synchronously in a <select
@@ -440,8 +470,7 @@ async function main() {
 
   // Fly/Drive have no collision or bounds of their own (see their "no
   // collision" comments) — it's easy to wander straight off the edge of
-  // the loaded DEM into the featureless void beyond it (the same problem
-  // the reset-position button exists to recover from). This clamps X/Z to
+  // the loaded DEM into the featureless void beyond it. This clamps X/Z to
   // the DEM's actual rectangular bbox extent every frame when enabled.
   // PlayerController already has a boundary mechanism of its own
   // (setWorldBoundaryRadius, used for DTA's mountain ring) but it's
@@ -670,8 +699,8 @@ async function main() {
       capabilities: ['inspect-world'],
       source: 'live',
       summary: () => ({
-        primary: visibility.mechDog.value ? 'Mech dog visible' : 'Mech dog hidden',
-        secondary: mechDogSkin.value === 'default' ? 'pet-friend skin' : 'black mech-dog skin',
+        primary: visibility.mechDog.value ? 'Pet friend visible' : 'Pet friend hidden',
+        secondary: visibility.patrolDog.value ? 'mech dog patrolling' : 'mech dog hidden',
       }),
       rootIds: ['companion-root'],
     } satisfies LineglassModuleDefinition]),
@@ -807,7 +836,7 @@ async function main() {
     render(
       <div class='companion-controls'>
         <ToggleLabel
-          label='Mech dog visible'
+          label='Pet friend visible'
           signal={visibility.mechDog}
           onCommit={(checked) => mechDog.setVisible(checked)}
         />
@@ -823,6 +852,20 @@ async function main() {
             <option value='black'>Mech dog (black)</option>
           </select>
         </label>
+        {/* T28 hostile road patroller (RoadPatrolDog.ts) — independent
+            entity from the companion dog above, not a skin variant of it. */}
+        <ToggleLabel
+          label='Mech dog visible'
+          signal={visibility.patrolDog}
+          onCommit={(checked) => roadPatrolDogs.setVisible(checked)}
+        />
+        <button
+          type='button'
+          style={{ font: 'inherit', cursor: 'pointer', marginTop: '4px' }}
+          onClick={() => roadPatrolDogs.reset()}
+        >
+          Reset mech dog position
+        </button>
       </div>,
       document.getElementById('companion-root') as HTMLDivElement,
     );
@@ -1072,6 +1115,43 @@ async function main() {
     link.addEventListener('click', () => unregisterBeforeNavigate());
   });
 
+  // Shared composition site for the navigation/route panels — orbit and
+  // player mode each pass their own closures (different camera/controller
+  // to read from), but render identically-shaped UI into the same three
+  // DOM roots. See the two call sites below.
+  const renderNavigationPanels = (opts: {
+    buildSnapshot: () => SavedSettings & { level: string };
+    onGo: (lat: number, lon: number) => void;
+    getCurrentLatLon: () => { lat: number; lon: number };
+    getCurrentSample: () => RouteSample;
+    onSeek: (point: ReplayPoint) => void;
+    compassReading?: Signal<CompassReading | null>;
+  }): void => {
+    render(
+      <>
+        <ViewToolsRow
+          buildSnapshot={opts.buildSnapshot}
+          levelKey={levelKey}
+          validLevelKeys={Object.keys(LEVELS)}
+          saveSettings={saveSettings}
+          onBeforeNavigate={unregisterBeforeNavigate}
+          savedViews={savedViews}
+        />
+        <GotoRow onGo={opts.onGo} getCurrentLatLon={opts.getCurrentLatLon} locations={locations} />
+        {opts.compassReading && <CompassRow reading={opts.compassReading} />}
+      </>,
+      document.getElementById('navigation-root') as HTMLDivElement,
+    );
+    render(
+      <RouteRecorder storageKey='trail-viewer.route-recorder.v1' getCurrentSample={opts.getCurrentSample} />,
+      document.getElementById('routes-root') as HTMLDivElement,
+    );
+    render(
+      <RouteReplay routes={replayRoutes} onSeek={opts.onSeek} />,
+      document.getElementById('replay-root') as HTMLDivElement,
+    );
+  };
+
   if (level.cameraMode === 'orbit') {
     // The original Phase 3/4 validation view — free orbit over the whole
     // model, no player/collision involved. Orbit doesn't autosave (see
@@ -1106,83 +1186,56 @@ async function main() {
     scene.fogDensity = atmosphere.fogDensity.value;
     scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
 
-    render(
-      <>
-        <ViewToolsRow
-          buildSnapshot={() => ({
-            level: levelKey,
-            orbitTargetX: orbitCamera.target.x,
-            orbitTargetY: orbitCamera.target.y,
-            orbitTargetZ: orbitCamera.target.z,
-            orbitAlpha: orbitCamera.alpha,
-            orbitBeta: orbitCamera.beta,
-            orbitRadius: orbitCamera.radius,
-            ...buildSharedSettingsSnapshot({
-              scaleTuning, atmosphere, visibility, audio,
-              trailsideScale,
-              bulkForestScale: bulkForest.bulkForestScale,
-              treeRegionRadius: bulkForest.treeRegionRadius,
-              bulkForestRadius: bulkForest.bulkForestRadius,
-              weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
-            }),
-          })}
-          levelKey={levelKey}
-          validLevelKeys={Object.keys(LEVELS)}
-          saveSettings={saveSettings}
-          onBeforeNavigate={unregisterBeforeNavigate}
-          savedViews={savedViews}
-        />
-        <GotoRow
-          onGo={(lat, lon) => {
-            const real = latLonToWorld({ lat, lon }, origin);
-            const renderX = real.x * level.horizontalScale;
-            const renderZ = real.z * level.horizontalScale;
-            const groundY = terrain.getHeightAt(renderX, renderZ);
-            // Re-centers the orbit pivot on the target point, keeping
-            // current alpha/beta/radius (viewing angle/zoom) unchanged.
-            orbitCamera.target = new Vector3(renderX, groundY, renderZ);
-          }}
-          getCurrentLatLon={() => {
-            const pos = orbitCamera.position;
-            const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
-            return worldToLatLon(real, origin);
-          }}
-          locations={locations}
-        />
-      </>,
-      document.getElementById('navigation-root') as HTMLDivElement,
-    );
-    render(
-        <RouteRecorder
-          storageKey='trail-viewer.route-recorder.v1'
-          getCurrentSample={() => {
-            const pos = orbitCamera.position;
-            const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
-            const latLon = worldToLatLon(real, origin);
-            return {
-              ...latLon,
-              heightmap: sampler.sampleHeight(real),
-              worldX: real.x,
-              worldZ: real.z,
-            } satisfies RouteSample;
-          }}
-        />
-      ,
-      document.getElementById('routes-root') as HTMLDivElement,
-    );
-    render(
-        <RouteReplay
-          routes={replayRoutes}
-          onSeek={({ lat, lon }) => {
-            const real = latLonToWorld({ lat, lon }, origin);
-            const renderX = real.x * level.horizontalScale;
-            const renderZ = real.z * level.horizontalScale;
-            orbitCamera.target = new Vector3(renderX, terrain.getHeightAt(renderX, renderZ), renderZ);
-          }}
-        />
-      ,
-      document.getElementById('replay-root') as HTMLDivElement,
-    );
+    renderNavigationPanels({
+      buildSnapshot: () => ({
+        level: levelKey,
+        orbitTargetX: orbitCamera.target.x,
+        orbitTargetY: orbitCamera.target.y,
+        orbitTargetZ: orbitCamera.target.z,
+        orbitAlpha: orbitCamera.alpha,
+        orbitBeta: orbitCamera.beta,
+        orbitRadius: orbitCamera.radius,
+        ...buildSharedSettingsSnapshot({
+          scaleTuning, atmosphere, visibility, audio,
+          trailsideScale,
+          bulkForestScale: bulkForest.bulkForestScale,
+          treeRegionRadius: bulkForest.treeRegionRadius,
+          bulkForestRadius: bulkForest.bulkForestRadius,
+          weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
+        }),
+      }),
+      onGo: (lat, lon) => {
+        const real = latLonToWorld({ lat, lon }, origin);
+        const renderX = real.x * level.horizontalScale;
+        const renderZ = real.z * level.horizontalScale;
+        const groundY = terrain.getHeightAt(renderX, renderZ);
+        // Re-centers the orbit pivot on the target point, keeping
+        // current alpha/beta/radius (viewing angle/zoom) unchanged.
+        orbitCamera.target = new Vector3(renderX, groundY, renderZ);
+      },
+      getCurrentLatLon: () => {
+        const pos = orbitCamera.position;
+        const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
+        return worldToLatLon(real, origin);
+      },
+      getCurrentSample: () => {
+        const pos = orbitCamera.position;
+        const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
+        const latLon = worldToLatLon(real, origin);
+        return {
+          ...latLon,
+          heightmap: sampler.sampleHeight(real),
+          worldX: real.x,
+          worldZ: real.z,
+        } satisfies RouteSample;
+      },
+      onSeek: ({ lat, lon }) => {
+        const real = latLonToWorld({ lat, lon }, origin);
+        const renderX = real.x * level.horizontalScale;
+        const renderZ = real.z * level.horizontalScale;
+        orbitCamera.target = new Vector3(renderX, terrain.getHeightAt(renderX, renderZ), renderZ);
+      },
+    });
 
     const gameLoop = new GameLoop(engine, (dt) => {
       backdrop.update(dt);
@@ -1213,15 +1266,18 @@ async function main() {
       const pos = orbitCamera.position;
       bulkForest.updateCulling(dt, pos, atmosphere.vegetationCullRadius.value);
       const groundY = terrain.getHeightAt(pos.x, pos.z);
-      readout.textContent =
+      writeReadout(
+        readout,
         `camera: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
         `ground under camera: ${groundY.toFixed(1)}m\n` +
         `fps: ${engine.getFps().toFixed(0)}\n` +
-        `left-drag to orbit, scroll to zoom, right-drag to pan`;
+        `left-drag to orbit, scroll to zoom, right-drag to pan`,
+      );
       scene.render();
     });
     effect(() => { gameLoop.setTargetFps(targetFps.value); });
     bindPauseControl(
+      keyDispatcher,
       gameLoop,
       canvas,
       () => worldAudio.setMuted(true),
@@ -1279,10 +1335,19 @@ async function main() {
   // also softens the street lamps' existing emissive globes the same way.
   // scene.cameras already holds player/flight/drive by this point (each
   // camera self-registers on construction) — no per-controller wiring
-  // needed. Every other pipeline feature (FXAA, grain, DoF, vignette,
-  // chromatic aberration) stays off; this is scoped to bloom alone.
+  // needed. Every other pipeline feature (FXAA, grain, DoF, chromatic
+  // aberration) stays off; bloom plus the threat vignette below are the
+  // only two in use.
   renderingPipeline = new DefaultRenderingPipeline('bloomPipeline', true, scene, scene.cameras);
   applyActiveEnvironmentProfile(activeEnvironmentProfile, renderingPipeline);
+  // T28 threat-proximity vignette (docs/design/world/RURAL-INFRASTRUCTURE.md
+  // — RoadPatrolDog's exposure consequence). Weight stays at 0 (invisible)
+  // until updateHeartbeatVignette drives it in the game loop below; enabled
+  // once here rather than toggled per-frame. Dark red-black rather than
+  // pure black — reads as a pulse of dread, not just a screen darkening.
+  renderingPipeline.imageProcessing.vignetteEnabled = true;
+  renderingPipeline.imageProcessing.vignetteColor = new Color4(0.25, 0, 0, 1);
+  renderingPipeline.imageProcessing.vignetteWeight = 0;
   // The named profile is the inherited source; persisted fog values are
   // explicit runtime overrides and must win after post-processing setup.
   scene.fogDensity = atmosphere.fogDensity.value;
@@ -1335,6 +1400,13 @@ async function main() {
   if (!highwayOnFootRoad) {
     console.warn(`[T28] highway on-foot road "${HIGHWAY_ON_FOOT_LOCATION_ID}" not found — exposure/speed effect disabled`);
   }
+  // T28 highway consequence — one hostile patroller per road tagged with
+  // road.patrol in locations.json (currently grove-to-dissonance-blvd only;
+  // sr-27-service-road, the vehicle sequence's road, is untagged).
+  const roadPatrolDogs = loadRoadPatrolDogs(
+    scene, locations, (id) => locationFeatures.getRoad(id), backdrop.getShadowGenerator(),
+    visibility.patrolDog.value,
+  );
   const resolveTerminalFixture = () => {
     const fixture = locationFeatures.getTerminal(terminalSimulation.terminalId);
     if (!fixture) {
@@ -1391,20 +1463,34 @@ async function main() {
     const pos = controllers[movement.activeMode.value].getPosition();
     forestFire.ignite(pos.x / scaleTuning.hScale.value, pos.z / scaleTuning.hScale.value);
   };
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyF') igniteAtActiveController();
-
-    // 'M' whistles the currently-selected melody (number keys 1-9 pick
-    // which one); 'P' pets the dog if it's close enough. `mechDog` is
-    // declared further down but already constructed by the time any of
-    // this can fire from a real keypress.
-    if (e.code === 'KeyM') {
-      playerWhistle.whistle();
-      mechDog.hearWhistle();
-    }
-    const melodyDigit = /^Digit([1-9])$/.exec(e.code);
-    if (melodyDigit) playerWhistle.selectMelody(Number(melodyDigit[1]) - 1);
-    if (e.code === 'KeyP' && !e.shiftKey) mechDog.tryPet();
+  keyDispatcher.register({
+    id: 'world.igniteForestFire',
+    phase: 'keydown',
+    code: 'KeyF',
+    handler: () => igniteAtActiveController(),
+  });
+  // 'M' whistles the currently-selected melody (number keys 1-9 pick which
+  // one); 'P' pets the dog if it's close enough. `mechDog` is declared
+  // further down but already constructed by the time any of this can fire
+  // from a real keypress.
+  keyDispatcher.register({
+    id: 'companion.whistle',
+    phase: 'keydown',
+    code: 'KeyM',
+    handler: () => { playerWhistle.whistle(); mechDog.hearWhistle(); },
+  });
+  keyDispatcher.register({
+    id: 'companion.selectMelody',
+    phase: 'keydown',
+    code: ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'],
+    handler: (event) => playerWhistle.selectMelody(Number(event.code.slice(5)) - 1),
+  });
+  keyDispatcher.register({
+    id: 'companion.petDog',
+    phase: 'keydown',
+    code: 'KeyP',
+    when: (event) => !event.shiftKey,
+    handler: () => mechDog.tryPet(),
   });
 
   // Walk/Fly/Drive mode-switching — see TraversalRig's own comment.
@@ -1455,6 +1541,7 @@ async function main() {
     switchMode,
     onBeforeEnter: () => commitExteriorState('surveillance'),
     interactionPrompt,
+    dispatcher: keyDispatcher,
   });
   const { worldSession } = surveillance;
   const workshop = createWorkshopSession({
@@ -1537,28 +1624,23 @@ async function main() {
   };
   const updateVehicleHud = (): void => {
     const snapshot = vehicleTravelState.snapshot();
-    const roadStatus = document.getElementById('vehicle-road-status');
-    if (roadStatus) {
-      roadStatus.textContent =
-        `${snapshot.distanceMeters.toFixed(1)}m / ${roadNetworkRoad!.totalLengthMeters.toFixed(1)}m`;
-    }
-    const modeStatus = document.getElementById('vehicle-travel-mode');
-    if (modeStatus) modeStatus.textContent = snapshot.travelMode;
-    const fuelStatus = document.getElementById('vehicle-fuel');
-    if (fuelStatus) {
-      fuelStatus.textContent =
-        `${snapshot.fuelCurrent.toFixed(2)} / ${snapshot.fuelCapacity.toFixed(2)}`;
-    }
-    const rangeStatus = document.getElementById('vehicle-range');
-    if (rangeStatus) {
-      rangeStatus.textContent = `${vehicleTravelState.estimateRemainingRangeMeters().toFixed(1)}m`;
-    }
-    const occupancyStatus = document.getElementById('vehicle-occupancy');
-    if (occupancyStatus) {
-      occupancyStatus.textContent = snapshot.stranded
-        ? 'stranded'
-        : vehicleSession.isInVehicle() ? 'driving' : 'parked';
-    }
+    writeReadout(
+      document.getElementById('vehicle-road-status'),
+      `${snapshot.distanceMeters.toFixed(1)}m / ${roadNetworkRoad!.totalLengthMeters.toFixed(1)}m`,
+    );
+    writeReadout(document.getElementById('vehicle-travel-mode'), snapshot.travelMode);
+    writeReadout(
+      document.getElementById('vehicle-fuel'),
+      `${snapshot.fuelCurrent.toFixed(2)} / ${snapshot.fuelCapacity.toFixed(2)}`,
+    );
+    writeReadout(
+      document.getElementById('vehicle-range'),
+      `${vehicleTravelState.estimateRemainingRangeMeters().toFixed(1)}m`,
+    );
+    writeReadout(
+      document.getElementById('vehicle-occupancy'),
+      snapshot.stranded ? 'stranded' : vehicleSession.isInVehicle() ? 'driving' : 'parked',
+    );
   };
 
   const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
@@ -1663,96 +1745,126 @@ async function main() {
     document.getElementById('keymap-overlay-root') as HTMLDivElement,
   );
 
-  // Controllers and world actions listen globally. Capture only keydown while
-  // a terminal owns focus, but allow keyup through so any held movement clears.
-  window.addEventListener('keydown', (event) => {
-    if (!terminalDocking.blocksWorldInput) return;
-    // The system-level pause shortcut remains available while docked.
-    if (event.code === 'KeyP' && event.shiftKey && !event.repeat) return;
-    const target = event.target;
-    const focusedUndockActivation =
-      (event.code === 'Enter' || event.code === 'Space') &&
-      target instanceof Element &&
-      target.closest('#terminal-root button') !== null;
-    if (
-      !event.repeat &&
-      (event.code === 'Escape' || event.code === 'KeyE' || focusedUndockActivation)
-    ) {
-      requestTerminalUndock();
-    }
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }, { capture: true });
+  // Controllers and world actions register through keyDispatcher. Capture
+  // only keydown while a terminal owns focus, but allow keyup through so
+  // any held movement clears.
+  keyDispatcher.register({
+    id: 'terminal.dockedIntercept',
+    phase: 'keydown',
+    capture: true,
+    priority: 10, // between pause.toggle (0) and pause.swallowWhilePaused (20)
+    when: () => terminalDocking.blocksWorldInput,
+    preventDefault: true,
+    stopPropagation: true,
+    handler: (event) => {
+      const target = event.target;
+      const focusedUndockActivation =
+        (event.code === 'Enter' || event.code === 'Space') &&
+        target instanceof Element &&
+        target.closest('#terminal-root button') !== null;
+      if (
+        !event.repeat &&
+        (event.code === 'Escape' || event.code === 'KeyE' || focusedUndockActivation)
+      ) {
+        requestTerminalUndock();
+      }
+    },
+  });
 
   const corridorDiagnostics = workshop.corridorDiagnostics();
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyE' || event.repeat || !worldSession.isExterior()) return;
-    const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      (target.isContentEditable || target.closest('input, select, textarea, button, [contenteditable]'))
-    ) return;
-    if (requestTerminalDock()) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      return;
-    }
-    if (vehicleSession.isInVehicle()) {
-      vehicleSession.exit();
-      vehicleThrottle = 0;
-      const exitPos = vehicleSession.getExitPosition();
-      const groundY = terrain.getHeightAt(exitPos.x, exitPos.z);
-      controllers[movement.activeMode.value].setPosition(new Vector3(exitPos.x, groundY, exitPos.z));
-      persistVehicleState();
-    } else if (workshop.isInterior()) {
-      if (workshop.isNearExit()) workshop.exit();
-    } else if (workshop.isNearEntrance()) {
-      workshop.enter();
-    } else if (vehicleSession.isNearVehicle(controllers[movement.activeMode.value].getPosition())) {
-      vehicleSession.enter();
-    } else {
-      const flags = strikeAcquisition.recover(
-        controllers[movement.activeMode.value].getPosition(),
-      );
-      if (flags) {
-        story.applyBeat('recover-emitter-and-chassis');
-        workshop.setHardwareIds(worldSave.snapshot().progression.inventory.hardwareIds);
-        console.info('[T31] recovery hand-off', flags);
+  // Priority 10 vs. SurveillanceSession's interior.milosApartment (priority
+  // 0): near Milo's entrance, that binding wins this KeyE press and this
+  // cascade is skipped for that keypress.
+  keyDispatcher.register({
+    id: 'world.contextualInteractE',
+    phase: 'keydown',
+    code: 'KeyE',
+    priority: 10,
+    when: (event) => !event.repeat && worldSession.isExterior() && !isTextEntryTarget(event.target, { includeButtons: true }),
+    handler: (event) => {
+      if (requestTerminalDock()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
       }
-    }
+      if (vehicleSession.isInVehicle()) {
+        vehicleSession.exit();
+        vehicleThrottle = 0;
+        const exitPos = vehicleSession.getExitPosition();
+        const groundY = terrain.getHeightAt(exitPos.x, exitPos.z);
+        controllers[movement.activeMode.value].setPosition(new Vector3(exitPos.x, groundY, exitPos.z));
+        persistVehicleState();
+      } else if (workshop.isInterior()) {
+        if (workshop.isNearExit()) workshop.exit();
+      } else if (workshop.isNearEntrance()) {
+        workshop.enter();
+      } else if (vehicleSession.isNearVehicle(controllers[movement.activeMode.value].getPosition())) {
+        vehicleSession.enter();
+      } else {
+        const flags = strikeAcquisition.recover(
+          controllers[movement.activeMode.value].getPosition(),
+        );
+        if (flags) {
+          story.applyBeat('recover-emitter-and-chassis');
+          workshop.setHardwareIds(worldSave.snapshot().progression.inventory.hardwareIds);
+          console.info('[T31] recovery hand-off', flags);
+        }
+      }
+    },
   });
   // While driving, W/S double as throttle/brake (the walk controller they'd
   // otherwise move is already skipped — see the game loop's isInVehicle
   // gate) and X cycles careful/fast/reckless (doc §3's "travel intensity").
-  window.addEventListener('keydown', (event) => {
-    if (!vehicleSession.isInVehicle()) return;
-    if (event.code === 'KeyW') vehicleThrottle = 1;
-    else if (event.code === 'KeyS') vehicleThrottle = -1;
-    else if (event.code === 'KeyX' && !event.repeat) {
+  keyDispatcher.register({
+    id: 'vehicle.throttleForward',
+    phase: 'keydown',
+    code: 'KeyW',
+    when: () => vehicleSession.isInVehicle(),
+    handler: () => { vehicleThrottle = 1; },
+  });
+  keyDispatcher.register({
+    id: 'vehicle.throttleBrake',
+    phase: 'keydown',
+    code: 'KeyS',
+    when: () => vehicleSession.isInVehicle(),
+    handler: () => { vehicleThrottle = -1; },
+  });
+  keyDispatcher.register({
+    id: 'vehicle.cycleTravelMode',
+    phase: 'keydown',
+    code: 'KeyX',
+    when: (event) => vehicleSession.isInVehicle() && !event.repeat,
+    handler: () => {
       const modes = VEHICLE_TRAVEL_MODES;
       const nextMode = modes[(modes.indexOf(vehicleTravelState.snapshot().travelMode) + 1) % modes.length];
       vehicleTravelState.setTravelMode(nextMode);
       persistVehicleState();
-    }
+    },
   });
-  window.addEventListener('keyup', (event) => {
-    if (event.code === 'KeyW' && vehicleThrottle === 1) vehicleThrottle = 0;
-    if (event.code === 'KeyS' && vehicleThrottle === -1) vehicleThrottle = 0;
+  keyDispatcher.register({
+    id: 'vehicle.throttleRelease',
+    phase: 'keyup',
+    code: ['KeyW', 'KeyS'],
+    handler: (event) => {
+      if (event.code === 'KeyW' && vehicleThrottle === 1) vehicleThrottle = 0;
+      if (event.code === 'KeyS' && vehicleThrottle === -1) vehicleThrottle = 0;
+    },
   });
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyL' || event.repeat) return;
-    setFlashlightPreference(!flashlightEnabled.value);
+  keyDispatcher.register({
+    id: 'equipment.toggleFlashlight',
+    phase: 'keydown',
+    code: 'KeyL',
+    when: (event) => !event.repeat,
+    handler: () => setFlashlightPreference(!flashlightEnabled.value),
   });
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyI' || event.repeat) return;
+  keyDispatcher.register({
+    id: 'ui.toggleKeymapOverlay',
+    phase: 'keydown',
+    code: 'KeyI',
     // Excludes text-entry controls only (not buttons) — clicking the ghost
     // toggle leaves it focused, and 'I' must still close the panel from there.
-    const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      (target.isContentEditable || target.closest('input, select, textarea, [contenteditable]'))
-    ) return;
-    keymapOverlayOpen.value = !keymapOverlayOpen.value;
+    when: (event) => !event.repeat && !isTextEntryTarget(event.target),
+    handler: () => { keymapOverlayOpen.value = !keymapOverlayOpen.value; },
   });
 
   render(
@@ -1957,111 +2069,71 @@ async function main() {
     />,
     document.getElementById('movement-root') as HTMLDivElement,
   );
-  render(
-    <>
-      <ViewToolsRow
-          buildSnapshot={() => {
-            const activeCamera = controllers[movement.activeMode.value].camera;
-            const pos = controllers[movement.activeMode.value].getPosition();
-            return {
-              level: levelKey,
-              activeMode: movement.activeMode.value,
-              x: pos.x,
-              y: pos.y,
-              z: pos.z,
-              rotationX: activeCamera.rotation.x,
-              rotationY: activeCamera.rotation.y,
-              cameraHeightOffset: movement.cameraHeightOffset.value,
-              ...buildSharedSettingsSnapshot({
-                scaleTuning, atmosphere, visibility, audio,
-                trailsideScale,
-                bulkForestScale: bulkForest.bulkForestScale,
-                treeRegionRadius: bulkForest.treeRegionRadius,
-                bulkForestRadius: bulkForest.bulkForestRadius,
-                weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
-              }),
-            };
-          }}
-          levelKey={levelKey}
-          validLevelKeys={Object.keys(LEVELS)}
-          saveSettings={saveSettings}
-          onBeforeNavigate={unregisterBeforeNavigate}
-          savedViews={savedViews}
-        />
-        <GotoRow
-          onGo={(lat, lon) => {
-            const real = latLonToWorld({ lat, lon }, origin);
-            const renderX = real.x * scaleTuning.hScale.value;
-            const renderZ = real.z * scaleTuning.hScale.value;
-            const groundY = terrain.getHeightAt(renderX, renderZ);
-            const activeController = controllers[movement.activeMode.value];
-            if (movement.activeMode.value === 'fly') {
-              // Hover well above ground so the destination is actually
-              // visible, rather than dropping you right at ground level
-              // facing who-knows-where.
-              activeController.setPosition(new Vector3(renderX, groundY + 50, renderZ));
-            } else {
-              activeController.setPosition(new Vector3(renderX, groundY, renderZ));
-            }
-          }}
-          getCurrentLatLon={() => {
-            const pos = controllers[movement.activeMode.value].getPosition();
-            const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
-            return worldToLatLon(real, origin);
-          }}
-          onResetPosition={() => {
-            // Fly Mode has no bounds clamping, so it's easy to end up saved
-            // somewhere far outside the DEM's real footprint (nothing but
-            // sky, a distant sliver of terrain). This drops just the saved
-            // position for the current level (keeping scale/water/camera-
-            // height tuning intact) and reloads back to the recorded hike's
-            // trailhead.
-            unregisterBeforeNavigate();
-            const withoutPosition = loadSavedSettings(levelKey);
-            delete withoutPosition.x;
-            delete withoutPosition.y;
-            delete withoutPosition.z;
-            saveSettings(levelKey, withoutPosition);
-            location.reload();
-          }}
-          locations={locations}
-        />
-        <CompassRow reading={compassReading} />
-    </>,
-    document.getElementById('navigation-root') as HTMLDivElement,
-  );
-  render(
-    <RouteRecorder
-          storageKey='trail-viewer.route-recorder.v1'
-          getCurrentSample={() => {
-            const pos = controllers[movement.activeMode.value].getPosition();
-            const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
-            const latLon = worldToLatLon(real, origin);
-            return {
-              ...latLon,
-              heightmap: sampler.sampleHeight(real),
-              worldX: real.x,
-              worldZ: real.z,
-            } satisfies RouteSample;
-          }}
-    />,
-    document.getElementById('routes-root') as HTMLDivElement,
-  );
-  render(
-    <RouteReplay
-          routes={replayRoutes}
-          onSeek={({ lat, lon }) => {
-            const real = latLonToWorld({ lat, lon }, origin);
-            const renderX = real.x * scaleTuning.hScale.value;
-            const renderZ = real.z * scaleTuning.hScale.value;
-            const groundY = terrain.getHeightAt(renderX, renderZ);
-            const activeController = controllers[movement.activeMode.value];
-            const y = movement.activeMode.value === 'fly' ? groundY + 5 : groundY;
-            activeController.setPosition(new Vector3(renderX, y, renderZ));
-          }}
-    />,
-    document.getElementById('replay-root') as HTMLDivElement,
-  );
+  renderNavigationPanels({
+    buildSnapshot: () => {
+      const activeCamera = controllers[movement.activeMode.value].camera;
+      const pos = controllers[movement.activeMode.value].getPosition();
+      return {
+        level: levelKey,
+        activeMode: movement.activeMode.value,
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
+        rotationX: activeCamera.rotation.x,
+        rotationY: activeCamera.rotation.y,
+        cameraHeightOffset: movement.cameraHeightOffset.value,
+        ...buildSharedSettingsSnapshot({
+          scaleTuning, atmosphere, visibility, audio,
+          trailsideScale,
+          bulkForestScale: bulkForest.bulkForestScale,
+          treeRegionRadius: bulkForest.treeRegionRadius,
+          bulkForestRadius: bulkForest.bulkForestRadius,
+          weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
+        }),
+      };
+    },
+    onGo: (lat, lon) => {
+      const real = latLonToWorld({ lat, lon }, origin);
+      const renderX = real.x * scaleTuning.hScale.value;
+      const renderZ = real.z * scaleTuning.hScale.value;
+      const groundY = terrain.getHeightAt(renderX, renderZ);
+      const activeController = controllers[movement.activeMode.value];
+      if (movement.activeMode.value === 'fly') {
+        // Hover well above ground so the destination is actually
+        // visible, rather than dropping you right at ground level
+        // facing who-knows-where.
+        activeController.setPosition(new Vector3(renderX, groundY + 50, renderZ));
+      } else {
+        activeController.setPosition(new Vector3(renderX, groundY, renderZ));
+      }
+    },
+    getCurrentLatLon: () => {
+      const pos = controllers[movement.activeMode.value].getPosition();
+      const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
+      return worldToLatLon(real, origin);
+    },
+    getCurrentSample: () => {
+      const pos = controllers[movement.activeMode.value].getPosition();
+      const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
+      const latLon = worldToLatLon(real, origin);
+      return {
+        ...latLon,
+        heightmap: sampler.sampleHeight(real),
+        worldX: real.x,
+        worldZ: real.z,
+      } satisfies RouteSample;
+    },
+    onSeek: ({ lat, lon }) => {
+      const real = latLonToWorld({ lat, lon }, origin);
+      const renderX = real.x * scaleTuning.hScale.value;
+      const renderZ = real.z * scaleTuning.hScale.value;
+      const groundY = terrain.getHeightAt(renderX, renderZ);
+      const activeController = controllers[movement.activeMode.value];
+      const y = movement.activeMode.value === 'fly' ? groundY + 5 : groundY;
+      activeController.setPosition(new Vector3(renderX, y, renderZ));
+    },
+    compassReading,
+  });
 
   const SAVE_INTERVAL_SECONDS = 2;
   let timeSinceSave = 0;
@@ -2186,10 +2258,10 @@ async function main() {
       const breathLoad = player.breath.getLoad();
       trailPlayerAudio.updateBreath(breathLoad);
       trailPlayerAudio.updateFootsteps(player.getSpeed());
-      if (breathReadout) breathReadout.textContent = `${Math.round(breathLoad * 100)}%`;
+      writeReadout(breathReadout, `${Math.round(breathLoad * 100)}%`);
     } else {
       trailPlayerAudio.updateFootsteps(0);
-      if (breathReadout) breathReadout.textContent = '—';
+      writeReadout(breathReadout, '—');
     }
 
     const pos = activeTraversalController.getPosition();
@@ -2215,21 +2287,19 @@ async function main() {
       distanceToDock: terminalDistance,
     });
     publishTerminalSnapshot(terminalSnapshot);
-    const terminalStatus = document.getElementById('t29-terminal-status');
-    if (terminalStatus) {
-      terminalStatus.textContent =
-        `${terminalSnapshot.state} · ${terminalFixture.id} · ${terminalDistance.toFixed(1)}m`;
-    }
+    writeReadout(
+      document.getElementById('t29-terminal-status'),
+      `${terminalSnapshot.state} · ${terminalFixture.id} · ${terminalDistance.toFixed(1)}m`,
+    );
     if (isExteriorGameplay()) strikeAcquisition.update(dt, pos);
     workshop.update(dt);
-    const lurkerStatus = document.getElementById('t36-lurker-status');
-    if (lurkerStatus) {
-      const lurker = workshop.lurkerSnapshot();
-      lurkerStatus.textContent =
-        `Lurker: ${lurker.state}` +
-        `${lurker.trigger ? ` · trigger ${lurker.trigger}` : ''}` +
-        `${Number.isFinite(lurker.distanceToMilo) ? ` · ${lurker.distanceToMilo.toFixed(1)}m` : ''}`;
-    }
+    const lurker = workshop.lurkerSnapshot();
+    writeReadout(
+      document.getElementById('t36-lurker-status'),
+      `Lurker: ${lurker.state}` +
+      `${lurker.trigger ? ` · trigger ${lurker.trigger}` : ''}` +
+      `${Number.isFinite(lurker.distanceToMilo) ? ` · ${lurker.distanceToMilo.toFixed(1)}m` : ''}`,
+    );
     const shelterDoor = locationFeatures.falloutShelterDoor;
     if (audioStarted && isExteriorGameplay() && shelterDoor) {
       const distance = Math.hypot(pos.x - shelterDoor.position.x, pos.z - shelterDoor.position.z);
@@ -2246,14 +2316,35 @@ async function main() {
       movement.activeMode.value === 'walk' && player.isCrouching,
       (x, z) => terrain.getHeightAt(x, z),
     );
+    roadPatrolDogs.update(
+      dt,
+      pos,
+      movement.activeMode.value === 'walk' && player.isCrouching,
+      (x, z) => terrain.getHeightAt(x, z),
+    );
     // Walk mode is the only controller with physical collision (Fly/Drive
     // have none of their own — see their file comments), so this is inert
     // outside it. The dog moves every frame, unlike the static building/pole
     // colliders WorldFeaturesSystem batches — see setDynamicColliders' own
     // comment.
     const mechDogCollider = mechDog.getCollider();
-    player.setDynamicColliders(mechDogCollider ? [mechDogCollider] : []);
+    player.setDynamicColliders([
+      ...(mechDogCollider ? [mechDogCollider] : []),
+      ...roadPatrolDogs.getColliders(),
+    ]);
     const mechDogModel = mechDog.getModel();
+    // T28 threat vignette — patrol-dog threat drives it near-fully; the
+    // companion dog's is heavily damped (see heartbeatVignette.ts) so
+    // playing with your pet never reads the same as being hunted.
+    const threatStress = combineThreatStress(
+      roadPatrolDogs.getMaxThreatLevel(),
+      companionStateThreatLevel(mechDogModel.state),
+    );
+    if (renderingPipeline) {
+      renderingPipeline.imageProcessing.vignetteWeight = updateHeartbeatVignette(
+        heartbeatVignetteState, dt, threatStress,
+      );
+    }
     const strikeSnapshot = strikeAcquisition.snapshot();
     if (strikeSnapshot.state === 'SPENT') {
       story.applyBeat('witness-boulevard-drone-strike');
@@ -2265,16 +2356,15 @@ async function main() {
         strikeProgressPersisted = true;
       }
     }
-    const strikeStatus = document.getElementById('t31-strike-status');
-    if (strikeStatus) {
-      strikeStatus.textContent =
-        `${strikeSnapshot.state} — ${strikeSnapshot.blockingReason} · ` +
-        `LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · ` +
-        `Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · ` +
-        `drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · ` +
-        `rain ${Math.round(strikeSnapshot.rainIntensity * 100)}% · ` +
-        `windup ${Math.round(strikeSnapshot.windupProgress * 100)}%`;
-    }
+    writeReadout(
+      document.getElementById('t31-strike-status'),
+      `${strikeSnapshot.state} — ${strikeSnapshot.blockingReason} · ` +
+      `LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · ` +
+      `Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · ` +
+      `drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · ` +
+      `rain ${Math.round(strikeSnapshot.rainIntensity * 100)}% · ` +
+      `windup ${Math.round(strikeSnapshot.windupProgress * 100)}%`,
+    );
 
     // state/lineglass.ts — walking within pickup range collects a part
     // outright, no interact key (matching this app's existing "proximity is
@@ -2332,7 +2422,8 @@ async function main() {
       : worldSession.route.value.kind === 'exterior'
       ? 'exterior'
       : `surveillance/${worldSession.route.value.locationId}`;
-    readout.textContent =
+    writeReadout(
+      readout,
       `route: ${routeLabel} (${worldSession.transition.value})\n` +
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `lat/lon: ${latLon.lat.toFixed(6)}, ${latLon.lon.toFixed(6)}\n` +
@@ -2344,7 +2435,8 @@ async function main() {
       `T31 gate: LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · rain ${Math.round(strikeSnapshot.rainIntensity * 100)}%\n` +
       `whistle [M]: "${playerWhistle.selectedMelody.label}" (1-${playerWhistle.melodyCount} to pick) — pet [P]${mechDog.isPettable() ? '' : ' (get closer)'}\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
-      controlsHint;
+      controlsHint,
+    );
 
     if (terminalSnapshot.blocksWorldInput) {
       interactionPrompt.style.display = 'none';
@@ -2388,6 +2480,7 @@ async function main() {
   });
   effect(() => { gameLoop.setTargetFps(targetFps.value); });
   bindPauseControl(
+    keyDispatcher,
     gameLoop,
     canvas,
     () => worldAudio.setMuted(true),

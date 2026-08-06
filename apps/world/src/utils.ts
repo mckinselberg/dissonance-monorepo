@@ -18,8 +18,8 @@ export function debounce<Args extends unknown[]>(fn: (...args: Args) => void, de
 }
 
 // Covers the black screen during initial load and during the several
-// reload()/href navigations this app does on purpose (Load View,
-// reset-position, the saved-views dropdown) — hidden once the scene is
+// reload()/href navigations this app does on purpose (Load View and the
+// saved-views dropdown) — hidden once the scene is
 // actually ready to render, right before each branch's gameLoop.start().
 export function hideLoadingOverlay(): void {
   const overlay = document.getElementById('loading-overlay');

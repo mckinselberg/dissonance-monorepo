@@ -57,7 +57,7 @@ repurposing, not demolition.
 | Farm silo | T20 + T17 + T28 | Provisional, **placeholder landed** | T20 wrongness doctrine (for the wrongness-seed variant only — plain silo is unblocked) |
 | Self-storage | T22 (pattern) + T28 | Provisional | none blocking — reuses T22's existing per-prop story-profile pattern as data |
 | Regional airport | T28 | Experimental, very low priority | largest build by far; don't start here |
-| Two-lane highway | T28 | Provisional, **on-foot speed hookup landed** | none — placement mechanism already shipped |
+| Two-lane highway | T28 | Provisional, **on-foot speed hookup + patrol-dog exposure consequence landed** | none — placement mechanism already shipped |
 | Physical compass | T21 + T28 | Provisional, **HUD readout landed** | T27 zone-field blending (for the full diegetic item only — HUD readout is unblocked) |
 | Power lines | T28 | Done (visual only) | none |
 
@@ -157,8 +157,40 @@ it — the inverse of the windmill). Exposure-vs-speed trade: faster on-foot
 travel, maximally exposed; a pursuer's route-finding may favor highways too.
 Collectible context via an abandoned vehicle, roadside marker, or mile-post.
 
-**Placement is already solved** — see "Placement and asset contracts" below;
-the highway's open work is gameplay (on-foot exposure), not geometry.
+**Placement is already solved** — see "Placement and asset contracts" below.
+**Exposure consequence: landed (2026-08-04).** `RoadPatrolDog.ts` dispatches
+a hostile mech-dog patroller, seeded from the road's own data
+(`LocationEntry.road.patrol` — presence and type live on the road entry
+itself, not a separate hand-authored list). Patrols the road via
+`RoadHandle.positionAtDistance` back and forth; detecting the player within
+`detectionRadiusMeters` switches it to active pursuit, reusing the same
+standoff-based `PursuerSystem` behavior the existing companion mech dog
+already uses (closing distance and being visibly threatening is the
+consequence — no catch/fail state, consistent with D2 and
+`MechDogController`'s own precedent). Loses interest and resumes patrol
+after a sustained-distance cooldown, picking the road's nearest point to
+resume from (`RoadHandle.nearestPointOnRoad`). Physically collides with the
+player via the same `PlayerController.setDynamicColliders` mechanism the
+companion dog uses.
+
+**Felt consequence: landed (2026-08-04).** Proximity to a pursuing patrol
+dog drives a real "diegetic heartbeat" response — a screen-edge vignette
+(Babylon `DefaultRenderingPipeline`'s built-in vignette, `state/
+heartbeatVignette.ts`) that pulses at a BPM scaled by threat level (same
+lub/dub double-pulse curve as `packages/glow/HeartbeatGlow.ts`, adapted so
+the vignette is fully invisible at zero threat rather than glow's always-on
+baseline). The companion dog contributes too, but on a deliberately
+different, heavily damped signal (`COMPANION_THREAT_WEIGHT = 0.12`, coarse
+state buckets rather than smooth distance) so playing with your pet never
+reads as being hunted. `packages/audio`'s `HeartbeatAudio` was deliberately
+left untouched — its output gain is never ramped above 0 anywhere in that
+class, an existing mute this pass didn't have context to safely reverse;
+this consequence is visual-only for now.
+
+Asphalt surface itself also got real normal/roughness
+detail this pass (`RoadNetwork.ts`'s asphalt material was albedo-only) —
+lane markings stayed out of scope: the city kit's only decal sheet is urban
+crosswalk/stop-sign signage, wrong register for an unmaintained rural road.
 
 ### Physical compass
 Not a tool — a diegetic navigation subsystem combining magnetic bearing with

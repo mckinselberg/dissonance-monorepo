@@ -85,6 +85,18 @@ export type LocationEntry = {
     routeFile?: string;
     widthMeters: number;
     pullOffs?: Array<{ id: string; distanceMeters: number }>;
+    // T28 highway consequence (docs/design/world/RURAL-INFRASTRUCTURE.md) —
+    // the road's own data seeds the presence and type of a hostile
+    // patroller (RoadPatrolDog.ts), rather than a separate hand-authored
+    // list like patrolDrones above. `type` is a single value today, kept as
+    // a discriminant so a second patroller archetype is a data addition,
+    // not a schema break.
+    patrol?: {
+      id: string;
+      type: 'mech-dog';
+      speedMetersPerSecond?: number;
+      detectionRadiusMeters?: number;
+    };
   };
   // Diegetic Lineglass parts (see world/LineglassParts.ts, state/
   // lineglass.ts) — exact local-meter offsets from `latLong`, same

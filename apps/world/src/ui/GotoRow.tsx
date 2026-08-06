@@ -19,12 +19,6 @@ export type GotoRowProps = {
   // to update faster than "the user just clicked the button") — orbit
   // reads the camera position, player reads the active controller's.
   getCurrentLatLon: () => { lat: number; lon: number };
-  // Absent in orbit mode — no meaningful position is ever saved there (see
-  // SavedSettings' comment in main.tsx) — rather than render a button
-  // whose handler would reach into player-mode-only state. Grouped here
-  // (moved from ViewToolsRow) since it's a position tool, not a view-
-  // snapshot one.
-  onResetPosition?: () => void;
   // locations.json's named landmarks (mountain crater, dissonance boulevard,
   // ...) — a narrower shape than the full LocationEntry (name + latLong
   // only) so this ui/ module doesn't need to import world/LocationProps.
@@ -37,7 +31,7 @@ export type GotoRowProps = {
 // signal (matching today's behavior — they're read from the DOM only at
 // click-time), so plain uncontrolled inputs via refs are enough here, no
 // signal needed.
-export function GotoRow({ onGo, getCurrentLatLon, onResetPosition, locations = [] }: GotoRowProps) {
+export function GotoRow({ onGo, getCurrentLatLon, locations = [] }: GotoRowProps) {
   const latLonRef = useRef<HTMLInputElement>(null);
   const [currentLatLon, setCurrentLatLon] = useState('');
   const [copyLabel, setCopyLabel] = useState('📍 Copy current');
@@ -113,11 +107,6 @@ export function GotoRow({ onGo, getCurrentLatLon, onResetPosition, locations = [
           onClick={(e: JSX.TargetedEvent<HTMLInputElement>) => e.currentTarget.select()}
         />
       </div>
-      {onResetPosition && (
-        <button type="button" style={{ marginTop: '8px', font: 'inherit', cursor: 'pointer' }} onClick={onResetPosition}>
-          Reset position (back to trailhead)
-        </button>
-      )}
     </div>
   );
 }

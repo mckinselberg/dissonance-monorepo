@@ -60,14 +60,19 @@ function tileScale(widthMeters: number, lengthMeters: number): { u: number; v: n
 }
 
 function makeAsphaltMaterial(scene: Scene, widthMeters: number, lengthMeters: number): PBRMaterial {
-  // Albedo-only asset on disk (no normal/ORM companion for this specific
-  // variant — see texturedMaterial.ts's optional-map handling) — reads flat
-  // up close but is the same texture CompositeLocations' boulevard streets
-  // already use, so it stays visually consistent across the app.
+  // The asphalt-specific bake has no normal/ORM companion, but the kit's
+  // plain Concrete set does (same kit, same tiling convention) and reads
+  // close enough for cracks/surface variation on a paved road — pairing
+  // them gives the asphalt albedo real bump/roughness detail instead of a
+  // flat-shaded look, without needing a new texture asset.
   return texturedMaterial(
     scene,
     'roadAsphalt',
-    { albedo: `${CITY_KIT_TEXTURE_BASE}T_Concrete_Asphalt_BaseColor.png` },
+    {
+      albedo: `${CITY_KIT_TEXTURE_BASE}T_Concrete_Asphalt_BaseColor.png`,
+      normal: `${CITY_KIT_TEXTURE_BASE}T_Concrete_Normal.png`,
+      orm: `${CITY_KIT_TEXTURE_BASE}T_Concrete_ORM.png`,
+    },
     tileScale(widthMeters, lengthMeters),
   );
 }

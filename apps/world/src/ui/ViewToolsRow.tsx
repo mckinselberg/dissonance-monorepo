@@ -17,7 +17,8 @@ export type SavedView = SavedSettings & { level: string; name: string };
 export type ViewToolsRowProps = {
   // Orbit and player mode build differently-shaped snapshots (orbit target/
   // alpha/beta/radius vs. position/rotation/activeMode/cameraHeightOffset)
-  // — see main.tsx's two mount sites for the two closures passed in here.
+  // — see main.tsx's renderNavigationPanels() for the two closures passed
+  // in from its two call sites (orbit branch vs. player-mode continuation).
   buildSnapshot: () => SavedSettings & { level: string };
   levelKey: string;
   validLevelKeys: string[];

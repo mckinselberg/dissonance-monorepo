@@ -17,6 +17,7 @@ import {
   type SurveillanceInteriorHandle,
 } from './MilosApartmentInterior';
 import { SurveillanceCameraControls } from '../ui/SurveillanceCameraControls';
+import type { KeyActionDispatcher } from '../input/keyActionDispatcher';
 
 export type EnterInteriorSource = 'interaction' | 'history' | 'deep-link' | 'debug';
 
@@ -48,6 +49,7 @@ export function createSurveillanceSession(deps: {
   // Milo's apartment" proximity prompt) — shared rather than looked up
   // twice, so there's one DOM node both sides agree on.
   interactionPrompt: HTMLDivElement;
+  dispatcher: KeyActionDispatcher;
 }): SurveillanceSession {
   const {
     scene,
@@ -59,6 +61,7 @@ export function createSurveillanceSession(deps: {
     switchMode,
     onBeforeEnter,
     interactionPrompt,
+    dispatcher,
   } = deps;
 
   const worldSession = new WorldSessionCoordinator(window.location.pathname);
@@ -218,10 +221,21 @@ export function createSurveillanceSession(deps: {
       <= entrance.interactionRadius;
   };
 
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyE' || event.repeat) return;
-    if (worldSession.transition.value === 'interior') requestExit();
-    else if (isNearEntrance()) void enterInterior('interaction');
+  // Priority 0 vs. main.tsx's world.contextualInteractE (priority 10): near
+  // Milo's entrance, this binding wins and the terminal/vehicle/workshop/
+  // strike-recovery cascade is skipped for that keypress. `when` must encode
+  // the full original condition — not just `!event.repeat` — since a passing
+  // guard consumes the event by default and no later KeyE binding will run.
+  dispatcher.register({
+    id: 'interior.milosApartment',
+    phase: 'keydown',
+    code: 'KeyE',
+    priority: 0,
+    when: (event) => !event.repeat && (worldSession.transition.value === 'interior' || isNearEntrance()),
+    handler: () => {
+      if (worldSession.transition.value === 'interior') requestExit();
+      else void enterInterior('interaction');
+    },
   });
 
   return { worldSession, enterInterior, requestExit, isNearEntrance };
