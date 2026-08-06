@@ -16,6 +16,8 @@
 
 .lineglass {
   width: min(410px, calc(100vw - 24px));
+  min-width: 260px;
+  max-width: calc(100vw - 24px);
   color: var(--lineglass-text);
   background: var(--lineglass-bg);
   border: 1px solid var(--lineglass-border);
@@ -23,6 +25,9 @@
   font: 12px/1.45 "Cascadia Mono", "Roboto Mono", Consolas, monospace;
   box-shadow: 0 0 18px rgba(17, 176, 199, 0.08);
   overflow: hidden;
+  /* User-resizable via the browser's native bottom-right grip; width is
+     persisted by LineglassShell.tsx alongside its other UI preferences. */
+  resize: horizontal;
 }
 
 .lineglass__header {

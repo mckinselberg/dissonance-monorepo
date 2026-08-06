@@ -17,14 +17,21 @@ const PREFERENCE_KEY = 'dissonance.dev-lineglass.ui.v1';
 type LineglassPreferences = {
   mode?: LineglassMode;
   openByMode?: Partial<Record<LineglassMode, string>>;
+  width?: number;
 };
 
-function loadPreferences(initialMode: LineglassMode): Required<LineglassPreferences> {
+// Panel is user-resizable (native `resize: horizontal` on .lineglass); keep
+// bounds in sync with lineglass.css's min-width/max-width.
+const MIN_WIDTH_PX = 260;
+const RESIZE_GRIP_HITBOX_PX = 20;
+
+function loadPreferences(initialMode: LineglassMode): Required<Omit<LineglassPreferences, 'width'>> & { width?: number } {
   const fallback = { mode: initialMode, openByMode: { inspect: 'context', tune: 'world' } };
   try {
     const parsed = JSON.parse(localStorage.getItem(PREFERENCE_KEY) ?? 'null') as LineglassPreferences | null;
     const mode = parsed?.mode && MODES.includes(parsed.mode) ? parsed.mode : fallback.mode;
-    return { mode, openByMode: { ...fallback.openByMode, ...parsed?.openByMode } };
+    const width = typeof parsed?.width === 'number' && parsed.width >= MIN_WIDTH_PX ? parsed.width : undefined;
+    return { mode, openByMode: { ...fallback.openByMode, ...parsed?.openByMode }, width };
   } catch {
     return fallback;
   }
@@ -54,7 +61,15 @@ export function LineglassShell({
   const [openByMode, setOpenByMode] = useState<Partial<Record<LineglassMode, string>>>(
     initialPreferences.openByMode,
   );
+  const [width, setWidth] = useState<number | undefined>(initialPreferences.width);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const sectionRef = useRef<HTMLElement>(null);
+  // Only the native resize-handle drag (bottom-right corner) should persist
+  // a width — a ResizeObserver alone can't tell a manual drag apart from the
+  // panel's own max-width: calc(100vw - 24px) shrinking it when the browser
+  // window narrows, and we don't want a narrowed-window session to overwrite
+  // the user's deliberately-chosen width.
+  const isResizingRef = useRef(false);
   const capabilitySet = useMemo(() => new Set(capabilities), [capabilities]);
   const visibleModules = resolveLineglassModules(modules, mode, capabilitySet);
   const visibleIds = new Set(visibleModules.map((module) => module.id));
@@ -62,11 +77,43 @@ export function LineglassShell({
 
   useEffect(() => {
     try {
-      localStorage.setItem(PREFERENCE_KEY, JSON.stringify({ mode, openByMode }));
+      localStorage.setItem(PREFERENCE_KEY, JSON.stringify({ mode, openByMode, width }));
     } catch {
       // UI preferences are optional; storage denial must not hide the HUD.
     }
-  }, [mode, openByMode]);
+  }, [mode, openByMode, width]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const el = sectionRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const nearResizeGrip =
+        rect.right - event.clientX <= RESIZE_GRIP_HITBOX_PX &&
+        rect.bottom - event.clientY <= RESIZE_GRIP_HITBOX_PX;
+      if (nearResizeGrip) isResizingRef.current = true;
+    };
+    const handlePointerUp = () => { isResizingRef.current = false; };
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      if (!isResizingRef.current) return;
+      const entry = entries[0];
+      if (!entry) return;
+      setWidth(Math.round(entry.contentRect.width));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const selectMode = (nextMode: LineglassMode) => {
     setMode(nextMode);
@@ -93,7 +140,12 @@ export function LineglassShell({
   };
 
   return (
-    <section class='lineglass' aria-label='Dissonance Dev Lineglass'>
+    <section
+      class='lineglass'
+      aria-label='Dissonance Dev Lineglass'
+      ref={sectionRef}
+      style={width ? { width: `${width}px` } : undefined}
+    >
       <header class='lineglass__header'>
         <div>
           <strong>DISSONANCE</strong>
