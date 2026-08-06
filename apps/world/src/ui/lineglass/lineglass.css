@@ -77,7 +77,11 @@
 .lineglass-value-source--derived { color: #a9c6cb; }
 .lineglass-module__badge { padding: 1px 6px; color: var(--lineglass-override); border: 1px solid #936100; border-radius: 2px; }
 .lineglass-module__chevron { color: #bde8ef; font-size: 20px; }
-.lineglass-module__panel { padding: 4px 11px 13px; border-top: 1px solid var(--lineglass-border); }
+.lineglass-module__panel {
+  padding: 4px 11px 13px;
+  border-top: 1px solid var(--lineglass-border);
+  overflow-wrap: break-word;
+}
 .lineglass-module__panel label { margin-top: 5px; color: var(--lineglass-text-muted); }
 .lineglass-module__panel input, .lineglass-module__panel select, .lineglass-module__panel button {
   accent-color: var(--lineglass-accent); color: var(--lineglass-text);
