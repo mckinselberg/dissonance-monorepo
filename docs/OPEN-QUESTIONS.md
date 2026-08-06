@@ -35,6 +35,12 @@ canonical registry; `THREADS.md` should link to them rather than grow new prose.
 | O25 | open | Farm silo clustering: procedural grid + T30 material-variant jitter, or hand-placed variants? | T28 silo, T30 |
 | O26 | open | Self-storage per-unit narrative state: is T22's existing per-prop story-profile pattern sufficient as data, or does it need a dedicated interface? | T28 self-storage |
 | O27 | open | Does Babylon replace Tone.js as game-audio owner, reversing accepted D1? `docs/intake/DISSONANCE_AUDIO_THREADS.md` proposes exactly this (a Babylon-owned bus tree plus extracting an external prototype's harmonic/tuning domain) without acknowledging D1. Not resolved — surfaced, not decided, by the 2026-08-04 intake reconciliation pass. | D1, T9, T20 |
+| O28 | open | Does an `observe` placement post its narrative event on every witnessing, or only the first (a `since`-timestamp once-gate)? Canon doc's own lean: per-placement choice, not an engine-wide rule. | T40 placement authoring |
+| O29 | open | Is `Placement` its own package, or manifest data the reducer already reads? Eng doc's lean: manifest data (avoids a new package, keeps inputs in one place) — needs Dan's confirm. | T40 `WorldManifest` |
+| O30 | open | Is the dissonance reading-count band derived-up (measured from live readings) or gated-down (authored per zone/state)? Eng doc's lean: gated-down (cleaner fit with placement `when`) — needs Dan's confirm. | T40 band/manifest design |
+| O31 | open | Are beat scope tags (local/relational/systemic) authored explicitly per beat, or inferred from which subjects a beat references? | T40 `Beat.scopes` |
+| O32 | open | Confirm the hands/sky rule as hard canon: local scope MAY resolve into felt consequence; systemic scope NEVER resolves, no exceptions. | T40 canon freeze |
+| O33 | open | Does the Synod-mediated communication layer (`mediate()` — diegetic player↔AI/player↔player comms subject to Synod reading, referenced but undesigned in the T40 eng doc) get its own thread, or fold into T20 (acoustic/voice control) or T29 (diegetic terminal)? | T40 Phase 3 terminal wiring |
 
 O6 is closed by the established bus names (`spatial`, `ambient-beds`, `interior`,
 `music-synth`) and is recorded in `THREADS.md` as resolved.
