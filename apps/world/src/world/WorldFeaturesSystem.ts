@@ -75,6 +75,7 @@ function validateTerminalClearance(
 // orbit mode never constructs this).
 export class WorldFeaturesSystem {
   private compositeLocationsGeneration = 0;
+  private cityComplexGeneration = 0;
   private readonly heightAt = (x: number, z: number): number => this.terrain.getHeightAt(x, z);
   private readonly inertPatrolDrones = new Map<
     string,
@@ -171,7 +172,7 @@ export class WorldFeaturesSystem {
     const assetShowcase = loadAssetShowcase(
       scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
     );
-    const cityComplex = loadCityComplex(
+    const cityComplex = await loadCityComplex(
       scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
     );
 
@@ -270,6 +271,7 @@ export class WorldFeaturesSystem {
       ...this.shelterEntrance.colliders,
       ...this.worldTerminals.colliders,
       ...this.forestImpasses.colliders,
+      ...this.cityComplex.colliders,
     ];
     this.player.setColliders(colliders);
     // Milo's stairwell steps + second-floor slab (2026-07-27) — the only
@@ -366,10 +368,26 @@ export class WorldFeaturesSystem {
       this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
     );
 
+    // Async for the same reason compositeLocations is above: colliders
+    // aren't known until the GLB (and its per-mesh bounds) finish loading,
+    // so a generation token guards against a second rebuild finishing
+    // before this one and stranding a disposed-but-still-assigned handle.
+    const requestedCityComplexGeneration = ++this.cityComplexGeneration;
     this.cityComplex.dispose();
-    this.cityComplex = loadCityComplex(
+    void loadCityComplex(
       this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
-    );
+    )
+      .then((next) => {
+        if (requestedCityComplexGeneration !== this.cityComplexGeneration) {
+          next.dispose();
+          return;
+        }
+        this.cityComplex = next;
+        this.applyPlayerColliders();
+      })
+      .catch((error) => {
+        console.error('[CityComplex] failed to rebuild', error);
+      });
     this.applyPlayerColliders();
   }
 }
