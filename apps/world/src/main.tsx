@@ -29,9 +29,9 @@ import {
 } from '@dissonance/geo';
 import { render } from 'preact';
 import type { JSX } from 'preact';
-import { signal, effect } from '@preact/signals';
+import { signal, effect, type Signal } from '@preact/signals';
 import { LEVELS, currentLevelKey } from './state/levels';
-import { loadSavedSettings, saveSettings, seedSettingsFromView } from './state/settingsStorage';
+import { loadSavedSettings, saveSettings, seedSettingsFromView, type SavedSettings } from './state/settingsStorage';
 import { buildSharedSettingsSnapshot } from './state/snapshot';
 import {
   loadHeightmap,
@@ -84,7 +84,7 @@ import { ViewToolsRow } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
 import { CompassRow } from './ui/CompassRow';
 import { RouteRecorder, type RouteSample } from './ui/RouteRecorder';
-import { RouteReplay } from './ui/RouteReplay';
+import { RouteReplay, type ReplayPoint } from './ui/RouteReplay';
 import { Section } from './ui/Section';
 import { LineglassShell, type LineglassModuleDefinition } from './ui/lineglass';
 import { AudioRow } from './ui/AudioRow';
@@ -1106,6 +1106,43 @@ async function main() {
     link.addEventListener('click', () => unregisterBeforeNavigate());
   });
 
+  // Shared composition site for the navigation/route panels — orbit and
+  // player mode each pass their own closures (different camera/controller
+  // to read from), but render identically-shaped UI into the same three
+  // DOM roots. See the two call sites below.
+  const renderNavigationPanels = (opts: {
+    buildSnapshot: () => SavedSettings & { level: string };
+    onGo: (lat: number, lon: number) => void;
+    getCurrentLatLon: () => { lat: number; lon: number };
+    getCurrentSample: () => RouteSample;
+    onSeek: (point: ReplayPoint) => void;
+    compassReading?: Signal<CompassReading | null>;
+  }): void => {
+    render(
+      <>
+        <ViewToolsRow
+          buildSnapshot={opts.buildSnapshot}
+          levelKey={levelKey}
+          validLevelKeys={Object.keys(LEVELS)}
+          saveSettings={saveSettings}
+          onBeforeNavigate={unregisterBeforeNavigate}
+          savedViews={savedViews}
+        />
+        <GotoRow onGo={opts.onGo} getCurrentLatLon={opts.getCurrentLatLon} locations={locations} />
+        {opts.compassReading && <CompassRow reading={opts.compassReading} />}
+      </>,
+      document.getElementById('navigation-root') as HTMLDivElement,
+    );
+    render(
+      <RouteRecorder storageKey='trail-viewer.route-recorder.v1' getCurrentSample={opts.getCurrentSample} />,
+      document.getElementById('routes-root') as HTMLDivElement,
+    );
+    render(
+      <RouteReplay routes={replayRoutes} onSeek={opts.onSeek} />,
+      document.getElementById('replay-root') as HTMLDivElement,
+    );
+  };
+
   if (level.cameraMode === 'orbit') {
     // The original Phase 3/4 validation view — free orbit over the whole
     // model, no player/collision involved. Orbit doesn't autosave (see
@@ -1140,83 +1177,56 @@ async function main() {
     scene.fogDensity = atmosphere.fogDensity.value;
     scene.fogColor = Color3.FromHexString(atmosphere.fogColor.value);
 
-    render(
-      <>
-        <ViewToolsRow
-          buildSnapshot={() => ({
-            level: levelKey,
-            orbitTargetX: orbitCamera.target.x,
-            orbitTargetY: orbitCamera.target.y,
-            orbitTargetZ: orbitCamera.target.z,
-            orbitAlpha: orbitCamera.alpha,
-            orbitBeta: orbitCamera.beta,
-            orbitRadius: orbitCamera.radius,
-            ...buildSharedSettingsSnapshot({
-              scaleTuning, atmosphere, visibility, audio,
-              trailsideScale,
-              bulkForestScale: bulkForest.bulkForestScale,
-              treeRegionRadius: bulkForest.treeRegionRadius,
-              bulkForestRadius: bulkForest.bulkForestRadius,
-              weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
-            }),
-          })}
-          levelKey={levelKey}
-          validLevelKeys={Object.keys(LEVELS)}
-          saveSettings={saveSettings}
-          onBeforeNavigate={unregisterBeforeNavigate}
-          savedViews={savedViews}
-        />
-        <GotoRow
-          onGo={(lat, lon) => {
-            const real = latLonToWorld({ lat, lon }, origin);
-            const renderX = real.x * level.horizontalScale;
-            const renderZ = real.z * level.horizontalScale;
-            const groundY = terrain.getHeightAt(renderX, renderZ);
-            // Re-centers the orbit pivot on the target point, keeping
-            // current alpha/beta/radius (viewing angle/zoom) unchanged.
-            orbitCamera.target = new Vector3(renderX, groundY, renderZ);
-          }}
-          getCurrentLatLon={() => {
-            const pos = orbitCamera.position;
-            const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
-            return worldToLatLon(real, origin);
-          }}
-          locations={locations}
-        />
-      </>,
-      document.getElementById('navigation-root') as HTMLDivElement,
-    );
-    render(
-        <RouteRecorder
-          storageKey='trail-viewer.route-recorder.v1'
-          getCurrentSample={() => {
-            const pos = orbitCamera.position;
-            const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
-            const latLon = worldToLatLon(real, origin);
-            return {
-              ...latLon,
-              heightmap: sampler.sampleHeight(real),
-              worldX: real.x,
-              worldZ: real.z,
-            } satisfies RouteSample;
-          }}
-        />
-      ,
-      document.getElementById('routes-root') as HTMLDivElement,
-    );
-    render(
-        <RouteReplay
-          routes={replayRoutes}
-          onSeek={({ lat, lon }) => {
-            const real = latLonToWorld({ lat, lon }, origin);
-            const renderX = real.x * level.horizontalScale;
-            const renderZ = real.z * level.horizontalScale;
-            orbitCamera.target = new Vector3(renderX, terrain.getHeightAt(renderX, renderZ), renderZ);
-          }}
-        />
-      ,
-      document.getElementById('replay-root') as HTMLDivElement,
-    );
+    renderNavigationPanels({
+      buildSnapshot: () => ({
+        level: levelKey,
+        orbitTargetX: orbitCamera.target.x,
+        orbitTargetY: orbitCamera.target.y,
+        orbitTargetZ: orbitCamera.target.z,
+        orbitAlpha: orbitCamera.alpha,
+        orbitBeta: orbitCamera.beta,
+        orbitRadius: orbitCamera.radius,
+        ...buildSharedSettingsSnapshot({
+          scaleTuning, atmosphere, visibility, audio,
+          trailsideScale,
+          bulkForestScale: bulkForest.bulkForestScale,
+          treeRegionRadius: bulkForest.treeRegionRadius,
+          bulkForestRadius: bulkForest.bulkForestRadius,
+          weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
+        }),
+      }),
+      onGo: (lat, lon) => {
+        const real = latLonToWorld({ lat, lon }, origin);
+        const renderX = real.x * level.horizontalScale;
+        const renderZ = real.z * level.horizontalScale;
+        const groundY = terrain.getHeightAt(renderX, renderZ);
+        // Re-centers the orbit pivot on the target point, keeping
+        // current alpha/beta/radius (viewing angle/zoom) unchanged.
+        orbitCamera.target = new Vector3(renderX, groundY, renderZ);
+      },
+      getCurrentLatLon: () => {
+        const pos = orbitCamera.position;
+        const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
+        return worldToLatLon(real, origin);
+      },
+      getCurrentSample: () => {
+        const pos = orbitCamera.position;
+        const real = { x: pos.x / level.horizontalScale, z: pos.z / level.horizontalScale };
+        const latLon = worldToLatLon(real, origin);
+        return {
+          ...latLon,
+          heightmap: sampler.sampleHeight(real),
+          worldX: real.x,
+          worldZ: real.z,
+        } satisfies RouteSample;
+      },
+      onSeek: ({ lat, lon }) => {
+        const real = latLonToWorld({ lat, lon }, origin);
+        const renderX = real.x * level.horizontalScale;
+        const renderZ = real.z * level.horizontalScale;
+        orbitCamera.target = new Vector3(renderX, terrain.getHeightAt(renderX, renderZ), renderZ);
+      },
+    });
 
     const gameLoop = new GameLoop(engine, (dt) => {
       backdrop.update(dt);
@@ -2053,96 +2063,71 @@ async function main() {
     />,
     document.getElementById('movement-root') as HTMLDivElement,
   );
-  render(
-    <>
-      <ViewToolsRow
-          buildSnapshot={() => {
-            const activeCamera = controllers[movement.activeMode.value].camera;
-            const pos = controllers[movement.activeMode.value].getPosition();
-            return {
-              level: levelKey,
-              activeMode: movement.activeMode.value,
-              x: pos.x,
-              y: pos.y,
-              z: pos.z,
-              rotationX: activeCamera.rotation.x,
-              rotationY: activeCamera.rotation.y,
-              cameraHeightOffset: movement.cameraHeightOffset.value,
-              ...buildSharedSettingsSnapshot({
-                scaleTuning, atmosphere, visibility, audio,
-                trailsideScale,
-                bulkForestScale: bulkForest.bulkForestScale,
-                treeRegionRadius: bulkForest.treeRegionRadius,
-                bulkForestRadius: bulkForest.bulkForestRadius,
-                weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
-              }),
-            };
-          }}
-          levelKey={levelKey}
-          validLevelKeys={Object.keys(LEVELS)}
-          saveSettings={saveSettings}
-          onBeforeNavigate={unregisterBeforeNavigate}
-          savedViews={savedViews}
-        />
-        <GotoRow
-          onGo={(lat, lon) => {
-            const real = latLonToWorld({ lat, lon }, origin);
-            const renderX = real.x * scaleTuning.hScale.value;
-            const renderZ = real.z * scaleTuning.hScale.value;
-            const groundY = terrain.getHeightAt(renderX, renderZ);
-            const activeController = controllers[movement.activeMode.value];
-            if (movement.activeMode.value === 'fly') {
-              // Hover well above ground so the destination is actually
-              // visible, rather than dropping you right at ground level
-              // facing who-knows-where.
-              activeController.setPosition(new Vector3(renderX, groundY + 50, renderZ));
-            } else {
-              activeController.setPosition(new Vector3(renderX, groundY, renderZ));
-            }
-          }}
-          getCurrentLatLon={() => {
-            const pos = controllers[movement.activeMode.value].getPosition();
-            const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
-            return worldToLatLon(real, origin);
-          }}
-          locations={locations}
-        />
-        <CompassRow reading={compassReading} />
-    </>,
-    document.getElementById('navigation-root') as HTMLDivElement,
-  );
-  render(
-    <RouteRecorder
-          storageKey='trail-viewer.route-recorder.v1'
-          getCurrentSample={() => {
-            const pos = controllers[movement.activeMode.value].getPosition();
-            const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
-            const latLon = worldToLatLon(real, origin);
-            return {
-              ...latLon,
-              heightmap: sampler.sampleHeight(real),
-              worldX: real.x,
-              worldZ: real.z,
-            } satisfies RouteSample;
-          }}
-    />,
-    document.getElementById('routes-root') as HTMLDivElement,
-  );
-  render(
-    <RouteReplay
-          routes={replayRoutes}
-          onSeek={({ lat, lon }) => {
-            const real = latLonToWorld({ lat, lon }, origin);
-            const renderX = real.x * scaleTuning.hScale.value;
-            const renderZ = real.z * scaleTuning.hScale.value;
-            const groundY = terrain.getHeightAt(renderX, renderZ);
-            const activeController = controllers[movement.activeMode.value];
-            const y = movement.activeMode.value === 'fly' ? groundY + 5 : groundY;
-            activeController.setPosition(new Vector3(renderX, y, renderZ));
-          }}
-    />,
-    document.getElementById('replay-root') as HTMLDivElement,
-  );
+  renderNavigationPanels({
+    buildSnapshot: () => {
+      const activeCamera = controllers[movement.activeMode.value].camera;
+      const pos = controllers[movement.activeMode.value].getPosition();
+      return {
+        level: levelKey,
+        activeMode: movement.activeMode.value,
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
+        rotationX: activeCamera.rotation.x,
+        rotationY: activeCamera.rotation.y,
+        cameraHeightOffset: movement.cameraHeightOffset.value,
+        ...buildSharedSettingsSnapshot({
+          scaleTuning, atmosphere, visibility, audio,
+          trailsideScale,
+          bulkForestScale: bulkForest.bulkForestScale,
+          treeRegionRadius: bulkForest.treeRegionRadius,
+          bulkForestRadius: bulkForest.bulkForestRadius,
+          weatherMode, precipitationMode, hudVisible, worldBounded, environmentProfileId,
+        }),
+      };
+    },
+    onGo: (lat, lon) => {
+      const real = latLonToWorld({ lat, lon }, origin);
+      const renderX = real.x * scaleTuning.hScale.value;
+      const renderZ = real.z * scaleTuning.hScale.value;
+      const groundY = terrain.getHeightAt(renderX, renderZ);
+      const activeController = controllers[movement.activeMode.value];
+      if (movement.activeMode.value === 'fly') {
+        // Hover well above ground so the destination is actually
+        // visible, rather than dropping you right at ground level
+        // facing who-knows-where.
+        activeController.setPosition(new Vector3(renderX, groundY + 50, renderZ));
+      } else {
+        activeController.setPosition(new Vector3(renderX, groundY, renderZ));
+      }
+    },
+    getCurrentLatLon: () => {
+      const pos = controllers[movement.activeMode.value].getPosition();
+      const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
+      return worldToLatLon(real, origin);
+    },
+    getCurrentSample: () => {
+      const pos = controllers[movement.activeMode.value].getPosition();
+      const real = { x: pos.x / scaleTuning.hScale.value, z: pos.z / scaleTuning.hScale.value };
+      const latLon = worldToLatLon(real, origin);
+      return {
+        ...latLon,
+        heightmap: sampler.sampleHeight(real),
+        worldX: real.x,
+        worldZ: real.z,
+      } satisfies RouteSample;
+    },
+    onSeek: ({ lat, lon }) => {
+      const real = latLonToWorld({ lat, lon }, origin);
+      const renderX = real.x * scaleTuning.hScale.value;
+      const renderZ = real.z * scaleTuning.hScale.value;
+      const groundY = terrain.getHeightAt(renderX, renderZ);
+      const activeController = controllers[movement.activeMode.value];
+      const y = movement.activeMode.value === 'fly' ? groundY + 5 : groundY;
+      activeController.setPosition(new Vector3(renderX, y, renderZ));
+    },
+    compassReading,
+  });
 
   const SAVE_INTERVAL_SECONDS = 2;
   let timeSinceSave = 0;
