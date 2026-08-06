@@ -155,6 +155,15 @@ function getOrCreateRunSeed(): number {
   return seed;
 }
 
+// Per-frame HUD/debug readouts below intentionally bypass Preact signals
+// and write straight into a plain DOM node's textContent each frame — the
+// same imperative-DOM-for-a-hot-value convention already used by AudioRow's
+// breath readout and VehicleRow's telemetry fields (see their own
+// comments). A full Preact rerender for a value this hot isn't worth it.
+function writeReadout(el: HTMLElement | null, text: string): void {
+  if (el) el.textContent = text;
+}
+
 function bindPauseControl(
   dispatcher: KeyActionDispatcher,
   gameLoop: GameLoop,
@@ -1257,11 +1266,13 @@ async function main() {
       const pos = orbitCamera.position;
       bulkForest.updateCulling(dt, pos, atmosphere.vegetationCullRadius.value);
       const groundY = terrain.getHeightAt(pos.x, pos.z);
-      readout.textContent =
+      writeReadout(
+        readout,
         `camera: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
         `ground under camera: ${groundY.toFixed(1)}m\n` +
         `fps: ${engine.getFps().toFixed(0)}\n` +
-        `left-drag to orbit, scroll to zoom, right-drag to pan`;
+        `left-drag to orbit, scroll to zoom, right-drag to pan`,
+      );
       scene.render();
     });
     effect(() => { gameLoop.setTargetFps(targetFps.value); });
@@ -1613,28 +1624,23 @@ async function main() {
   };
   const updateVehicleHud = (): void => {
     const snapshot = vehicleTravelState.snapshot();
-    const roadStatus = document.getElementById('vehicle-road-status');
-    if (roadStatus) {
-      roadStatus.textContent =
-        `${snapshot.distanceMeters.toFixed(1)}m / ${roadNetworkRoad!.totalLengthMeters.toFixed(1)}m`;
-    }
-    const modeStatus = document.getElementById('vehicle-travel-mode');
-    if (modeStatus) modeStatus.textContent = snapshot.travelMode;
-    const fuelStatus = document.getElementById('vehicle-fuel');
-    if (fuelStatus) {
-      fuelStatus.textContent =
-        `${snapshot.fuelCurrent.toFixed(2)} / ${snapshot.fuelCapacity.toFixed(2)}`;
-    }
-    const rangeStatus = document.getElementById('vehicle-range');
-    if (rangeStatus) {
-      rangeStatus.textContent = `${vehicleTravelState.estimateRemainingRangeMeters().toFixed(1)}m`;
-    }
-    const occupancyStatus = document.getElementById('vehicle-occupancy');
-    if (occupancyStatus) {
-      occupancyStatus.textContent = snapshot.stranded
-        ? 'stranded'
-        : vehicleSession.isInVehicle() ? 'driving' : 'parked';
-    }
+    writeReadout(
+      document.getElementById('vehicle-road-status'),
+      `${snapshot.distanceMeters.toFixed(1)}m / ${roadNetworkRoad!.totalLengthMeters.toFixed(1)}m`,
+    );
+    writeReadout(document.getElementById('vehicle-travel-mode'), snapshot.travelMode);
+    writeReadout(
+      document.getElementById('vehicle-fuel'),
+      `${snapshot.fuelCurrent.toFixed(2)} / ${snapshot.fuelCapacity.toFixed(2)}`,
+    );
+    writeReadout(
+      document.getElementById('vehicle-range'),
+      `${vehicleTravelState.estimateRemainingRangeMeters().toFixed(1)}m`,
+    );
+    writeReadout(
+      document.getElementById('vehicle-occupancy'),
+      snapshot.stranded ? 'stranded' : vehicleSession.isInVehicle() ? 'driving' : 'parked',
+    );
   };
 
   const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
@@ -2252,10 +2258,10 @@ async function main() {
       const breathLoad = player.breath.getLoad();
       trailPlayerAudio.updateBreath(breathLoad);
       trailPlayerAudio.updateFootsteps(player.getSpeed());
-      if (breathReadout) breathReadout.textContent = `${Math.round(breathLoad * 100)}%`;
+      writeReadout(breathReadout, `${Math.round(breathLoad * 100)}%`);
     } else {
       trailPlayerAudio.updateFootsteps(0);
-      if (breathReadout) breathReadout.textContent = '—';
+      writeReadout(breathReadout, '—');
     }
 
     const pos = activeTraversalController.getPosition();
@@ -2281,21 +2287,19 @@ async function main() {
       distanceToDock: terminalDistance,
     });
     publishTerminalSnapshot(terminalSnapshot);
-    const terminalStatus = document.getElementById('t29-terminal-status');
-    if (terminalStatus) {
-      terminalStatus.textContent =
-        `${terminalSnapshot.state} · ${terminalFixture.id} · ${terminalDistance.toFixed(1)}m`;
-    }
+    writeReadout(
+      document.getElementById('t29-terminal-status'),
+      `${terminalSnapshot.state} · ${terminalFixture.id} · ${terminalDistance.toFixed(1)}m`,
+    );
     if (isExteriorGameplay()) strikeAcquisition.update(dt, pos);
     workshop.update(dt);
-    const lurkerStatus = document.getElementById('t36-lurker-status');
-    if (lurkerStatus) {
-      const lurker = workshop.lurkerSnapshot();
-      lurkerStatus.textContent =
-        `Lurker: ${lurker.state}` +
-        `${lurker.trigger ? ` · trigger ${lurker.trigger}` : ''}` +
-        `${Number.isFinite(lurker.distanceToMilo) ? ` · ${lurker.distanceToMilo.toFixed(1)}m` : ''}`;
-    }
+    const lurker = workshop.lurkerSnapshot();
+    writeReadout(
+      document.getElementById('t36-lurker-status'),
+      `Lurker: ${lurker.state}` +
+      `${lurker.trigger ? ` · trigger ${lurker.trigger}` : ''}` +
+      `${Number.isFinite(lurker.distanceToMilo) ? ` · ${lurker.distanceToMilo.toFixed(1)}m` : ''}`,
+    );
     const shelterDoor = locationFeatures.falloutShelterDoor;
     if (audioStarted && isExteriorGameplay() && shelterDoor) {
       const distance = Math.hypot(pos.x - shelterDoor.position.x, pos.z - shelterDoor.position.z);
@@ -2352,16 +2356,15 @@ async function main() {
         strikeProgressPersisted = true;
       }
     }
-    const strikeStatus = document.getElementById('t31-strike-status');
-    if (strikeStatus) {
-      strikeStatus.textContent =
-        `${strikeSnapshot.state} — ${strikeSnapshot.blockingReason} · ` +
-        `LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · ` +
-        `Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · ` +
-        `drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · ` +
-        `rain ${Math.round(strikeSnapshot.rainIntensity * 100)}% · ` +
-        `windup ${Math.round(strikeSnapshot.windupProgress * 100)}%`;
-    }
+    writeReadout(
+      document.getElementById('t31-strike-status'),
+      `${strikeSnapshot.state} — ${strikeSnapshot.blockingReason} · ` +
+      `LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · ` +
+      `Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · ` +
+      `drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · ` +
+      `rain ${Math.round(strikeSnapshot.rainIntensity * 100)}% · ` +
+      `windup ${Math.round(strikeSnapshot.windupProgress * 100)}%`,
+    );
 
     // state/lineglass.ts — walking within pickup range collects a part
     // outright, no interact key (matching this app's existing "proximity is
@@ -2419,7 +2422,8 @@ async function main() {
       : worldSession.route.value.kind === 'exterior'
       ? 'exterior'
       : `surveillance/${worldSession.route.value.locationId}`;
-    readout.textContent =
+    writeReadout(
+      readout,
       `route: ${routeLabel} (${worldSession.transition.value})\n` +
       `${movement.activeMode.value}: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
       `lat/lon: ${latLon.lat.toFixed(6)}, ${latLon.lon.toFixed(6)}\n` +
@@ -2431,7 +2435,8 @@ async function main() {
       `T31 gate: LOS ${strikeSnapshot.hasLineOfSight ? 'yes' : 'no'} · Milo ${strikeSnapshot.distanceToAnchor.toFixed(1)}m · drone ${strikeSnapshot.droneDistanceToAnchor.toFixed(1)}m · rain ${Math.round(strikeSnapshot.rainIntensity * 100)}%\n` +
       `whistle [M]: "${playerWhistle.selectedMelody.label}" (1-${playerWhistle.melodyCount} to pick) — pet [P]${mechDog.isPettable() ? '' : ' (get closer)'}\n` +
       `fps: ${engine.getFps().toFixed(0)}\n` +
-      controlsHint;
+      controlsHint,
+    );
 
     if (terminalSnapshot.blocksWorldInput) {
       interactionPrompt.style.display = 'none';
