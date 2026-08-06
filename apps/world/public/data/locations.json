@@ -15,6 +15,18 @@
     "latLong": [40.73890866931937, -74.27526758544376]
   },
   {
+    "id": "city-complex",
+    "name": "city complex (POC)",
+    "latLong": [40.733908, -74.27374],
+    "cityComplex": {
+      "headingDegrees": 90,
+      "scale": 5,
+      "scaleY": 6,
+      "local": [0, 0],
+      "heightOffsetMeters": -230
+    }
+  },
+  {
     "id": "public-sanitation-terminal-01",
     "name": "public sanitation terminal",
     "latLong": [40.738745076341225, -74.27503841066849],
@@ -392,7 +404,12 @@
     "patrolDrones": [
       {
         "id": "boulevard-patrol-01",
-        "route": [[-2, -5], [2, 11], [-2, 26], [2, 41]],
+        "route": [
+          [-2, -5],
+          [2, 11],
+          [-2, 26],
+          [2, 41]
+        ],
         "speedMetersPerSecond": 3.2,
         "altitudeMeters": 4.2
       }
@@ -571,9 +588,7 @@
     "road": {
       "routeFile": "sr-27-service-road.json",
       "widthMeters": 4,
-      "pullOffs": [
-        { "id": "sr-27-pulloff-01", "distanceMeters": 165 }
-      ]
+      "pullOffs": [{ "id": "sr-27-pulloff-01", "distanceMeters": 165 }]
     }
   },
   {

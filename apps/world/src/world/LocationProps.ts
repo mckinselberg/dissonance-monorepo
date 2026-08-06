@@ -113,6 +113,32 @@ export type LocationEntry = {
     local: [number, number];
     headingDegrees: number;
   };
+  // A single large external GLB (see CityComplex.ts) placed whole at this
+  // location's own latLong, rather than assembled cell-by-cell like
+  // `compound` — for a real hand-authored district use `compound`; this is
+  // for trying an already-composed scene as one static piece. Visual-only,
+  // no colliders (same "eyeballing a freshly imported pack" spirit as
+  // AssetShowcase.ts's own field), no story/save wiring.
+  cityComplex?: {
+    headingDegrees: number;
+    // Multiplies horizontalScale on top of the usual real-meters -> render
+    // scale, e.g. 2 renders the source model at twice its real-world size.
+    // Applies to the model's footprint (X/Z); defaults to 1 (true to the
+    // source .blend's own scale) when omitted.
+    scale?: number;
+    // Same idea as `scale` but for height (Y) only — lets buildings be
+    // stretched/squashed taller without resizing the streets/footprint.
+    // Defaults to `scale` (uniform scaling) when omitted.
+    scaleY?: number;
+    // Fine position nudge in local meters from this location's own latLong
+    // — same "local meters from latLong" convention as shelterEntrance.local
+    // — so placement can be tuned without recomputing coordinates by hand.
+    local?: [number, number];
+    // Manual vertical nudge in meters on top of the auto terrain-fit Y (see
+    // CityComplex.ts's footprint-corner ground sampling) — for a final
+    // by-eye correction once the auto-fit is close but not exact.
+    heightOffset?: number;
+  };
   // Stable, offline terminal fixture metadata. The owning location supplies
   // identity/name/latLong; this field owns only the physical presentation and
   // proximity boundary. Dialogue, progression, control, and networking live

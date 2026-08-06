@@ -32,6 +32,7 @@ import {
 } from './WorldTerminals';
 import { loadForestImpasses, type ForestImpassesHandle } from './ForestImpasses';
 import { loadAssetShowcase, type AssetShowcaseHandle } from './AssetShowcase';
+import { loadCityComplex, type CityComplexHandle } from './CityComplex';
 import type { ReplayRoute } from '../ui/RouteReplay';
 
 function worldBounds(realWidth: number, realDepth: number, scaleTuning: ScaleTuningSignals) {
@@ -105,6 +106,7 @@ export class WorldFeaturesSystem {
     private worldTerminals: WorldTerminalsHandle,
     private forestImpasses: ForestImpassesHandle,
     private assetShowcase: AssetShowcaseHandle,
+    private cityComplex: CityComplexHandle,
   ) {
     this.applyPlayerColliders();
   }
@@ -169,11 +171,14 @@ export class WorldFeaturesSystem {
     const assetShowcase = loadAssetShowcase(
       scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
     );
+    const cityComplex = loadCityComplex(
+      scene, locations, toRenderXZ, scaleTuning.hScale.value, heightAt, shadowGenerator,
+    );
 
     return new WorldFeaturesSystem(
       scene, locations, replayRoutes, toRenderXZ, scaleTuning, terrain, atmosphere, powerLinesVisible, lineglass,
       realWidth, realDepth, shadowGenerator, player, locationProps, compositeLocations, utilityCorridors, roadNetwork,
-      lineglassParts, patrolDrones, shelterEntrance, worldTerminals, forestImpasses, assetShowcase,
+      lineglassParts, patrolDrones, shelterEntrance, worldTerminals, forestImpasses, assetShowcase, cityComplex,
     );
   }
 
@@ -358,6 +363,11 @@ export class WorldFeaturesSystem {
 
     this.assetShowcase.dispose();
     this.assetShowcase = loadAssetShowcase(
+      this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
+    );
+
+    this.cityComplex.dispose();
+    this.cityComplex = loadCityComplex(
       this.scene, this.locations, this.toRenderXZ, this.scaleTuning.hScale.value, this.heightAt, this.shadowGenerator,
     );
     this.applyPlayerColliders();
