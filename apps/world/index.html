@@ -38,6 +38,12 @@
         scrollbar-width: thin;
         scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
       }
+      /* Toggled by LineglassShell's swap button (state/hudLayout.ts). Only
+         left/right flips — top offset and everything else stays put. */
+      #ui.hud-side-right {
+        left: auto;
+        right: 12px;
+      }
       #ui::-webkit-scrollbar {
         width: 8px;
       }

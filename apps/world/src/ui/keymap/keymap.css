@@ -27,6 +27,17 @@
 }
 .keymap-overlay-toggle__glyph { font-size: 15px; line-height: 1; }
 
+/* Docks to the opposite side from Lineglass (state/hudLayout.ts). On the
+   right, row 1 (top: 8px) is free, so the toggle sits there like normal.
+   On the left, row 1 is .toolbar-buttons' territory, so the toggle drops
+   to row 2 (top: 40px, matching Lineglass's own row-2 offset) and the
+   panel drops further still, below the toggle. */
+.keymap-overlay-toggle--left {
+  left: 12px;
+  right: auto;
+  top: 40px;
+}
+
 .keymap-overlay {
   position: fixed;
   top: 40px;
@@ -41,6 +52,12 @@
   border-radius: 8px;
   font: 12px/1.45 "Cascadia Mono", "Roboto Mono", Consolas, monospace;
   box-shadow: 0 0 18px rgba(17, 176, 199, 0.08);
+}
+.keymap-overlay--left {
+  left: 12px;
+  right: auto;
+  top: 72px;
+  max-height: calc(100vh - 88px);
 }
 .keymap-overlay__header {
   display: flex;

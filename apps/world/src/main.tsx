@@ -58,6 +58,7 @@ import { TrailsideForestSystem } from './world/TrailsideForestSystem';
 import { WorldFeaturesSystem } from './world/WorldFeaturesSystem';
 import { createTraversalRig } from './world/TraversalRig';
 import { createVisibilitySignals } from './state/visibility';
+import { createHudLayoutSignals } from './state/hudLayout';
 import { createAudioSignals } from './state/audio';
 import { deriveCompassReading, type CompassLandmarkCandidate } from './state/compass';
 import {
@@ -311,6 +312,11 @@ async function main() {
     pipeline,
     environmentPresentationConsumers,
   );
+
+  // Which screen edge Lineglass docks to; KeymapOverlay mirrors it to the
+  // opposite side. Shared by both orbit and player mode (Lineglass mounts
+  // in both; KeymapOverlay is player-mode only).
+  const hudLayout = createHudLayoutSignals();
 
   // Persisted via SavedSettings/persistSettings and both buildSnapshot()
   // export paths — grid/gpx/osm are handled separately below since they're
@@ -751,6 +757,7 @@ async function main() {
   render(
     <LineglassShell
       modules={lineglassModules}
+      hudSide={hudLayout.side}
       capabilities={[
         'inspect-world', 'edit-world', 'author-routes', 'view-diagnostics',
         'teleport', 'edit-profile',
@@ -1741,6 +1748,7 @@ async function main() {
     <KeymapOverlay
       open={keymapOverlayOpen}
       onToggle={() => { keymapOverlayOpen.value = !keymapOverlayOpen.value; }}
+      hudSide={hudLayout.side}
     />,
     document.getElementById('keymap-overlay-root') as HTMLDivElement,
   );

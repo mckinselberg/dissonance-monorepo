@@ -1,4 +1,5 @@
 import type { Signal } from '@preact/signals';
+import type { HudSide } from '../../state/hudLayout';
 import './keymap.css';
 
 interface KeymapEntry {
@@ -58,15 +59,19 @@ const KEYMAP_GROUPS: KeymapGroup[] = [
 export interface KeymapOverlayProps {
   open: Signal<boolean>;
   onToggle: () => void;
+  // Lineglass's own side (state/hudLayout.ts) — this panel docks to the
+  // opposite edge so the two never overlap.
+  hudSide: Signal<HudSide>;
 }
 
-export function KeymapOverlay({ open, onToggle }: KeymapOverlayProps) {
+export function KeymapOverlay({ open, onToggle, hudSide }: KeymapOverlayProps) {
   const isOpen = open.value;
+  const dockLeft = hudSide.value === 'right';
   return (
     <>
       <button
         type='button'
-        class={`keymap-overlay-toggle${isOpen ? ' is-active' : ''}`}
+        class={`keymap-overlay-toggle${isOpen ? ' is-active' : ''}${dockLeft ? ' keymap-overlay-toggle--left' : ''}`}
         aria-pressed={isOpen}
         aria-label='Toggle keybindings panel'
         onClick={onToggle}
@@ -75,7 +80,11 @@ export function KeymapOverlay({ open, onToggle }: KeymapOverlayProps) {
         <span>I</span>
       </button>
       {isOpen && (
-        <section class='keymap-overlay' role='dialog' aria-label='Keybindings'>
+        <section
+          class={`keymap-overlay${dockLeft ? ' keymap-overlay--left' : ''}`}
+          role='dialog'
+          aria-label='Keybindings'
+        >
           <header class='keymap-overlay__header'>
             <strong>Keybindings</strong>
             <span>Reference</span>

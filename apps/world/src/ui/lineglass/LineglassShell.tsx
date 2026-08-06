@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
+import type { Signal } from '@preact/signals';
 import { resolveLineglassModules, nextModuleIndex } from './model';
 import type {
   LineglassCapability,
@@ -8,6 +9,7 @@ import type {
   LineglassStatus,
   LineglassValueSource,
 } from './types';
+import type { HudSide } from '../../state/hudLayout';
 import './lineglass.css';
 
 const MODES: LineglassMode[] = ['inspect', 'tune', 'author', 'system'];
@@ -49,12 +51,17 @@ export interface LineglassShellProps {
   modules: LineglassModuleDefinition[];
   capabilities: LineglassCapability[];
   initialMode?: LineglassMode;
+  // Which screen edge to dock to. Owned by main.tsx (shared with
+  // KeymapOverlay, which docks to the opposite side) rather than local
+  // state, since another component needs to react to it too.
+  hudSide: Signal<HudSide>;
 }
 
 export function LineglassShell({
   modules,
   capabilities,
   initialMode = 'inspect',
+  hudSide,
 }: LineglassShellProps) {
   const initialPreferences = useMemo(() => loadPreferences(initialMode), [initialMode]);
   const [mode, setMode] = useState<LineglassMode>(initialPreferences.mode);
@@ -115,6 +122,14 @@ export function LineglassShell({
     return () => observer.disconnect();
   }, []);
 
+  // #ui is Lineglass's fixed-position mount container, declared once in
+  // index.html — an ancestor outside this component's own render tree, so
+  // syncing it needs an imperative touch rather than JSX. useLayoutEffect
+  // (not useEffect) so the side flips before paint, with no visible flash.
+  useLayoutEffect(() => {
+    document.getElementById('ui')?.classList.toggle('hud-side-right', hudSide.value === 'right');
+  }, [hudSide.value]);
+
   const selectMode = (nextMode: LineglassMode) => {
     setMode(nextMode);
     queueMicrotask(() => {
@@ -151,6 +166,15 @@ export function LineglassShell({
           <strong>DISSONANCE</strong>
           <span>DEV LINEGLASS</span>
         </div>
+        <button
+          type='button'
+          class='lineglass__side-toggle'
+          aria-label={hudSide.value === 'left' ? 'Move panel to right side' : 'Move panel to left side'}
+          title={hudSide.value === 'left' ? 'Move to right side' : 'Move to left side'}
+          onClick={() => { hudSide.value = hudSide.value === 'left' ? 'right' : 'left'; }}
+        >
+          ⇄
+        </button>
         <div class='lineglass__device-id'>LG-03<br /><time>LIVE</time></div>
       </header>
 
