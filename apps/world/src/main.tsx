@@ -95,6 +95,7 @@ import { PlayerWhistleController } from './player/PlayerWhistleController';
 import { HeldFlashlight } from './player/HeldFlashlight';
 import { createWorldAudioStack, resolveWorldAudioEngine } from './audio/WorldAudioStack';
 import { createSurveillanceSession } from './interiors/SurveillanceSession';
+import { createKeyActionDispatcher, isTextEntryTarget, type KeyActionDispatcher } from './input/keyActionDispatcher';
 import { createWorkshopSession } from './interiors/WorkshopSession';
 import { InteriorDebugRow } from './ui/InteriorDebugRow';
 import { StrikeAcquisitionSystem } from './systems/strike/StrikeAcquisitionSystem';
@@ -155,6 +156,7 @@ function getOrCreateRunSeed(): number {
 }
 
 function bindPauseControl(
+  dispatcher: KeyActionDispatcher,
   gameLoop: GameLoop,
   canvas: HTMLCanvasElement,
   onPause: () => void,
@@ -184,23 +186,28 @@ function bindPauseControl(
 
   button.addEventListener('click', togglePaused);
 
-  document.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyP' || !event.shiftKey || event.repeat) return;
-    const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      (target.isContentEditable || target.closest('input, select, textarea, [contenteditable]'))
-    ) return;
-    togglePaused();
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }, { capture: true });
+  dispatcher.register({
+    id: 'pause.toggle',
+    phase: 'keydown',
+    code: 'KeyP',
+    capture: true,
+    priority: 0,
+    when: (event) => event.shiftKey && !event.repeat && !isTextEntryTarget(event.target),
+    preventDefault: true,
+    stopPropagation: true,
+    handler: togglePaused,
+  });
 
-  document.addEventListener('keydown', (event) => {
-    if (!gameLoop.isPaused() || event.target === button) return;
-    event.preventDefault();
-    event.stopPropagation();
-  }, { capture: true });
+  dispatcher.register({
+    id: 'pause.swallowWhilePaused',
+    phase: 'keydown',
+    capture: true,
+    priority: 20,
+    when: (event) => gameLoop.isPaused() && event.target !== button,
+    preventDefault: true,
+    stopPropagation: true,
+    handler: () => {},
+  });
 }
 
 // Fly and Drive are unconditionally available in this POC — no unlock gate
@@ -218,6 +225,10 @@ async function main() {
   const canvas = document.getElementById('renderCanvas') as HTMLCanvasElement;
   const engine = new Engine(canvas, true);
   const scene = new Scene(engine);
+  // Single owner of every discrete keyboard-action binding in this app —
+  // see apps/world/src/input/keyActionDispatcher.ts. Created before the
+  // orbit/player-mode split below so both branches share one instance.
+  const keyDispatcher = createKeyActionDispatcher();
 
   const levelKey = currentLevelKey();
   const level = LEVELS[levelKey];
@@ -1245,6 +1256,7 @@ async function main() {
     });
     effect(() => { gameLoop.setTargetFps(targetFps.value); });
     bindPauseControl(
+      keyDispatcher,
       gameLoop,
       canvas,
       () => worldAudio.setMuted(true),
@@ -1430,20 +1442,34 @@ async function main() {
     const pos = controllers[movement.activeMode.value].getPosition();
     forestFire.ignite(pos.x / scaleTuning.hScale.value, pos.z / scaleTuning.hScale.value);
   };
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyF') igniteAtActiveController();
-
-    // 'M' whistles the currently-selected melody (number keys 1-9 pick
-    // which one); 'P' pets the dog if it's close enough. `mechDog` is
-    // declared further down but already constructed by the time any of
-    // this can fire from a real keypress.
-    if (e.code === 'KeyM') {
-      playerWhistle.whistle();
-      mechDog.hearWhistle();
-    }
-    const melodyDigit = /^Digit([1-9])$/.exec(e.code);
-    if (melodyDigit) playerWhistle.selectMelody(Number(melodyDigit[1]) - 1);
-    if (e.code === 'KeyP' && !e.shiftKey) mechDog.tryPet();
+  keyDispatcher.register({
+    id: 'world.igniteForestFire',
+    phase: 'keydown',
+    code: 'KeyF',
+    handler: () => igniteAtActiveController(),
+  });
+  // 'M' whistles the currently-selected melody (number keys 1-9 pick which
+  // one); 'P' pets the dog if it's close enough. `mechDog` is declared
+  // further down but already constructed by the time any of this can fire
+  // from a real keypress.
+  keyDispatcher.register({
+    id: 'companion.whistle',
+    phase: 'keydown',
+    code: 'KeyM',
+    handler: () => { playerWhistle.whistle(); mechDog.hearWhistle(); },
+  });
+  keyDispatcher.register({
+    id: 'companion.selectMelody',
+    phase: 'keydown',
+    code: ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'],
+    handler: (event) => playerWhistle.selectMelody(Number(event.code.slice(5)) - 1),
+  });
+  keyDispatcher.register({
+    id: 'companion.petDog',
+    phase: 'keydown',
+    code: 'KeyP',
+    when: (event) => !event.shiftKey,
+    handler: () => mechDog.tryPet(),
   });
 
   // Walk/Fly/Drive mode-switching — see TraversalRig's own comment.
@@ -1494,6 +1520,7 @@ async function main() {
     switchMode,
     onBeforeEnter: () => commitExteriorState('surveillance'),
     interactionPrompt,
+    dispatcher: keyDispatcher,
   });
   const { worldSession } = surveillance;
   const workshop = createWorkshopSession({
@@ -1702,96 +1729,126 @@ async function main() {
     document.getElementById('keymap-overlay-root') as HTMLDivElement,
   );
 
-  // Controllers and world actions listen globally. Capture only keydown while
-  // a terminal owns focus, but allow keyup through so any held movement clears.
-  window.addEventListener('keydown', (event) => {
-    if (!terminalDocking.blocksWorldInput) return;
-    // The system-level pause shortcut remains available while docked.
-    if (event.code === 'KeyP' && event.shiftKey && !event.repeat) return;
-    const target = event.target;
-    const focusedUndockActivation =
-      (event.code === 'Enter' || event.code === 'Space') &&
-      target instanceof Element &&
-      target.closest('#terminal-root button') !== null;
-    if (
-      !event.repeat &&
-      (event.code === 'Escape' || event.code === 'KeyE' || focusedUndockActivation)
-    ) {
-      requestTerminalUndock();
-    }
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }, { capture: true });
+  // Controllers and world actions register through keyDispatcher. Capture
+  // only keydown while a terminal owns focus, but allow keyup through so
+  // any held movement clears.
+  keyDispatcher.register({
+    id: 'terminal.dockedIntercept',
+    phase: 'keydown',
+    capture: true,
+    priority: 10, // between pause.toggle (0) and pause.swallowWhilePaused (20)
+    when: () => terminalDocking.blocksWorldInput,
+    preventDefault: true,
+    stopPropagation: true,
+    handler: (event) => {
+      const target = event.target;
+      const focusedUndockActivation =
+        (event.code === 'Enter' || event.code === 'Space') &&
+        target instanceof Element &&
+        target.closest('#terminal-root button') !== null;
+      if (
+        !event.repeat &&
+        (event.code === 'Escape' || event.code === 'KeyE' || focusedUndockActivation)
+      ) {
+        requestTerminalUndock();
+      }
+    },
+  });
 
   const corridorDiagnostics = workshop.corridorDiagnostics();
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyE' || event.repeat || !worldSession.isExterior()) return;
-    const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      (target.isContentEditable || target.closest('input, select, textarea, button, [contenteditable]'))
-    ) return;
-    if (requestTerminalDock()) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      return;
-    }
-    if (vehicleSession.isInVehicle()) {
-      vehicleSession.exit();
-      vehicleThrottle = 0;
-      const exitPos = vehicleSession.getExitPosition();
-      const groundY = terrain.getHeightAt(exitPos.x, exitPos.z);
-      controllers[movement.activeMode.value].setPosition(new Vector3(exitPos.x, groundY, exitPos.z));
-      persistVehicleState();
-    } else if (workshop.isInterior()) {
-      if (workshop.isNearExit()) workshop.exit();
-    } else if (workshop.isNearEntrance()) {
-      workshop.enter();
-    } else if (vehicleSession.isNearVehicle(controllers[movement.activeMode.value].getPosition())) {
-      vehicleSession.enter();
-    } else {
-      const flags = strikeAcquisition.recover(
-        controllers[movement.activeMode.value].getPosition(),
-      );
-      if (flags) {
-        story.applyBeat('recover-emitter-and-chassis');
-        workshop.setHardwareIds(worldSave.snapshot().progression.inventory.hardwareIds);
-        console.info('[T31] recovery hand-off', flags);
+  // Priority 10 vs. SurveillanceSession's interior.milosApartment (priority
+  // 0): near Milo's entrance, that binding wins this KeyE press and this
+  // cascade is skipped for that keypress.
+  keyDispatcher.register({
+    id: 'world.contextualInteractE',
+    phase: 'keydown',
+    code: 'KeyE',
+    priority: 10,
+    when: (event) => !event.repeat && worldSession.isExterior() && !isTextEntryTarget(event.target, { includeButtons: true }),
+    handler: (event) => {
+      if (requestTerminalDock()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
       }
-    }
+      if (vehicleSession.isInVehicle()) {
+        vehicleSession.exit();
+        vehicleThrottle = 0;
+        const exitPos = vehicleSession.getExitPosition();
+        const groundY = terrain.getHeightAt(exitPos.x, exitPos.z);
+        controllers[movement.activeMode.value].setPosition(new Vector3(exitPos.x, groundY, exitPos.z));
+        persistVehicleState();
+      } else if (workshop.isInterior()) {
+        if (workshop.isNearExit()) workshop.exit();
+      } else if (workshop.isNearEntrance()) {
+        workshop.enter();
+      } else if (vehicleSession.isNearVehicle(controllers[movement.activeMode.value].getPosition())) {
+        vehicleSession.enter();
+      } else {
+        const flags = strikeAcquisition.recover(
+          controllers[movement.activeMode.value].getPosition(),
+        );
+        if (flags) {
+          story.applyBeat('recover-emitter-and-chassis');
+          workshop.setHardwareIds(worldSave.snapshot().progression.inventory.hardwareIds);
+          console.info('[T31] recovery hand-off', flags);
+        }
+      }
+    },
   });
   // While driving, W/S double as throttle/brake (the walk controller they'd
   // otherwise move is already skipped — see the game loop's isInVehicle
   // gate) and X cycles careful/fast/reckless (doc §3's "travel intensity").
-  window.addEventListener('keydown', (event) => {
-    if (!vehicleSession.isInVehicle()) return;
-    if (event.code === 'KeyW') vehicleThrottle = 1;
-    else if (event.code === 'KeyS') vehicleThrottle = -1;
-    else if (event.code === 'KeyX' && !event.repeat) {
+  keyDispatcher.register({
+    id: 'vehicle.throttleForward',
+    phase: 'keydown',
+    code: 'KeyW',
+    when: () => vehicleSession.isInVehicle(),
+    handler: () => { vehicleThrottle = 1; },
+  });
+  keyDispatcher.register({
+    id: 'vehicle.throttleBrake',
+    phase: 'keydown',
+    code: 'KeyS',
+    when: () => vehicleSession.isInVehicle(),
+    handler: () => { vehicleThrottle = -1; },
+  });
+  keyDispatcher.register({
+    id: 'vehicle.cycleTravelMode',
+    phase: 'keydown',
+    code: 'KeyX',
+    when: (event) => vehicleSession.isInVehicle() && !event.repeat,
+    handler: () => {
       const modes = VEHICLE_TRAVEL_MODES;
       const nextMode = modes[(modes.indexOf(vehicleTravelState.snapshot().travelMode) + 1) % modes.length];
       vehicleTravelState.setTravelMode(nextMode);
       persistVehicleState();
-    }
+    },
   });
-  window.addEventListener('keyup', (event) => {
-    if (event.code === 'KeyW' && vehicleThrottle === 1) vehicleThrottle = 0;
-    if (event.code === 'KeyS' && vehicleThrottle === -1) vehicleThrottle = 0;
+  keyDispatcher.register({
+    id: 'vehicle.throttleRelease',
+    phase: 'keyup',
+    code: ['KeyW', 'KeyS'],
+    handler: (event) => {
+      if (event.code === 'KeyW' && vehicleThrottle === 1) vehicleThrottle = 0;
+      if (event.code === 'KeyS' && vehicleThrottle === -1) vehicleThrottle = 0;
+    },
   });
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyL' || event.repeat) return;
-    setFlashlightPreference(!flashlightEnabled.value);
+  keyDispatcher.register({
+    id: 'equipment.toggleFlashlight',
+    phase: 'keydown',
+    code: 'KeyL',
+    when: (event) => !event.repeat,
+    handler: () => setFlashlightPreference(!flashlightEnabled.value),
   });
-  window.addEventListener('keydown', (event) => {
-    if (event.code !== 'KeyI' || event.repeat) return;
+  keyDispatcher.register({
+    id: 'ui.toggleKeymapOverlay',
+    phase: 'keydown',
+    code: 'KeyI',
     // Excludes text-entry controls only (not buttons) — clicking the ghost
     // toggle leaves it focused, and 'I' must still close the panel from there.
-    const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      (target.isContentEditable || target.closest('input, select, textarea, [contenteditable]'))
-    ) return;
-    keymapOverlayOpen.value = !keymapOverlayOpen.value;
+    when: (event) => !event.repeat && !isTextEntryTarget(event.target),
+    handler: () => { keymapOverlayOpen.value = !keymapOverlayOpen.value; },
   });
 
   render(
@@ -2433,6 +2490,7 @@ async function main() {
   });
   effect(() => { gameLoop.setTargetFps(targetFps.value); });
   bindPauseControl(
+    keyDispatcher,
     gameLoop,
     canvas,
     () => worldAudio.setMuted(true),
