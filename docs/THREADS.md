@@ -1,7 +1,7 @@
 # THREADS.md — Living Dev Thread Tracker
 
-**Version:** 9.68
-**Date:** 2026-08-04
+**Version:** 9.69
+**Date:** 2026-08-06
 **Scope:** Culture Engine monorepo (Dissonance + Don't Turn Around)
 
 > **Parallel-session merge (v9.64):** two sessions both branched from v9.59 and
@@ -76,6 +76,7 @@
 | T36 | Rey Caverns + gatekeepers (inhabited pole) | boundary teaser landed; inhabited space and trust economy gated |
 | T37 | Milo's apartment archaeology room | queued; architecture approved, Blender pipeline and room implementation outstanding |
 | T38 | Category object scaling / real-meter calibration + dysphoric modulation seam | specification ready; implementation queued |
+| T39 | World overlay/UI architecture cleanup (BabylonJS↔Preact wiring) | phase 1 (keyboard dispatch) landed 2026-08-06; phases 2-4 scoped |
 
 ---
 
@@ -452,6 +453,19 @@ emissive material for machine-readout surfaces.
 - **Ties:** P11 (profile-driven transformation), D47 (perceptual-only distortion), and the T4/T5/T9/T21 scale-distortion parking-lot item.
 - **Next gate:** implement the pure scale resolver and persistence contract first, then migrate vegetation as the lowest-risk existing H/V consumer.
 
+### T39 — World overlay/UI architecture cleanup 🆕
+- **Status:** active — phase 1 landed, phases 2-4 scoped, not yet scheduled.
+- **Purpose:** incrementally fix `apps/world`'s BabylonJS↔Preact overlay/UI wiring smells (scattered `window.addEventListener` action dispatch, duplicate `render()` composition sites, inconsistent direct-DOM game-loop writes, divergent `state/*.ts` signal-ownership conventions) without attempting the full singleton-root/typed-controller/command-bus rewrite in one pass.
+- **Source:** `docs/intake/babylonjs-preact-overlay-singleton-refactor-prompt.md` (full target architecture, treated as a menu, not a mandate for one big-bang migration). Findings and phase scoping: `docs/engineering/reviews/world-overlay-architecture-audit.md`.
+- **Runtime owner:** `apps/world`.
+- **Phase 1 (done, commit `970fda6`):** new `apps/world/src/input/keyActionDispatcher.ts` — one typed, prioritized dispatcher replacing 10 independent keydown/keyup listeners in `main.tsx`/`SurveillanceSession.tsx`. Fixed a real latent bug: `main.tsx`'s KeyE interact cascade and `SurveillanceSession`'s KeyE handler used to be two uncoordinated listeners racing on every KeyE press; now two ordered, guarded bindings (priority 0 vs 10) on one dispatcher. 14 new unit tests, full existing suite (79/79) and production build unaffected.
+- **Phase 2 candidate:** the two hand-duplicated `render()` composition sites for `#navigation-root`/`#routes-root`/`#replay-root` (orbit-mode branch vs. player-mode continuation of `main()`, which never run in the same session but have already drifted once).
+- **Phase 3 candidate:** make the game loop's direct `textContent` DOM writes (interaction prompt, vehicle HUD, T29/T31/T36 debug status) a uniformly-applied, visibly-intentional perf lane instead of ad hoc/undocumented in most spots and commented-deliberate in two.
+- **Phase 4 candidate (lowest priority):** four coexisting `state/*.ts` signal-ownership shapes (factory-of-raw-signals, signal-owning class, closure-controller, ad hoc/no-signal). Recommended direction is convergence-on-touch rather than a standalone migration — flagged as the highest-risk/lowest-payoff item in the audit.
+- **Depends on:** nothing blocking. **Consumed by:** nothing yet — purely internal cleanup.
+- **Non-goals:** singleton Preact root, typed `OverlayController`/command bus, durable-state layer — deferred until a real second consumer or a measured rerender-cost problem justifies them (per the intake doc's own explicit non-goals). Museum/DTA UI untouched.
+- **Next gate:** Dan to confirm phase 2/3 scope before implementation (phase 4 explicitly not scheduled).
+
 ### T11 — Provenance / multiplayer
 - **Status:** parked architecture; no network implementation session until T29's offline terminal and in-process Scrambler contract prove the interaction boundary.
 - **Scope after v9.43 addendum reconciliation:** server-authoritative sessions, reconnect, terminal messages, player traces/presence, stable-feature replication, event ordering/provenance, and server-owned faction affiliation (Synod / Independents / Chorus / Null). Conflict remains infrastructure-centric and must conform to D2 nonviolence.
@@ -671,6 +685,7 @@ The former v9.7 “this week” list is removed because its T3 assumptions were 
 
 | Version | Date | Change |
 |---|---|---|
+| 9.69 | 2026-08-06 | Opened T39 (world overlay/UI architecture cleanup) against the `babylonjs-preact-overlay-singleton-refactor-prompt.md` intake doc, scoped as an incremental menu rather than a one-pass rewrite. Landed phase 1: `apps/world/src/input/keyActionDispatcher.ts` replaces 10 independent keydown/keyup listeners in `main.tsx`/`SurveillanceSession.tsx` with one typed, prioritized dispatcher, fixing a real latent race between two independent KeyE listeners (terminal/vehicle/workshop/strike cascade vs. Milo's-apartment enter/exit) that previously depended only on their guards happening to be mutually exclusive. 14 new unit tests, full existing suite (79/79), `tsc`, and production build all clean. In-browser interactive verification could not be completed in-session (headless-Chromium-to-localhost networking failure in the sandbox, unrelated to the code) and was handed off to Dan. Findings and phase 2-4 scoping recorded in `docs/engineering/reviews/world-overlay-architecture-audit.md`. |
 | 9.68 | 2026-08-04 | Gave the highway patrol dog a felt consequence, not just a visible one: a threat-proximity vignette (`state/heartbeatVignette.ts`) drives Babylon's built-in `DefaultRenderingPipeline` vignette (previously off entirely), pulsing at a heartbeat rate scaled by threat level, reusing `HeartbeatGlow.ts`'s pulse curve. Fixed `applyEnvironmentRenderingProfile.ts`'s `imageProcessingEnabled` from `Boolean(grade)` to always-true so the vignette doesn't silently vanish on profile switch. Companion mech dog contributes a deliberately smaller, differently-shaped signal (coarse state buckets, `COMPANION_THREAT_WEIGHT = 0.12`) so playing with the pet-friend dog never reads as being hunted. `packages/audio`'s `HeartbeatAudio` stays untouched (its gain is never ramped above 0 anywhere in that class — an existing mute, not this pass's to reverse); the consequence is visual-only. `tsc`/build clean, full world vitest suite (65/65) green. |
 | 9.67 | 2026-08-04 | Gave the highway a real exposure consequence: `RoadPatrolDog.ts` dispatches a hostile mech-dog patroller seeded from `LocationEntry.road.patrol` data (presence/type live on the road entry itself), patrolling via the existing `RoadHandle.positionAtDistance`/`nearestPointOnRoad` and switching to pursuit (reusing `PursuerSystem`/`MechDogBody`, same nonviolent standoff behavior as the existing companion dog — no catch/fail state, per D2) when the player is detected. Physically collides with the player via `PlayerController.setDynamicColliders`. Also gave the road surface itself real normal/ORM detail (was albedo-only); lane markings stayed explicitly out of scope (the only decal texture in the kit is urban crosswalk/stop-sign signage, wrong register for a rural road). `tsc`/build clean, full world vitest suite (65/65) green. |
 | 9.66 | 2026-08-04 | Landed T28's first three build slices atop the reconciled owning doc: a farm silo procedural placeholder (`buildFarmSilo`, T30 `ScatterVariationMaterialPlugin` weathering variation, a 3-silo `locations.json` test cluster), highway on-foot speed hookup for the previously-unused `grove-to-dissonance-blvd` road (`polyline.ts`'s new `nearestPointOnPolyline`, `RoadHandle.nearestPointOnRoad`, `PlayerController.setSpeedMultiplier`), and a compass HUD bearing/nearby-landmark readout in the existing Lineglass Navigation panel (wires the previously-unused `@dissonance/navigation` package for the first time). Deliberately dropped from Part C's original scope: footstep-audio surface change (no surface-switching mechanism exists to reuse) and a real exposure/detection consequence (no general open-world detection system exists yet) — recorded as follow-ups, not faked. `tsc` (world + DTA, which shares `PlayerController`) and the full world vitest suite (65/65) pass. |
