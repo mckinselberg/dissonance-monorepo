@@ -4,7 +4,7 @@ import type { VisibilitySignals } from '../state/visibility';
 import { unlockedLineglassLayers } from '../state/lineglass';
 
 // Exported for compact boolean controls shared by the Layers, Weather,
-// Movement, and Companion modules.
+// Player, Movement, and Companion modules.
 export function ToggleLabel({ label, signal: sig, onCommit }: { label: string; signal: Signal<boolean>; onCommit: (checked: boolean) => void }) {
   const handleChange = (e: JSX.TargetedEvent<HTMLInputElement>) => {
     const checked = e.currentTarget.checked;

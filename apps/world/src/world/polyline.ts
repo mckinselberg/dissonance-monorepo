@@ -12,6 +12,8 @@ export type PlanarPoint = { x: number; z: number };
 
 export type PolylineSample = { x: number; z: number; headingRadians: number };
 
+export type PolylineProjection = { distanceAlong: number; lateralDistance: number };
+
 export function buildCumulativeDistances(points: readonly PlanarPoint[]): number[] {
   const cumulative: number[] = [0];
   for (let i = 1; i < points.length; i++) {
@@ -51,6 +53,39 @@ export function pointAtDistance(
     z: points[segIndex].z + (points[segIndex + 1].z - points[segIndex].z) * t,
     headingRadians: headingAtSegment(points, segIndex),
   };
+}
+
+// Projects an arbitrary (x, z) onto the polyline — the inverse of
+// pointAtDistance. Used by T28's highway on-foot exposure (is the player
+// standing on this road?): per-segment clamped projection, tracking the
+// closest one. O(segments) per call, same "stateless, rescans from the
+// start" tradeoff as pointAtDistance — fine at this repo's polyline scale.
+export function nearestPointOnPolyline(
+  points: readonly PlanarPoint[],
+  cumulative: readonly number[],
+  x: number,
+  z: number,
+): PolylineProjection {
+  if (points.length === 0) return { distanceAlong: 0, lateralDistance: Infinity };
+  if (points.length === 1) {
+    return { distanceAlong: 0, lateralDistance: Math.hypot(x - points[0].x, z - points[0].z) };
+  }
+  let best: PolylineProjection = { distanceAlong: 0, lateralDistance: Infinity };
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const segX = b.x - a.x;
+    const segZ = b.z - a.z;
+    const segLengthSq = segX * segX + segZ * segZ;
+    const t = segLengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((x - a.x) * segX + (z - a.z) * segZ) / segLengthSq));
+    const projX = a.x + segX * t;
+    const projZ = a.z + segZ * t;
+    const lateralDistance = Math.hypot(x - projX, z - projZ);
+    if (lateralDistance < best.lateralDistance) {
+      best = { distanceAlong: cumulative[i] + Math.hypot(projX - a.x, projZ - a.z), lateralDistance };
+    }
+  }
+  return best;
 }
 
 // Walks the path at a fixed step distance, returning evenly spaced points

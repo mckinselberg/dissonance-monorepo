@@ -58,6 +58,8 @@ import { WorldFeaturesSystem } from './world/WorldFeaturesSystem';
 import { createTraversalRig } from './world/TraversalRig';
 import { createVisibilitySignals } from './state/visibility';
 import { createAudioSignals } from './state/audio';
+import { deriveCompassReading, type CompassLandmarkCandidate } from './state/compass';
+import type { CompassReading } from '@dissonance/navigation';
 import { createLineglassSignals, unlockedLineglassLayers, LINEGLASS_TIERS } from './state/lineglass';
 import type { EnvironmentRenderingProfile } from './state/environmentRenderingProfile';
 import { applyEnvironmentRenderingProfile } from './state/applyEnvironmentRenderingProfile';
@@ -73,6 +75,7 @@ import { MovementRow } from './ui/MovementRow';
 import { ScaleTuningRow } from './ui/ScaleTuningRow';
 import { ViewToolsRow } from './ui/ViewToolsRow';
 import { GotoRow } from './ui/GotoRow';
+import { CompassRow } from './ui/CompassRow';
 import { RouteRecorder, type RouteSample } from './ui/RouteRecorder';
 import { RouteReplay } from './ui/RouteReplay';
 import { Section } from './ui/Section';
@@ -118,6 +121,17 @@ import { KeymapOverlay } from './ui/keymap';
 const UNDERWATER_FOG_COLOR = Color3.FromHexString('#0a2e33');
 const UNDERWATER_FOG_DENSITY = 0.04;
 const RUN_SEED_SESSION_KEY = 'dissonance:world-run-seed';
+
+// T28 highway on-foot exposure (docs/design/world/RURAL-INFRASTRUCTURE.md) —
+// grove-to-dissonance-blvd already renders (RoadNetwork.ts) but had no
+// gameplay hook; sr-27-service-road stays the vehicle sequence's road,
+// untouched. Faster on-road movement is the achievable slice — there's no
+// general open-world detection/exposure system in World yet to attach a real
+// risk consequence to (the mech dog is its own separate lightweight system),
+// so that half of the lore's "speed vs. exposure trade" is a documented
+// follow-up, not built here.
+const HIGHWAY_ON_FOOT_LOCATION_ID = 'grove-to-dissonance-blvd';
+const HIGHWAY_ON_FOOT_SPEED_MULTIPLIER = 1.35;
 
 function getOrCreateRunSeed(): number {
   const stored = sessionStorage.getItem(RUN_SEED_SESSION_KEY);
@@ -540,6 +554,16 @@ async function main() {
   });
   if (story.has('shelterAlarmSilenced')) shelterAlarmAudio.silence();
   const locations = worldFeatures.entries;
+  // T28 compass HUD slice (docs/design/world/RURAL-INFRASTRUCTURE.md) — real
+  // (unscaled) landmark positions, computed once since locations don't move;
+  // only the player-relative bearing/distance in compassReading needs to
+  // recompute every frame. See state/compass.ts for why real meters, not
+  // render-space units.
+  const compassLandmarks: CompassLandmarkCandidate[] = locations.map((location) => {
+    const real = latLonToWorld({ lat: location.latLong[0], lon: location.latLong[1] }, origin);
+    return { name: location.name, realX: real.x, realZ: real.z };
+  });
+  const compassReading = signal<CompassReading | null>(null);
   // Owns the terrain mesh plus its OSM/GPX/grid overlays as one unit — see
   // TerrainOverlaySystem's own comment. Grid defaults off (a measurement
   // layer, not something every session should pay rendering cost for
@@ -621,6 +645,16 @@ async function main() {
       }),
       rootIds: ['audio-root'],
     },
+    ...(level.cameraMode === 'orbit' ? [] : [{
+      id: 'player', label: 'Player', icon: '◉', modes: ['inspect', 'tune'], priority: 55,
+      capabilities: ['inspect-world'],
+      source: 'live',
+      summary: () => ({
+        primary: flashlightEnabled.value ? 'Flashlight on' : 'Flashlight off',
+        secondary: 'equipment',
+      }),
+      rootIds: ['player-root'],
+    } satisfies LineglassModuleDefinition]),
     ...(level.cameraMode === 'orbit' ? [] : [{
       id: 'movement', label: 'Movement', icon: '↟', modes: ['inspect', 'tune'], priority: 60,
       capabilities: ['inspect-world'],
@@ -1294,6 +1328,13 @@ async function main() {
     scene, locations, replayRoutes, locationToRenderXZ, scaleTuning, terrain, atmosphere, visibility.powerLines,
     lineglass, realWidth, realDepth, backdrop.getShadowGenerator(), player,
   );
+  // Optional — a missing/misconfigured route just disables the on-foot
+  // speed effect rather than taking the app down (unlike the vehicle
+  // sequence's sr-27-service-road, which is load-bearing for that feature).
+  const highwayOnFootRoad = locationFeatures.getRoad(HIGHWAY_ON_FOOT_LOCATION_ID);
+  if (!highwayOnFootRoad) {
+    console.warn(`[T28] highway on-foot road "${HIGHWAY_ON_FOOT_LOCATION_ID}" not found — exposure/speed effect disabled`);
+  }
   const resolveTerminalFixture = () => {
     const fixture = locationFeatures.getTerminal(terminalSimulation.terminalId);
     if (!fixture) {
@@ -1521,6 +1562,25 @@ async function main() {
   };
 
   const isExteriorGameplay = () => worldSession.isExterior() && !workshop.isInterior();
+  const setFlashlightPreference = (enabled: boolean) => {
+    flashlightEnabled.value = enabled;
+    worldSave.setFlashlightEnabled(enabled);
+    const exteriorWalkEnabled = enabled && isExteriorGameplay() && movement.activeMode.value === 'walk';
+    player.setFlashlightEnabled(exteriorWalkEnabled);
+    heldFlashlight.setVisible(exteriorWalkEnabled);
+    workshop.setFlashlightEnabled(enabled && workshop.isInterior());
+  };
+
+  render(
+    <div class='lineglass-control-grid'>
+      <ToggleLabel
+        label='Flashlight'
+        signal={flashlightEnabled}
+        onCommit={setFlashlightPreference}
+      />
+    </div>,
+    document.getElementById('player-root') as HTMLDivElement,
+  );
   const createTerminalDocking = () => new TerminalDockingSystem({
     availableDistance: terminalFixture.interactionRadius,
     dockingDurationSeconds: 0.55,
@@ -1681,15 +1741,7 @@ async function main() {
   });
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyL' || event.repeat) return;
-    flashlightEnabled.value = !flashlightEnabled.value;
-    worldSave.setFlashlightEnabled(flashlightEnabled.value);
-    workshop.setFlashlightEnabled(flashlightEnabled.value);
-    player.setFlashlightEnabled(
-      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
-    );
-    heldFlashlight.setVisible(
-      flashlightEnabled.value && isExteriorGameplay() && movement.activeMode.value === 'walk',
-    );
+    setFlashlightPreference(!flashlightEnabled.value);
   });
   window.addEventListener('keydown', (event) => {
     if (event.code !== 'KeyI' || event.repeat) return;
@@ -1974,6 +2026,7 @@ async function main() {
           }}
           locations={locations}
         />
+        <CompassRow reading={compassReading} />
     </>,
     document.getElementById('navigation-root') as HTMLDivElement,
   );
@@ -2142,6 +2195,17 @@ async function main() {
     const pos = activeTraversalController.getPosition();
     bulkForest.updateCulling(dt, pos, atmosphere.vegetationCullRadius.value);
     trailsideForest.updateCulling(dt, pos, atmosphere.vegetationCullRadius.value);
+    compassReading.value = deriveCompassReading(
+      pos.x / scaleTuning.hScale.value,
+      pos.z / scaleTuning.hScale.value,
+      activeTraversalController.camera.rotation.y,
+      compassLandmarks,
+    );
+    if (highwayOnFootRoad) {
+      const projection = highwayOnFootRoad.nearestPointOnRoad(pos.x, pos.z);
+      const isOnHighway = projection.lateralDistanceMeters <= highwayOnFootRoad.widthMeters / 2;
+      player.setSpeedMultiplier(isOnHighway ? HIGHWAY_ON_FOOT_SPEED_MULTIPLIER : 1);
+    }
     terminalDistance = Math.hypot(
       pos.x - terminalFixture.position.x,
       pos.z - terminalFixture.position.z,

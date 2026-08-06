@@ -121,6 +121,9 @@ importers:
       '@dissonance/materials':
         specifier: workspace:*
         version: link:../../packages/materials
+      '@dissonance/navigation':
+        specifier: workspace:*
+        version: link:../../packages/navigation
       '@dissonance/player':
         specifier: workspace:*
         version: link:../../packages/player

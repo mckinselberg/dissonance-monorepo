@@ -68,6 +68,11 @@ export class PlayerController {
   private readonly playerRadius: number;
 
   private terrain: ITerrain | null = null;
+  // General-purpose movement-speed multiplier for app-local surface/terrain
+  // effects (e.g. World's on-road exposure trade — faster on a highway
+  // surface). Defaults to 1: no behavior change for DTA or any caller that
+  // never sets it.
+  private speedMultiplier = 1;
   private colliders: Collider[] = [];
   // Separate from `colliders`: static world geometry (buildings, poles,
   // props) is rebuilt wholesale on scale/state changes via setColliders(),
@@ -154,6 +159,10 @@ export class PlayerController {
     this.colliders = colliders;
   }
 
+  setSpeedMultiplier(multiplier: number): void {
+    this.speedMultiplier = multiplier;
+  }
+
   // Called every frame by whichever agent moves (e.g. MechDogController) —
   // see the `dynamicColliders` field comment for why this is separate from
   // setColliders().
@@ -237,7 +246,7 @@ export class PlayerController {
     }
 
     this.breath.update(dt, this.currentSpeed);
-    targetSpeed *= this.breath.getSpeedMultiplier();
+    targetSpeed *= this.breath.getSpeedMultiplier() * this.speedMultiplier;
 
     this.currentSpeed += (targetSpeed - this.currentSpeed) * Math.min(1, dt * 8);
 

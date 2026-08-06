@@ -10,6 +10,7 @@ import {
 } from '@babylonjs/core';
 import type { ShadowGenerator } from '@babylonjs/core';
 import type { Collider } from '@dissonance/world';
+import { ScatterVariationMaterialPlugin } from '@dissonance/materials';
 import { texturedMaterial, CITY_KIT_TEXTURE_BASE, TEXTURES_BASE } from './texturedMaterial';
 
 export type LocationEntry = {
@@ -344,6 +345,35 @@ export function buildUtilityPole(scene: Scene): Mesh {
   crossarm.position.y = height - 0.6;
   parts.push(crossarm);
   return mergeParts('locProp_utilityPole', parts, mat);
+}
+
+// Farm silo placeholder for T28's rural-infrastructure backlog (see
+// docs/design/world/RURAL-INFRASTRUCTURE.md) — same procedural-now,
+// real-asset-later convention as buildUtilityPole/buildStreetLamp above:
+// cylinder body + conical roof, matching T28's own description. Flat
+// material (no texture asset) so ScatterVariationMaterialPlugin's per-
+// instance hue/value jitter reads as rust/weathering variety without
+// needing an authored texture — the CompositeLocations caller fills the
+// actual per-instance buffer once placement count is known (see
+// PROCEDURAL_ASSETS's 'farm-silo' entry), this only attaches the plugin.
+export function buildFarmSilo(scene: Scene): Mesh {
+  const mat = pbr(scene, 'locProp_farmSiloMat', new Color3(0.62, 0.6, 0.56), 0.85);
+  new ScatterVariationMaterialPlugin(mat);
+  const bodyHeight = 16;
+  const diameter = 8;
+  const roofHeight = 3;
+  const parts: Mesh[] = [];
+  const body = MeshBuilder.CreateCylinder('farmSiloBody', {
+    height: bodyHeight, diameter, tessellation: 16,
+  }, scene);
+  body.position.y = bodyHeight / 2;
+  parts.push(body);
+  const roof = MeshBuilder.CreateCylinder('farmSiloRoof', {
+    height: roofHeight, diameterBottom: diameter, diameterTop: 0, tessellation: 16,
+  }, scene);
+  roof.position.y = bodyHeight + roofHeight / 2;
+  parts.push(roof);
+  return mergeParts('locProp_farmSilo', parts, mat);
 }
 
 function buildRocks(scene: Scene): Mesh {
