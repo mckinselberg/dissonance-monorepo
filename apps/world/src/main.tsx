@@ -92,6 +92,7 @@ import { AudioRow } from './ui/AudioRow';
 import type { MechDogSkin } from './pursuer/MechDogBody';
 import { MechDogController } from './pursuer/MechDogController';
 import { loadRoadPatrolDogs } from './pursuer/RoadPatrolDog';
+import { NarrativeDogBridge } from './state/narrativeDog';
 import { PlayerWhistleController } from './player/PlayerWhistleController';
 import { HeldFlashlight } from './player/HeldFlashlight';
 import { createWorldAudioStack, resolveWorldAudioEngine } from './audio/WorldAudioStack';
@@ -142,6 +143,10 @@ const RUN_SEED_SESSION_KEY = 'dissonance:world-run-seed';
 // follow-up, not built here.
 const HIGHWAY_ON_FOOT_LOCATION_ID = 'grove-to-dissonance-blvd';
 const HIGHWAY_ON_FOOT_SPEED_MULTIPLIER = 1.35;
+// T40 narrative-mode proximity tracking — loose "nearby" radius, wider than
+// MechDogController's own PET_DISTANCE so ticks accumulate while the dog is
+// merely following along, not only during an active pet.
+const MECH_DOG_NEAR_THRESHOLD_M = 6;
 
 function getOrCreateRunSeed(): number {
   const stored = sessionStorage.getItem(RUN_SEED_SESSION_KEY);
@@ -334,6 +339,13 @@ async function main() {
   // shared Toggles-section HUD below reads it synchronously in a <select
   // value=...> prop — see MechDogController's own comment on `skin`.
   const mechDogSkin = signal<MechDogSkin>('default');
+  // T40's narrative reducer, wired as an opt-in HUD mode alongside the
+  // companion dog's existing 'simple' behavior — see narrativeDog.ts. Not
+  // persisted (matches mechDogSkin above: neither is authored environment
+  // state, both are dev-facing QA toggles). Defaults to 'simple' so nothing
+  // changes unless explicitly switched.
+  const dogMode = signal<'simple' | 'narrative'>('simple');
+  const narrativeDog = new NarrativeDogBridge();
   // state/lineglass.ts — restores whichever parts were already collected
   // last session, then combines that unlock state with the saved on/off
   // preference (defaulting to visible once unlocked, matching the historical
@@ -365,6 +377,7 @@ async function main() {
     cloudCount: savedSettings.cloudCount ?? 16,
     cloudColor: savedSettings.cloudColor ?? '#e6e6eb',
     cloudOpacity: savedSettings.cloudOpacity ?? 0.75,
+    cloudShapesEnabled: savedSettings.cloudShapesEnabled ?? false,
     waterColor: savedSettings.waterColor ?? '#0d2e3d',
     starColor: savedSettings.starColor ?? '#ffffff',
     skyDayColor: savedSettings.skyDayColor ?? '#8ca6c7',
@@ -835,6 +848,7 @@ async function main() {
       onCloudCountCommit={() => backdrop.rebuildClouds()}
       onCloudColorCommit={() => backdrop.rebuildClouds()}
       onCloudOpacityCommit={() => backdrop.rebuildClouds()}
+      onCloudShapesCommit={() => backdrop.rebuildClouds()}
     />,
     document.getElementById('weather-root') as HTMLDivElement,
   );
@@ -857,6 +871,18 @@ async function main() {
           >
             <option value='default'>Pet friend (real dog)</option>
             <option value='black'>Mech dog (black)</option>
+          </select>
+        </label>
+        <label class='weather-select-row'>
+          <span>Mode</span>
+          <select
+            value={dogMode.value}
+            onChange={(event: JSX.TargetedEvent<HTMLSelectElement>) => {
+              dogMode.value = event.currentTarget.value as 'simple' | 'narrative';
+            }}
+          >
+            <option value='simple'>Simple</option>
+            <option value='narrative'>Narrative (T40, console-only)</option>
           </select>
         </label>
         {/* T28 hostile road patroller (RoadPatrolDog.ts) — independent
@@ -1484,7 +1510,11 @@ async function main() {
     id: 'companion.whistle',
     phase: 'keydown',
     code: 'KeyM',
-    handler: () => { playerWhistle.whistle(); mechDog.hearWhistle(); },
+    handler: () => {
+      playerWhistle.whistle();
+      mechDog.hearWhistle();
+      if (dogMode.value === 'narrative') narrativeDog.reportWhistle();
+    },
   });
   keyDispatcher.register({
     id: 'companion.selectMelody',
@@ -1497,7 +1527,10 @@ async function main() {
     phase: 'keydown',
     code: 'KeyP',
     when: (event) => !event.shiftKey,
-    handler: () => mechDog.tryPet(),
+    handler: () => {
+      mechDog.tryPet();
+      if (dogMode.value === 'narrative' && mechDog.isPettable()) narrativeDog.reportPet();
+    },
   });
 
   // Walk/Fly/Drive mode-switching — see TraversalRig's own comment.
@@ -2341,6 +2374,7 @@ async function main() {
       ...roadPatrolDogs.getColliders(),
     ]);
     const mechDogModel = mechDog.getModel();
+    if (dogMode.value === 'narrative') narrativeDog.reportProximity(mechDogModel.distance, MECH_DOG_NEAR_THRESHOLD_M, dt);
     // T28 threat vignette — patrol-dog threat drives it near-fully; the
     // companion dog's is heavily damped (see heartbeatVignette.ts) so
     // playing with your pet never reads the same as being hunted.
