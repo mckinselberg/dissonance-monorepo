@@ -25,6 +25,7 @@ export type WeatherRowProps = {
   onCloudCountCommit: (value: number) => void;
   onCloudColorCommit: (value: string) => void;
   onCloudOpacityCommit: (value: number) => void;
+  onCloudShapesCommit: () => void;
 };
 
 export function WeatherRow({
@@ -39,6 +40,7 @@ export function WeatherRow({
   onCloudCountCommit,
   onCloudColorCommit,
   onCloudOpacityCommit,
+  onCloudShapesCommit,
 }: WeatherRowProps) {
   return (
     <div class="atmosphere-controls weather-controls">
@@ -78,6 +80,11 @@ export function WeatherRow({
 
       <ControlGroup label="Clouds">
         <ToggleLabel label="Visible" signal={cloudsVisible} onCommit={onCloudsVisibleCommit} />
+        <ToggleLabel
+          label="Authored shapes"
+          signal={atmosphere.cloudShapesEnabled}
+          onCommit={onCloudShapesCommit}
+        />
         <SliderRow
           label="Count"
           signal={atmosphere.cloudCount}

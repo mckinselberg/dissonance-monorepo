@@ -33,6 +33,7 @@ export type SavedSettings = {
   cloudCount?: number;
   cloudColor?: string;
   cloudOpacity?: number;
+  cloudShapesEnabled?: boolean;
   treeRegionRadius?: number;
   trailsideHScale?: number;
   trailsideVScale?: number;

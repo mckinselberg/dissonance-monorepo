@@ -16,6 +16,10 @@ export type AtmosphereSignals = {
   cloudCount: Signal<number>;
   cloudColor: Signal<string>;
   cloudOpacity: Signal<number>;
+  // Opt-in DriftingClouds shape-morph prototype (docs/intake/authored-
+  // morphing-cloud-volumes-engineering-spec.md, Strategy A slice only) —
+  // false keeps the original random-blob-cluster look unchanged.
+  cloudShapesEnabled: Signal<boolean>;
   waterColor: Signal<string>;
   starColor: Signal<string>;
   skyDayColor: Signal<string>;
@@ -48,6 +52,7 @@ export function createAtmosphereSignals(defaults: {
   cloudCount: number;
   cloudColor: string;
   cloudOpacity: number;
+  cloudShapesEnabled: boolean;
   waterColor: string;
   starColor: string;
   skyDayColor: string;
@@ -68,6 +73,7 @@ export function createAtmosphereSignals(defaults: {
     cloudCount: signal(defaults.cloudCount),
     cloudColor: signal(defaults.cloudColor),
     cloudOpacity: signal(defaults.cloudOpacity),
+    cloudShapesEnabled: signal(defaults.cloudShapesEnabled),
     waterColor: signal(defaults.waterColor),
     starColor: signal(defaults.starColor),
     skyDayColor: signal(defaults.skyDayColor),

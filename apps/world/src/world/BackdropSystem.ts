@@ -4,6 +4,7 @@ import {
   sunHeightForHour,
   StarField,
   DriftingClouds,
+  DEFAULT_CLOUD_SHAPES,
   MountainRing,
   type WaterPlane,
 } from '@dissonance/world';
@@ -205,6 +206,7 @@ export class BackdropSystem {
       // count/altitude/diameter density feel above.
       color: Color3.FromHexString(this.atmosphere.cloudColor.value),
       alpha: this.atmosphere.cloudOpacity.value,
+      shapes: this.atmosphere.cloudShapesEnabled.value ? DEFAULT_CLOUD_SHAPES : undefined,
     });
   }
 

@@ -30,6 +30,7 @@ export type SharedSettingsSnapshot = Pick<
   | 'cloudCount'
   | 'cloudColor'
   | 'cloudOpacity'
+  | 'cloudShapesEnabled'
   | 'waterColor'
   | 'starColor'
   | 'skyDayColor'
@@ -103,6 +104,7 @@ export function buildSharedSettingsSnapshot(deps: {
     cloudCount: atmosphere.cloudCount.value,
     cloudColor: atmosphere.cloudColor.value,
     cloudOpacity: atmosphere.cloudOpacity.value,
+    cloudShapesEnabled: atmosphere.cloudShapesEnabled.value,
     waterColor: atmosphere.waterColor.value,
     starColor: atmosphere.starColor.value,
     skyDayColor: atmosphere.skyDayColor.value,
