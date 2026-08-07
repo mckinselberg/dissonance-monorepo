@@ -405,9 +405,9 @@ async function main() {
     });
   };
 
-  // Production always selects Babylon. Dev may request the preserved Tone
-  // stack with ?audioEngine=tone; selection happens before construction so
-  // the two engines never coexist on one page.
+  // Tone.js is the canonical engine (D1). Dev may request the legacy
+  // Babylon stack with ?audioEngine=babylon for comparison; selection
+  // happens before construction so the two engines never coexist on one page.
   const audio = createAudioSignals({
     masterMuted: savedSettings.masterMuted ?? false,
     windVolume: savedSettings.windVolume ?? 0.7,
@@ -1080,7 +1080,7 @@ async function main() {
         engineKind={import.meta.env.DEV ? worldAudio.engineKind : undefined}
         onEngineChange={import.meta.env.DEV ? (engineKind) => {
           const url = new URL(window.location.href);
-          if (engineKind === 'tone') url.searchParams.set('audioEngine', 'tone');
+          if (engineKind === 'babylon') url.searchParams.set('audioEngine', 'babylon');
           else url.searchParams.delete('audioEngine');
           window.location.href = url.toString();
         } : undefined}

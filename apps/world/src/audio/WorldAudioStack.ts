@@ -53,15 +53,18 @@ export interface WorldAudioStack {
 }
 
 export function resolveWorldAudioEngine(search: string, isDevelopment: boolean): WorldAudioEngineKind {
-  if (!isDevelopment) return 'babylon';
-  return new URLSearchParams(search).get('audioEngine') === 'tone' ? 'tone' : 'babylon';
+  // D1 (docs/THREADS.md): Tone.js owns the AudioContext, Babylon never plays
+  // sound. Tone is the only engine in production; dev may force the legacy
+  // Babylon stack via ?audioEngine=babylon for comparison.
+  if (!isDevelopment) return 'tone';
+  return new URLSearchParams(search).get('audioEngine') === 'babylon' ? 'babylon' : 'tone';
 }
 
 export async function createWorldAudioStack(
   scene: Scene,
   engineKind: WorldAudioEngineKind,
 ): Promise<WorldAudioStack> {
-  if (import.meta.env.DEV && engineKind === 'tone') return createToneAudioStack();
+  if (engineKind === 'tone') return createToneAudioStack();
   return createBabylonAudioStack(scene);
 }
 

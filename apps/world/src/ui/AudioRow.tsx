@@ -32,8 +32,8 @@ export function AudioRow({
               onEngineChange(e.currentTarget.value as WorldAudioEngineKind);
             }}
           >
-            <option value='babylon'>Babylon</option>
-            <option value='tone'>Tone (legacy)</option>
+            <option value='tone'>Tone</option>
+            <option value='babylon'>Babylon (legacy)</option>
           </select>
         </label>
       )}
